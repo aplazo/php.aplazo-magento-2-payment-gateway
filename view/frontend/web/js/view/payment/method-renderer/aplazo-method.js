@@ -11,7 +11,7 @@ define([
 
     return Component.extend({
         defaults: {
-            template: 'Spro_AplazoPayment/payment/aplazo-form'
+            template: 'Aplazo_AplazoPayment/payment/aplazo-form'
         },
 
         getTitle: function () {

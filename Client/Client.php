@@ -1,10 +1,10 @@
 <?php
 
-namespace Spro\AplazoPayment\Client;
+namespace Aplazo\AplazoPayment\Client;
 
 use Magento\Framework\HTTP\Client\Curl;
 use Magento\Quote\Model\Quote;
-use Spro\AplazoPayment\Model\Config;
+use Aplazo\AplazoPayment\Model\Config;
 use Magento\Framework\App\Config\ScopeConfigInterface;
 use Magento\Framework\Message\ManagerInterface;
 use Magento\Newsletter\Model\Subscriber;

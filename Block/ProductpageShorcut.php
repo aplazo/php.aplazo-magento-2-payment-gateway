@@ -1,15 +1,15 @@
 <?php
 
-namespace Spro\AplazoPayment\Block;
+namespace Aplazo\AplazoPayment\Block;
 
 
 use Magento\Catalog\Block\ShortcutInterface;
-use Spro\AplazoPayment\Model\Config;
+use Aplazo\AplazoPayment\Model\Config;
 use Magento\Checkout\Model\Session;
 use Magento\Framework\Locale\ResolverInterface;
 use Magento\Framework\View\Element\Template;
 use Magento\Framework\View\Element\Template\Context;
-use Spro\AplazoPayment\Model\Payment;
+use Aplazo\AplazoPayment\Model\Payment;
 
 /**
  * Class Button
@@ -64,7 +64,7 @@ class ProductpageShorcut extends Template implements ShortcutInterface
     protected function _toHtml()
     {
         if ($this->isActive()) {
-            $this->setTemplate('Spro_AplazoPayment::buy_with_aplazo.phtml');
+            $this->setTemplate('Aplazo_AplazoPayment::buy_with_aplazo.phtml');
             return parent::_toHtml();
         }
 

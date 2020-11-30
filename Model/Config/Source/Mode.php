@@ -1,6 +1,6 @@
 <?php
 
-namespace Spro\AplazoPayment\Model\Config\Source;
+namespace Aplazo\AplazoPayment\Model\Config\Source;
 
 class Mode implements \Magento\Framework\Option\ArrayInterface
 {

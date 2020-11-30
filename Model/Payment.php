@@ -1,6 +1,6 @@
 <?php
 
-namespace Spro\AplazoPayment\Model;
+namespace Aplazo\AplazoPayment\Model;
 
 use Magento\Checkout\Model\Session;
 

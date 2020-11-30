@@ -2,6 +2,6 @@
 
 <config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:framework:Event/etc/events.xsd">
     <event name="shortcut_buttons_container">
-        <observer name="aplazo_shortcuts" instance="Spro\AplazoPayment\Observer\AddAplazoShortcuts"/>
+        <observer name="aplazo_shortcuts" instance="Aplazo\AplazoPayment\Observer\AddAplazoShortcuts"/>
     </event>
 </config>

@@ -1,10 +1,10 @@
 <?php
 
-namespace Spro\AplazoPayment\Block;
+namespace Aplazo\AplazoPayment\Block;
 
 use Magento\Framework\View\Element\Template;
 use Magento\Framework\View\Element\Template\Context;
-use Spro\AplazoPayment\Model\Config;
+use Aplazo\AplazoPayment\Model\Config;
 
 class Checkoutjs extends Template
 {

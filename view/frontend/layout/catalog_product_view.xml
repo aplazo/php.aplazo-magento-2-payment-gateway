@@ -6,8 +6,8 @@
         <referenceContainer name="content">
             <block
                     class="Magento\Framework\View\Element\Template"
-                    name="spro.aplazopayment.product.js"
-                    template="Spro_AplazoPayment::product_js.phtml"
+                    name="aplazo.aplazopayment.product.js"
+                    template="Aplazo_AplazoPayment::product_js.phtml"
                     ifconfig="payment/aplazo_payment/show_on_product_page"
             />
         </referenceContainer>

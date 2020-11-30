@@ -2,7 +2,7 @@
 <config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:framework:App/etc/routes.xsd">
     <router id="standard">
         <route frontName="aplazopayment" id="aplazopayment">
-            <module name="Spro_AplazoPayment"/>
+            <module name="Aplazo_AplazoPayment"/>
         </route>
     </router>
 </config>
