@@ -10,7 +10,7 @@
         "map": [
             [
                 "*",
-                "aplazo/aplazopayment"
+                "Aplazo/AplazoPayment"
             ]
         ]
     }
