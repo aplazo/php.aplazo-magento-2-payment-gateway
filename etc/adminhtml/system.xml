@@ -45,7 +45,7 @@
 
                 <field id="mode" translate="label" type="select" sortOrder="80" showInDefault="1" showInWebsite="1" showInStore="0">
                     <label>Mode</label>
-                    <source_model>Spro\AplazoPayment\Model\Config\Source\Mode</source_model>
+                    <source_model>Aplazo\AplazoPayment\Model\Config\Source\Mode</source_model>
                 </field>
 
                 <field id="enable_log" translate="label" type="select" sortOrder="90" showInDefault="1" showInWebsite="1" showInStore="0">

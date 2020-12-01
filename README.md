@@ -1,11 +1,11 @@
 # Installation steps
 - in your magento project do following on base dir: 
 ```
-composer require spro/aplazopayment
+composer require aplazo/aplazopayment
 ```
 - enable module:
 ```
-php bin/magento module:enable Spro_AplazoPayment
+php bin/magento module:enable Aplazo_AplazoPayment
 ```
 - do project redeploy:
 ```

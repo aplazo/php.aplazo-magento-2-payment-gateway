@@ -1,6 +1,6 @@
 <?php
 
-namespace Spro\AplazoPayment\Controller\Index;
+namespace Aplazo\AplazoPayment\Controller\Index;
 
 use Magento\Checkout\Model\Session as CheckoutSession;
 use Magento\Framework\App\Action\Action;
@@ -8,8 +8,8 @@ use Magento\Framework\App\Action\Context;
 use Magento\Framework\Controller\ResultFactory;
 use Magento\Quote\Model\QuoteManagement;
 use Psr\Log\LoggerInterface;
-use Spro\AplazoPayment\Client\Client;
-use Spro\AplazoPayment\Helper\Data;
+use Aplazo\AplazoPayment\Client\Client;
+use Aplazo\AplazoPayment\Helper\Data;
 
 class Onplaceorder extends Action
 {

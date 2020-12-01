@@ -1,12 +1,12 @@
 <?php
 
-namespace Spro\AplazoPayment\Model\Config\Source;
+namespace Aplazo\AplazoPayment\Model\Config\Source;
 
 class Mode implements \Magento\Framework\Option\ArrayInterface
 {
     const STAGE = 'stage';
 
-    const PREPROD = 'preprod';
+    const DEV = 'dev';
 
     const PROD = 'prod';
 
@@ -17,7 +17,7 @@ class Mode implements \Magento\Framework\Option\ArrayInterface
     {
         return [
             self::STAGE => __('Stage'),
-            self::PREPROD => __('Preprod'),
+            self::DEV => __('Dev'),
             self::PROD => __('Prod')
         ];
     }

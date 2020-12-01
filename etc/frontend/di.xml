@@ -2,11 +2,11 @@
 
 <config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:framework:ObjectManager/etc/config.xsd">
 
-    <type name="Spro\AplazoPayment\Observer\AddAplazoShortcuts">
+    <type name="Aplazo\AplazoPayment\Observer\AddAplazoShortcuts">
         <arguments>
             <argument name="buttonBlocks" xsi:type="array">
-                <item name="shopping_cart" xsi:type="string">Spro\AplazoPayment\Block\CartShorcut</item>
-                <item name="productpage" xsi:type="string">Spro\AplazoPayment\Block\ProductpageShorcut</item>
+                <item name="shopping_cart" xsi:type="string">Aplazo\AplazoPayment\Block\CartShorcut</item>
+                <item name="productpage" xsi:type="string">Aplazo\AplazoPayment\Block\ProductpageShorcut</item>
             </argument>
         </arguments>
     </type>

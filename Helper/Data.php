@@ -1,6 +1,6 @@
 <?php
 
-namespace Spro\AplazoPayment\Helper;
+namespace Aplazo\AplazoPayment\Helper;
 
 use Magento\Customer\Model\Session;
 use Magento\Framework\App\Helper\AbstractHelper;
@@ -121,8 +121,8 @@ class Data extends AbstractHelper
      */
     protected function setPaymentDataToQuote(&$quote)
     {
-        $quote->setPaymentMethod(\Spro\AplazoPayment\Model\Payment::CODE);
-        $quote->getPayment()->importData(['method' => \Spro\AplazoPayment\Model\Payment::CODE]);
+        $quote->setPaymentMethod(\Aplazo\AplazoPayment\Model\Payment::CODE);
+        $quote->getPayment()->importData(['method' => \Aplazo\AplazoPayment\Model\Payment::CODE]);
     }
 
     /**

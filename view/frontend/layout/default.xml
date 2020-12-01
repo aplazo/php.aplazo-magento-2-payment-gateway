@@ -5,9 +5,9 @@
 
         <referenceContainer name="content">
             <block
-                    class="Spro\AplazoPayment\Block\Checkoutjs"
-                    name="spro.aplazopayment.checkout.js"
-                    template="Spro_AplazoPayment::checkout_js.phtml"
+                    class="Aplazo\AplazoPayment\Block\Checkoutjs"
+                    name="aplazo.aplazopayment.checkout.js"
+                    template="Aplazo_AplazoPayment::checkout_js.phtml"
             />
         </referenceContainer>
 
