@@ -1,15 +1,15 @@
 <?php
 
-namespace Spro\AplazoPayment\Model;
+namespace Aplazo\AplazoPayment\Model;
 
 use Magento\Framework\App\Config\ScopeConfigInterface;
-use Spro\AplazoPayment\Model\Config\Source\Mode;
+use Aplazo\AplazoPayment\Model\Config\Source\Mode;
 
 class Config
 {
 
-    const APLAZO_STAGE_LINK ='https://aplazo-back-stage.scenario-projects.com/';
-    const APLAZO_PREPROD_LINK = 'https://aplazo-back-preprod.scenario-projects.com/';
+    const APLAZO_STAGE_LINK ='https://api.aplazo.dev/';
+    const APLAZO_DEV_LINK = 'https://api-dev.aplazo.mx/';
     const APLAZO_PROD_LINK = 'https://api.aplazo.mx/';
 
     /**
@@ -176,11 +176,11 @@ class Config
     public function getBaseApiUrl()
     {
         $mode = $this->getMode();
+        if ($mode==Mode::DEV) {
+            return self::APLAZO_DEV_LINK;
+        }
         if ($mode==Mode::STAGE) {
             return self::APLAZO_STAGE_LINK;
-        }
-        if ($mode==Mode::PREPROD) {
-            return self::APLAZO_PREPROD_LINK;
         }
         if ($mode==Mode::PROD) {
             return self::APLAZO_PROD_LINK;

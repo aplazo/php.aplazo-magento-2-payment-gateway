@@ -11,7 +11,7 @@ define(
         rendererList.push(
             {
                 type: 'aplazo_payment',
-                component: 'Spro_AplazoPayment/js/view/payment/method-renderer/aplazo-method'
+                component: 'Aplazo_AplazoPayment/js/view/payment/method-renderer/aplazo-method'
             }
         );
 

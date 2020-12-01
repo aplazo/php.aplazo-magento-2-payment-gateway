@@ -2,6 +2,6 @@
 
 \Magento\Framework\Component\ComponentRegistrar::register(
     \Magento\Framework\Component\ComponentRegistrar::MODULE,
-    'Spro_AplazoPayment',
+    'Aplazo_AplazoPayment',
     __DIR__
 );

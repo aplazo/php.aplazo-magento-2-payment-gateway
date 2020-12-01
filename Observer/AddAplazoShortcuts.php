@@ -1,6 +1,6 @@
 <?php
 
-namespace Spro\AplazoPayment\Observer;
+namespace Aplazo\AplazoPayment\Observer;
 
 use Magento\Framework\Event\Observer;
 use Magento\Framework\Event\ObserverInterface;
