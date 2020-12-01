@@ -18,7 +18,7 @@
                                                         <item name="renders" xsi:type="array">
                                                             <item name="children" xsi:type="array">
                                                                 <item name="aplazo_payment-payments" xsi:type="array">
-                                                                    <item name="component" xsi:type="string">Spro_AplazoPayment/js/view/payment/aplazo-payments</item>
+                                                                    <item name="component" xsi:type="string">Aplazo_AplazoPayment/js/view/payment/aplazo-payments</item>
                                                                     <item name="methods" xsi:type="array">
                                                                         <item name="aplazo_payment" xsi:type="array">
                                                                             <item name="isBillingAddressRequired" xsi:type="boolean">true</item>
