@@ -18,6 +18,7 @@
         <!--/ko-->
         <fieldset class="fieldset" data-bind='attr: {id: "payment_form_" + getCode()}'>
             <div class="payment-method-note">
+                <img src="https://aplazoassets.s3-us-west-2.amazonaws.com/logo.png" width="478px" height="35px"/>
                 <span data-bind="text: getSubtitle()"></span>
             </div>
         </fieldset>
@@ -32,7 +33,7 @@
                         type="submit"
                         data-bind="click: continueWithAplazo, enable: (getCode() == isChecked())"
                         disabled>
-                    <span data-bind="i18n: 'Place Order'">Place Order</span>
+                    <span data-bind="i18n: 'Place Order'">Completar pago con Aplazo</span>
                 </button>
             </div>
         </div>
