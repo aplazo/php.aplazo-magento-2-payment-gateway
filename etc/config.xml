@@ -11,7 +11,7 @@
                 <payment_action>authorize_capture</payment_action>
                 <order_status>processing</order_status>
                 <title>Aplazo | Paga después sin tarjeta de crédito</title>
-                <subtitle>Por favor, para completar la orden da click en el botón de abajo:</subtitle>
+                <subtitle>Por favor, para continuar con tu pago y ver el los plazos da click en el botón de abajo:</subtitle>
                 <api_token backend_model="Magento\Config\Model\Config\Backend\Encrypted" />
                 <merchant_id backend_model="Magento\Config\Model\Config\Backend\Encrypted" />
                 <is_test_mode>1</is_test_mode>
