@@ -4,4 +4,7 @@
     <event name="shortcut_buttons_container">
         <observer name="aplazo_shortcuts" instance="Aplazo\AplazoPayment\Observer\AddAplazoShortcuts"/>
     </event>
+    <event name="checkout_onepage_controller_success_action">
+        <observer name="checkout_onepage_controller_success_action_sendmail" instance="Aplazo\AplazoPayment\Observer\SendMailOnOrderSuccess" />
+    </event>
 </config>
