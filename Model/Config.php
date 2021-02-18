@@ -8,8 +8,8 @@ use Aplazo\AplazoPayment\Model\Config\Source\Mode;
 class Config
 {
 
-    const APLAZO_STAGE_LINK ='https://api.aplazo.dev/';
-    const APLAZO_DEV_LINK = 'https://api-dev.aplazo.mx/';
+    const APLAZO_STAGE_LINK ='https://api.aplazo.net/';
+    const APLAZO_DEV_LINK = 'https://api.aplazo.dev/';
     const APLAZO_PROD_LINK = 'https://api.aplazo.mx/';
 
     /**
