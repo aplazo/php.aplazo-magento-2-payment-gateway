@@ -9,4 +9,5 @@
 * fix for checkout flow.
 ## 1.0.4
 * New S-PRO version.
-
+## 1.0.5
+* More than one product fix.
