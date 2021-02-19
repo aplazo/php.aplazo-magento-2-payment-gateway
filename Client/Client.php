@@ -157,6 +157,9 @@ class Client
         if ($this->curl->getStatus() == 200) {
             return $result;
         }
+        if ($this->curl->getStatus() == 100 && strpos($result,'https://')===0) {
+            return $result;
+        }
         return false;
     }
 
