@@ -6,34 +6,33 @@
 -->
 <div class="payment-method" data-bind="css: {'_active': (getCode() == isChecked())}">
     <div class="payment-method-title field choice">
-        <input type="radio"
-               name="payment[method]"
-               class="radio"
-               data-bind="attr: {'id': getCode()}, value: getCode(), checked: isChecked, click: selectPaymentMethod, visible: isRadioButtonVisible()"/>
-        <label data-bind="attr: {'for': getCode()}" class="label"><span data-bind="text: getTitle()"></span></label>
+        <input type="radio" name="payment[method]" class="radio"
+            data-bind="attr: {'id': getCode()}, value: getCode(), checked: isChecked, click: selectPaymentMethod, visible: isRadioButtonVisible()" />
+        <label data-bind="attr: {'for': getCode()}" class="label"><span data-bind="text: getTitle()"><br /><img
+                    src="https://aplazoassets.s3-us-west-2.amazonaws.com/logo.png" width="478px"
+                    height="35px" /></span></label>
     </div>
     <div class="payment-method-content">
         <!-- ko foreach: getRegion('messages') -->
-        <!-- ko template: getTemplate() --><!-- /ko -->
+        <!-- ko template: getTemplate() -->
+        <!-- /ko -->
         <!--/ko-->
         <fieldset class="fieldset" data-bind='attr: {id: "payment_form_" + getCode()}'>
             <div class="payment-method-note">
-                <img src="https://aplazoassets.s3-us-west-2.amazonaws.com/logo.png" width="478px" height="35px"/>
-                <br/>
+
                 <span data-bind="text: getSubtitle()"></span>
             </div>
         </fieldset>
         <div class="checkout-agreements-block">
             <!-- ko foreach: $parent.getRegion('before-place-order') -->
-            <!-- ko template: getTemplate() --><!-- /ko -->
+            <!-- ko template: getTemplate() -->
+            <!-- /ko -->
             <!--/ko-->
         </div>
         <div class="actions-toolbar">
             <div class="primary">
-                <button class="action primary checkout"
-                        type="submit"
-                        data-bind="click: continueWithAplazo, enable: (getCode() == isChecked())"
-                        disabled>
+                <button class="action primary checkout" type="submit"
+                    data-bind="click: continueWithAplazo, enable: (getCode() == isChecked())" disabled>
                     <span data-bind="i18n: 'Place Order'">Completar pago con Aplazo</span>
                 </button>
             </div>
