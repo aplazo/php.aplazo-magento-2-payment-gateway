@@ -9,7 +9,9 @@ class Sendmail implements ObserverInterface
 
     protected $orderModel;
 
+
     protected $orderSender;
+
 
     protected $checkoutSession;
 
