@@ -213,6 +213,14 @@ class Client
             ],
             "shopId" => $this->storeManager->getStore()->getName(),
             "successUrl" => $this->storeManager->getStore()->getUrl('aplazopayment/index/success'),
+            "buyer" => [
+                "email" =>$quote->getShippingAddress()->getEmail(),
+                "firstName"=>$quote->getShippingAddress()->getFirstname(),
+                "lastName"=>$quote->getShippingAddress()->getLastname(),
+                "addressLine1"=>$quote->getShippingAddress()->getStreet()." ".$quote->getShippingAddress()->getCity(),
+                "phone"=>$quote->getShippingAddress()->getTelephone(),
+                "postCode"=>$quote->getShippingAddress()->getPostcode(),
+            ],
             "taxes" => [
                 "price" => $quote->getShippingAddress()->getTaxAmount(),
                 "title" => __('Tax')
