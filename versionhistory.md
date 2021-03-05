@@ -11,3 +11,5 @@
 * New S-PRO version.
 ## 1.0.5
 * More than one product fix.
+## 1.0.5.1
+* Logo fix
