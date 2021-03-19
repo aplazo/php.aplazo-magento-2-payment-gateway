@@ -9,7 +9,7 @@
         <input type="radio" name="payment[method]" class="radio"
             data-bind="attr: {'id': getCode()}, value: getCode(), checked: isChecked, click: selectPaymentMethod, visible: isRadioButtonVisible()" />
         <label data-bind="attr: {'for': getCode()}" class="label"><span data-bind="text: getTitle()"><br /><img
-                    src="@{baseDir}Aplazo_AplazoPayment/images/logo.png" width="478px"
+                    src="<?php echo $this->getViewFileUrl('Aplazo_AplazoPayment::web/images/logo.png');?>"   width="478px"
                     height="35px" />
              <aplazo-banner></aplazo-banner>
         </span></label>
