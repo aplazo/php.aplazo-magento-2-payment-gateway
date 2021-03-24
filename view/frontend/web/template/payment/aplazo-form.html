@@ -6,7 +6,7 @@
 -->
 
 <div class="payment-method" data-bind="css: {'_active': (getCode() == isChecked())}">
-    <div class="payment-method-title field choice">
+    <div class="payment-method-title field choice" style="display: flex;padding: 10px 0px !important;">
         <input type="radio" name="payment[method]" class="radio"
             data-bind="attr: {'id': getCode()}, value: getCode(), checked: isChecked, click: selectPaymentMethod, visible: isRadioButtonVisible()" />
         <aplazo-banner></aplazo-banner>
