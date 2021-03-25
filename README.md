@@ -18,11 +18,11 @@ php bin/magento setup:upgrade
 ```
  aditional installation steps ( if anything fails)
 ```
-1.- composer require aplazo/aplazopayment
-2.- php bin/magento module:enable Aplazo_AplazoPayment
-3.- php bin/magento setup:di:compile
-4.- php bin/magento setup:upgrade
-5.- php bin/magento cache:flush
+- composer require aplazo/aplazopayment
+- php bin/magento module:enable Aplazo_AplazoPayment
+- php bin/magento setup:di:compile
+- php bin/magento setup:upgrade
+- php bin/magento cache:flush
 Static  content: php bin/magento setup:static-content:deploy
 
 NOTE: speficic for 2CAP php bin/magento setup:static-content:deploy es_MX
