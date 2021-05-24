@@ -185,6 +185,11 @@ class Client
      */
     protected function prepareCreateParams(Quote $quote)
     {
+
+$writer = new \Zend\Log\Writer\Stream(BP . '/var/log/aplazo.log');
+$logger = new \Zend\Log\Logger();
+$logger->addWriter($writer);
+        
         $products = [];
         foreach ($quote->getAllVisibleItems() as $quoteItem) {
             if ($quoteItem->getProduct()->getTypeId()=='configurable'){
@@ -205,7 +210,14 @@ class Client
             ];
             $products[] = $productArr;
         }
-        return [
+
+
+        $street = $quote->getShippingAddress()->getStreet();
+        $fullStreet = '';
+        $fullStreet .= (!empty($street[0]))?$street[0]:'';
+        $fullStreet .= (!empty($street[1]))?$street[1]:'';
+
+        $data = [
             "cartId" => $this->updateReservedOrderId(), 
             "discount" => [
                 "price" => $quote->getShippingAddress()->getDiscountAmount(),
@@ -223,9 +235,22 @@ class Client
                 "price" => $quote->getShippingAddress()->getTaxAmount(),
                 "title" => __('Tax')
             ],
-            "totalPrice" => $quote->getGrandTotal()
+            "totalPrice" => $quote->getGrandTotal(),
+            "buyer" => [
+                "email" => $quote->getShippingAddress()->getEmail(),
+                "lastName"=>$quote->getShippingAddress()->getLastname(),
+                "addressLine1"=>$fullStreet." ".$quote->getShippingAddress()->getCity(),
+                "phone"=>$quote->getShippingAddress()->getTelephone(),
+                "postCode"=>$quote->getShippingAddress()->getPostcode()
+            ]
         ];
+
+        $logger->info("data ". print_r($data,true));
+
+        return $data;
+
     }
+
 
     public function updateReservedOrderId(){
 
