@@ -21,6 +21,7 @@ use Psr\Log\LoggerInterface;
 
 class Error extends Action implements HttpGetActionInterface, CsrfAwareActionInterface
 {
+
     const PARAM_NAME_TOKEN = 'token';
 
     /**
