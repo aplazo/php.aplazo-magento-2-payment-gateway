@@ -16,6 +16,7 @@ use Magento\Framework\ObjectManagerInterface;
 class Client
 {
 
+
     /**
      * @var StoreManagerInterface
      */
