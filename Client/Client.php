@@ -21,6 +21,7 @@ class Client
      */
     protected $storeManager;
 
+
     /**
      * @var ScopeConfigInterface
      */
