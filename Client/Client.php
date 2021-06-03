@@ -2,16 +2,16 @@
 
 namespace Aplazo\AplazoPayment\Client;
 
-use Magento\Framework\HTTP\Client\Curl;
-use Magento\Quote\Model\Quote;
+use Magento\Framework\HTTP\Client\Curl;/*OK*/
+use Magento\Quote\Model\Quote;/*OK*/
 use Aplazo\AplazoPayment\Model\Config;
-use Magento\Framework\App\Config\ScopeConfigInterface;
-use Magento\Framework\Message\ManagerInterface;
-use Magento\Newsletter\Model\Subscriber;
-use Magento\Store\Model\StoreManagerInterface;
+use Magento\Framework\App\Config\ScopeConfigInterface;/*OK*/
+use Magento\Framework\Message\ManagerInterface;/*OK*/
+use Magento\Newsletter\Model\Subscriber;/*OK*/
+use Magento\Store\Model\StoreManagerInterface;/*OK*/
 use Psr\Log\LoggerInterface;
-use Magento\Catalog\Helper\ImageFactory;
-use Magento\Framework\ObjectManagerInterface;
+use Magento\Catalog\Helper\ImageFactory;/*??*/
+use Magento\Framework\ObjectManagerInterface;/*OK*/
 
 class Client
 {
@@ -150,6 +150,10 @@ class Client
      */
     public function create($authHeader, $quote)
     {
+        $writer = new \Zend\Log\Writer\Stream(BP . '/var/log/aplazo.log');
+        $logger = new \Zend\Log\Logger();
+        $logger->addWriter($writer);
+
         $url = $this->makeUrl("create");
 
         $headers = $authHeader;
@@ -159,6 +163,9 @@ class Client
         $body = $this->prepareCreateParams($quote);
         $payload = json_encode($body);
         $this->curl->post($url, $payload);
+
+        $logger->info("Request : ". $payload);
+
         $result = $this->curl->getBody();
         if ($this->curl->getStatus() == 200) {
             return $result;
@@ -185,6 +192,11 @@ class Client
      */
     protected function prepareCreateParams(Quote $quote)
     {
+
+        $writer = new \Zend\Log\Writer\Stream(BP . '/var/log/aplazo.log');
+        $logger = new \Zend\Log\Logger();
+        $logger->addWriter($writer);
+
         $products = [];
         foreach ($quote->getAllVisibleItems() as $quoteItem) {
             if ($quoteItem->getProduct()->getTypeId()=='configurable'){
@@ -205,7 +217,10 @@ class Client
             ];
             $products[] = $productArr;
         }
-        return [
+
+
+
+        $return = [
             "cartId" => $this->updateReservedOrderId(), 
             "discount" => [
                 "price" => $quote->getShippingAddress()->getDiscountAmount(),
@@ -225,6 +240,10 @@ class Client
             ],
             "totalPrice" => $quote->getGrandTotal()
         ];
+
+        $logger->info("aplazo request ". print_r($return,true));
+
+        return $return;
     }
 
     public function updateReservedOrderId(){

@@ -2,8 +2,8 @@
 
 namespace Aplazo\AplazoPayment\Block;
 
-use Magento\Framework\View\Element\Template;
-use Magento\Framework\View\Element\Template\Context;
+use Magento\Framework\View\Element\Template;/*OK*/
+use Magento\Framework\View\Element\Template\Context;/*OK*/
 use Aplazo\AplazoPayment\Model\Config;
 
 class Checkoutjs extends Template

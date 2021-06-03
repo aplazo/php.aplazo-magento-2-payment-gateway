@@ -19,10 +19,10 @@ class Sendmail implements ObserverInterface
 
 
     public function __construct(
-        \Magento\Sales\Model\OrderFactory $orderModel,
-        \Magento\Sales\Model\Order\Email\Sender\OrderSender $orderSender,
-        \Magento\Checkout\Model\Session $checkoutSession,
-        \Magento\Sales\Model\OrderNotifier $orderNotifier
+        \Magento\Sales\Model\OrderFactory $orderModel,/*??*/
+        \Magento\Sales\Model\Order\Email\Sender\OrderSender $orderSender,/*OK*/
+        \Magento\Checkout\Model\Session $checkoutSession,/*OK*/
+        \Magento\Sales\Model\OrderNotifier $orderNotifier/*OK*/
     )
     {
         $this->orderModel = $orderModel;

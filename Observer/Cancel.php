@@ -2,7 +2,7 @@
 
 namespace Aplazo\AplazoPayment\Observer;
 
-use Magento\Framework\Event\ObserverInterface;
+use Magento\Framework\Event\ObserverInterface;/*OK*/
 
 class Cancel implements ObserverInterface
 {
