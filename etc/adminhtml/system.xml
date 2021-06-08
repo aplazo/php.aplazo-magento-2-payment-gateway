@@ -22,16 +22,20 @@
                     <label>Api token</label>
                     <backend_model>Magento\Config\Model\Config\Backend\Encrypted</backend_model>
                 </field>
-
                 <field id="merchant_id" translate="label" type="obscure" sortOrder="40" showInDefault="1" showInWebsite="1" showInStore="0">
                     <label>Merchant_id</label>
                     <backend_model>Magento\Config\Model\Config\Backend\Encrypted</backend_model>
                 </field>
 
-                <field id="order_status" translate="label" type="select" sortOrder="20" showInDefault="1" showInWebsite="1" showInStore="1" canRestore="1">
+                <field id="order_status" translate="label" type="select" sortOrder="20" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>New Order Status</label>
+                    <source_model>Aplazo\AplazoPayment\Model\Source\OrderStatus</source_model>
+                </field>
+
+                <!--field id="order_status" translate="label" type="select" sortOrder="20" showInDefault="1" showInWebsite="1" showInStore="1" canRestore="1">
                     <label>New Order Status</label>
                     <source_model>Magento\Sales\Model\Config\Source\Order\Status\Newprocessing</source_model>
-                </field>
+                </field-->
 
                 <field id="show_on_product_page" translate="label" type="select" sortOrder="50" showInDefault="1" showInWebsite="1" showInStore="0">
                     <label>Show on product page</label>

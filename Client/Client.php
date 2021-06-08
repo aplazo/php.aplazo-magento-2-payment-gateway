@@ -11,6 +11,7 @@ use Magento\Newsletter\Model\Subscriber;
 use Magento\Store\Model\StoreManagerInterface;
 use Psr\Log\LoggerInterface;
 use Magento\Catalog\Helper\ImageFactory;
+use Magento\Framework\ObjectManagerInterface;
 
 class Client
 {
@@ -93,6 +94,9 @@ class Client
      */
     protected $curl;
 
+
+    private $objectManager;
+
     /**
      * Client constructor.
      * @param Config $config
@@ -108,7 +112,8 @@ class Client
         LoggerInterface $logger,
         StoreManagerInterface $storeManager,
         ManagerInterface $messageManager,
-        ImageFactory $imageHelperFactory
+        ImageFactory $imageHelperFactory,
+        ObjectManagerInterface $objectManager
     ) {
         $this->storeManager = $storeManager;
         $this->config = $config;
@@ -117,6 +122,7 @@ class Client
         $this->messageManager = $messageManager;
         $this->imageHelperFactory = $imageHelperFactory;
         $this->domain = $this->config->getBaseApiUrl();
+        $this->objectManager = $objectManager;
     }
 
     public function auth()
@@ -179,6 +185,11 @@ class Client
      */
     protected function prepareCreateParams(Quote $quote)
     {
+
+$writer = new \Zend\Log\Writer\Stream(BP . '/var/log/aplazo.log');
+$logger = new \Zend\Log\Logger();
+$logger->addWriter($writer);
+        
         $products = [];
         foreach ($quote->getAllVisibleItems() as $quoteItem) {
             if ($quoteItem->getProduct()->getTypeId()=='configurable'){
@@ -199,8 +210,15 @@ class Client
             ];
             $products[] = $productArr;
         }
-        return [
-            "cartId" => $quote->getId(),
+
+
+        $street = $quote->getShippingAddress()->getStreet();
+        $fullStreet = '';
+        $fullStreet .= (!empty($street[0]))?$street[0]:'';
+        $fullStreet .= (!empty($street[1]))?$street[1]:'';
+
+        $data = [
+            "cartId" => $this->updateReservedOrderId(), 
             "discount" => [
                 "price" => $quote->getShippingAddress()->getDiscountAmount(),
                 "title" => $quote->getShippingAddress()->getDiscountDescription()
@@ -217,7 +235,39 @@ class Client
                 "price" => $quote->getShippingAddress()->getTaxAmount(),
                 "title" => __('Tax')
             ],
-            "totalPrice" => $quote->getGrandTotal()
+            "totalPrice" => $quote->getGrandTotal(),
+            "buyer" => [
+                "email" => $quote->getShippingAddress()->getEmail(),
+                "lastName"=>$quote->getShippingAddress()->getLastname(),
+                "addressLine1"=>$fullStreet." ".$quote->getShippingAddress()->getCity(),
+                "phone"=>$quote->getShippingAddress()->getTelephone(),
+                "postCode"=>$quote->getShippingAddress()->getPostcode()
+            ]
         ];
+
+        $logger->info("data ". print_r($data,true));
+
+        return $data;
+
     }
+
+
+    public function updateReservedOrderId(){
+
+        $checkoutSession = $this->objectManager->create('Magento\Checkout\Model\Session');
+        $resource = $this->objectManager->get('Magento\Framework\App\ResourceConnection');
+        $connection = $resource->getConnection();
+      
+        $quoteId = $checkoutSession->getQuoteId();
+
+        $cartData = $this->objectManager->create('Magento\Quote\Model\QuoteRepository')->get($quoteId);
+
+        $checkoutSession->getQuote()->reserveOrderId();
+        $reservedOrderId = $checkoutSession->getQuote()->getReservedOrderId();
+
+        $connection->query("UPDATE quote SET reserved_order_id = '$reservedOrderId' WHERE entity_id = $quoteId");
+
+        return $reservedOrderId;
+    }
+
 }
