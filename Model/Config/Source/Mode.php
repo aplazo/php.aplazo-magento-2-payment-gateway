@@ -2,7 +2,7 @@
 
 namespace Aplazo\AplazoPayment\Model\Config\Source;
 
-class Mode implements \Magento\Framework\Option\ArrayInterface
+class Mode implements \Magento\Framework\Option\ArrayInterface /*OK*/
 {
     const STAGE = 'stage';
 

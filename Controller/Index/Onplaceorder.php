@@ -2,12 +2,12 @@
 
 namespace Aplazo\AplazoPayment\Controller\Index;
 
-use Magento\Checkout\Model\Session as CheckoutSession;
-use Magento\Framework\App\Action\Action;
-use Magento\Framework\App\Action\Context;
-use Magento\Framework\Controller\ResultFactory;
-use Magento\Quote\Model\QuoteManagement;
-use Psr\Log\LoggerInterface;
+use Magento\Checkout\Model\Session as CheckoutSession;/*OK*/
+use Magento\Framework\App\Action\Action;/*OK*/
+use Magento\Framework\App\Action\Context;/*OK*/
+use Magento\Framework\Controller\ResultFactory;/*OK*/
+use Magento\Quote\Model\QuoteManagement;/*OK*/
+use Psr\Log\LoggerInterface;/*OK*/
 use Aplazo\AplazoPayment\Client\Client;
 use Aplazo\AplazoPayment\Helper\Data;
 
@@ -67,14 +67,12 @@ class Onplaceorder extends Action
      */
     public function execute()
     {
-        $data = [
-            'error' => true,
-            'message' => __('Service temporarily unavailable. Please try again later.'),
-            'transactionId' => null
-        ];
+
         $resultJson = $this->resultFactory->create(ResultFactory::TYPE_JSON);
         try {
             $auth = $this->client->auth();
+            $this->_logger->debug('Auth aplazo '.print_r($auth,true));
+
             $quote = $this->_checkoutSession->getQuote();
             if ($auth && is_array($auth)) {
 
@@ -89,7 +87,15 @@ class Onplaceorder extends Action
                 }
             }
         } catch (\Exception $e) {
+            $data['message_catch'] = $e->getMessage();
             $this->_logger->debug($e->getMessage());
+
+            $data = [
+                'error' => true,
+                'message' => __('Service temporarily unavailable. Please try again later. Error : '.$e->getMessage()),
+                'transactionId' => null
+            ];
+
         }
         $resultJson->setData($data);
         return $resultJson;

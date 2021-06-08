@@ -4,7 +4,7 @@ namespace Aplazo\AplazoPayment\Model;
 
 use Magento\Checkout\Model\Session;
 
-class Payment extends \Magento\Payment\Model\Method\AbstractMethod
+class Payment extends \Magento\Payment\Model\Method\AbstractMethod /*OK*/
 {
     const CODE = 'aplazo_payment';
 
