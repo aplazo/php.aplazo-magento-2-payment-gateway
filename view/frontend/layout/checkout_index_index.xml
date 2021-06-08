@@ -2,7 +2,7 @@
 
 <page xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" layout="1column" xsi:noNamespaceSchemaLocation="urn:magento:framework:View/Layout/etc/page_configuration.xsd">
     <head>
-        <script type="text/js" src="https://aplazoassets.s3-us-west-2.amazonaws.com/aplazo-widgets.js" src_type="url" />
+        <script type="text/js" src="https://aplazoassets.s3-us-west-2.amazonaws.com/aplazo-widgets.min.js"  />
     </head>
     <body>
         <referenceBlock name="checkout.root">
