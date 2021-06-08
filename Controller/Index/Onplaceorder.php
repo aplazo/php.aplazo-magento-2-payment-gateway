@@ -2,12 +2,12 @@
 
 namespace Aplazo\AplazoPayment\Controller\Index;
 
-use Magento\Checkout\Model\Session as CheckoutSession;
-use Magento\Framework\App\Action\Action;
-use Magento\Framework\App\Action\Context;
-use Magento\Framework\Controller\ResultFactory;
-use Magento\Quote\Model\QuoteManagement;
-use Psr\Log\LoggerInterface;
+use Magento\Checkout\Model\Session as CheckoutSession;/*OK*/
+use Magento\Framework\App\Action\Action;/*OK*/
+use Magento\Framework\App\Action\Context;/*OK*/
+use Magento\Framework\Controller\ResultFactory;/*OK*/
+use Magento\Quote\Model\QuoteManagement;/*OK*/
+use Psr\Log\LoggerInterface;/*OK*/
 use Aplazo\AplazoPayment\Client\Client;
 use Aplazo\AplazoPayment\Helper\Data;
 
@@ -87,6 +87,7 @@ class Onplaceorder extends Action
                 }
             }
         } catch (\Exception $e) {
+            $data['message_catch'] = $e->getMessage();
             $this->_logger->debug($e->getMessage());
 
             $data = [

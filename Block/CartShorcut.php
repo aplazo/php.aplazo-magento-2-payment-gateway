@@ -2,12 +2,12 @@
 
 namespace Aplazo\AplazoPayment\Block;
 
-use Magento\Catalog\Block\ShortcutInterface;
+use Magento\Catalog\Block\ShortcutInterface;/*OK*/
 use Aplazo\AplazoPayment\Model\Config;
-use Magento\Checkout\Model\Session;
-use Magento\Framework\Locale\ResolverInterface;
-use Magento\Framework\View\Element\Template;
-use Magento\Framework\View\Element\Template\Context;
+use Magento\Checkout\Model\Session;/*OK*/
+use Magento\Framework\Locale\ResolverInterface;/*OK*/
+use Magento\Framework\View\Element\Template;/*OK*/
+use Magento\Framework\View\Element\Template\Context;/*OK*/
 use Aplazo\AplazoPayment\Model\Payment;
 
 /**

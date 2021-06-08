@@ -2,9 +2,10 @@
 
 namespace Aplazo\AplazoPayment\Helper;
 
-use Magento\Customer\Model\Session;
-use Magento\Framework\App\Helper\AbstractHelper;
-use Magento\Framework\App\Helper\Context;
+use Magento\Customer\Model\Session;/*OK*/
+use Magento\Framework\App\Helper\AbstractHelper;/*OK*/
+use Magento\Framework\App\Helper\Context;/*OK*/
+
 
 class Data extends AbstractHelper
 {
@@ -26,9 +27,11 @@ class Data extends AbstractHelper
      * @param Context $context
      */
     public function __construct(
+        \Magento\Directory\Model\Country $country,
         Session $customerSession,
         Context $context
     ) {
+        $this->country = $country;
         $this->customerSession = $customerSession;
         parent::__construct($context);
     }
@@ -81,6 +84,30 @@ class Data extends AbstractHelper
         $this->setPaymentDataToQuote($quote);
     }
 
+   /** 
+     * Get the list of regions present in the given Country
+     * Returns empty array if no regions available for Country
+     * 
+     * @param String
+     * @return Array/Void
+    */
+    public function getRegionsOfCountry($countryCode) {
+        $regionCollection = $this->country->loadByCode($countryCode)->getRegions();
+        $regions = $regionCollection->loadData()->toOptionArray(false);
+        return $regions;
+    } 
+    
+    public function getRegionDefaultMX($countryCode,$stringRegion){
+
+        $regionId = $this->getRegionsOfCountry($countryCode);
+        foreach($regionId as $data){
+            if($data['title'] == $stringRegion){
+                return $data['value'];
+            }
+        }
+        return 583; #TODO colocar el id default de la CDMX o el que quieran implementar
+    }   
+
     /**
      * @param $quote
      */
@@ -98,8 +125,8 @@ class Data extends AbstractHelper
         $quote->getBillingAddress()->setPostcode('11000');
         $quote->getShippingAddress()->setCountryId('MX');
         $quote->getBillingAddress()->setCountryId('MX');
-        $quote->getShippingAddress()->setRegionId(664);
-        $quote->getBillingAddress()->setRegionId(664);
+        $quote->getShippingAddress()->setRegionId($this->getRegionDefaultMX('mex','Ciudad de México'));
+        $quote->getBillingAddress()->setRegionId($this->getRegionDefaultMX('mex','Ciudad de México'));
         $quote->getShippingAddress()->setStreet('Avenida Paseo de las Palmas, number 755');
         $quote->getBillingAddress()->setStreet('Avenida Paseo de las Palmas, number 755');
         $quote->getShippingAddress()->setTelephone('1234567890');

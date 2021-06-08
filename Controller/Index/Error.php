@@ -2,24 +2,25 @@
 
 namespace Aplazo\AplazoPayment\Controller\Index;
 
-use Magento\Checkout\Model\Session as CheckoutSession;
-use Magento\Framework\App\Action\Action;
-use Magento\Framework\App\Action\Context;
-use Magento\Framework\App\Action\HttpGetActionInterface;
-use Magento\Framework\App\CsrfAwareActionInterface;
-use Magento\Framework\App\Request\InvalidRequestException;
-use Magento\Framework\App\RequestInterface;
-use Magento\Framework\Controller\Result\JsonFactory;
-use Magento\Framework\Controller\Result\RedirectFactory;
-use Magento\Framework\Controller\ResultFactory;
-use Magento\Framework\Phrase;
-use Magento\Framework\Webapi\Exception;
-use Magento\Quote\Api\CartRepositoryInterface;
-use Magento\Quote\Model\QuoteFactory;
-use Magento\Quote\Model\QuoteManagement;
-use Psr\Log\LoggerInterface;
+use Magento\Checkout\Model\Session as CheckoutSession;/*OK*/
+use Magento\Framework\App\Action\Action;/*OK*/
+use Magento\Framework\App\Action\Context;/*OK*/
+#use Magento\Framework\App\Action\HttpGetActionInterface;/*NO EXISTE EN 2.0*/
+#use Magento\Framework\App\CsrfAwareActionInterface;/*NO EXISTE EN 2.0*/
+#use Magento\Framework\App\Request\InvalidRequestException;/*NO EXISTE EN 2.0*/
+use Magento\Framework\App\RequestInterface;/*OK*/
+use Magento\Framework\Controller\Result\JsonFactory;/*OK*/
+use Magento\Framework\Controller\Result\RedirectFactory;/*OK*/
+use Magento\Framework\Controller\ResultFactory;/*OK*/
+use Magento\Framework\Phrase;/*OK*/
+use Magento\Framework\Webapi\Exception;/*OK*/
+use Magento\Quote\Api\CartRepositoryInterface;/*OK*/
+use Magento\Quote\Model\QuoteFactory;/*??*/
+use Magento\Quote\Model\QuoteManagement;/*OK*/
+use Psr\Log\LoggerInterface;/*OK*/
+use Magento\Framework\UrlInterface;
 
-class Error extends Action implements HttpGetActionInterface, CsrfAwareActionInterface
+class Error extends Action #implements HttpGetActionInterface, CsrfAwareActionInterface
 {
     const PARAM_NAME_TOKEN = 'token';
 
@@ -59,6 +60,11 @@ class Error extends Action implements HttpGetActionInterface, CsrfAwareActionInt
     protected $quoteManagement;
 
     /**
+    * @var url
+    */
+    protected $url;
+
+    /**
      * Create constructor.
      * @param Context $context
      * @param RedirectFactory $redirectFactory
@@ -69,43 +75,16 @@ class Error extends Action implements HttpGetActionInterface, CsrfAwareActionInt
         Context $context,
         RedirectFactory $redirectFactory,
         JsonFactory $jsonFactory,
-        LoggerInterface $logger
+        LoggerInterface $logger,
+        UrlInterface $url
     ) {
         $this->_logger = $logger;
         $this->_jsonFactory = $jsonFactory;
         $this->_redirectFactory = $redirectFactory;
-
+        $this->_url = $url;
         parent::__construct($context);
     }
 
-    /**
-     * @param RequestInterface $request
-     * @return InvalidRequestException|null
-     */
-    public function createCsrfValidationException(RequestInterface $request): ?InvalidRequestException
-    {
-        $result = $this->resultFactory->create(ResultFactory::TYPE_JSON);
-        $result->setHttpResponseCode(Exception::HTTP_BAD_REQUEST);
-        $result->setData([
-            "success" => false,
-            "message" => __('Invalid token'),
-            "data" => [
-                "order_id" => null
-            ],
-            "errors" => []
-        ]);
-
-        return new InvalidRequestException($result, [new Phrase('Invalid token')]);
-    }
-
-    /**
-     * @param RequestInterface $request
-     * @return bool|null
-     */
-    public function validateForCsrf(RequestInterface $request): ?bool
-    {
-        return true;
-    }
 
     /**
      * @return \Magento\Framework\App\ResponseInterface|\Magento\Framework\Controller\ResultInterface|\Magento\Framework\View\Result\Layout
@@ -115,11 +94,11 @@ class Error extends Action implements HttpGetActionInterface, CsrfAwareActionInt
         $result = $this->resultFactory->create(ResultFactory::TYPE_REDIRECT);
         try {
             $this->messageManager->addErrorMessage(__('You Aplazo Payment was unsuccessful'));
-            $result->setUrl('/checkout/cart');
+            $result->setUrl($this->_url->getUrl('checkout/cart'));
             return $result;
         } catch (\Exception $e) {
             $this->_logger->debug($e->getMessage());
-            $result->setUrl('/checkout/cart');
+            $result->setUrl($this->_url->getUrl('checkout/cart'));
             return $result;
         }
     }

@@ -2,8 +2,8 @@
 
 namespace Aplazo\AplazoPayment\Observer;
 
-use Magento\Framework\Event\Observer;
-use Magento\Framework\Event\ObserverInterface;
+use Magento\Framework\Event\Observer;/*OK*/
+use Magento\Framework\Event\ObserverInterface;/*OK*/
 
 class AddAplazoShortcuts implements ObserverInterface
 {

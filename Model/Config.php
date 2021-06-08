@@ -2,7 +2,7 @@
 
 namespace Aplazo\AplazoPayment\Model;
 
-use Magento\Framework\App\Config\ScopeConfigInterface;
+use Magento\Framework\App\Config\ScopeConfigInterface;/*OK*/
 use Aplazo\AplazoPayment\Model\Config\Source\Mode;
 
 class Config
