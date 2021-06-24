@@ -218,7 +218,10 @@ class Client
             $products[] = $productArr;
         }
 
-
+        $street = $quote->getShippingAddress()->getStreet();
+        $fullStreet = '';
+        $fullStreet .= (!empty($street[0]))?$street[0]:'';
+        $fullStreet .= (!empty($street[1]))?$street[1]:'';
 
         $return = [
             "cartId" => $this->updateReservedOrderId(), 
@@ -238,7 +241,13 @@ class Client
                 "price" => $quote->getShippingAddress()->getTaxAmount(),
                 "title" => __('Tax')
             ],
-            "totalPrice" => $quote->getGrandTotal()
+            "totalPrice" => $quote->getGrandTotal(),
+            "buyer" => [
+                "email" => $quote->getShippingAddress()->getEmail(),
+                "lastName"=>$quote->getShippingAddress()->getLastname(),
+                "addressLine1"=>$fullStreet." ".$quote->getShippingAddress()->getCity(),
+                "phone"=>$quote->getShippingAddress()->getTelephone(),
+                "postCode"=>$quote->getShippingAddress()->getPostcode()            
         ];
 
         $logger->info("aplazo request ". print_r($return,true));
