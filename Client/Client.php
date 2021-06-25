@@ -255,6 +255,7 @@ class Client
         return $return;
     }
 
+
     public function updateReservedOrderId(){
 
         $checkoutSession = $this->objectManager->create('Magento\Checkout\Model\Session');
