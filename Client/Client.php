@@ -247,14 +247,14 @@ class Client
                 "lastName"=>$quote->getShippingAddress()->getLastname(),
                 "addressLine1"=>$fullStreet." ".$quote->getShippingAddress()->getCity(),
                 "phone"=>$quote->getShippingAddress()->getTelephone(),
-                "postCode"=>$quote->getShippingAddress()->getPostcode()            
+                "postCode"=>$quote->getShippingAddress()->getPostcode()
+            ]            
         ];
 
         $logger->info("aplazo request ". print_r($return,true));
 
         return $return;
     }
-
 
     public function updateReservedOrderId(){
 
