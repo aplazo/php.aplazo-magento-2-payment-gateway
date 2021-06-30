@@ -67,17 +67,23 @@ class Onplaceorder extends Action
      */
     public function execute()
     {
-
+        $data = [
+            'error' => true,
+            'message' => __('Service temporarily unavailable. Please try again later.'),
+            'transactionId' => null
+        ];
         $resultJson = $this->resultFactory->create(ResultFactory::TYPE_JSON);
         try {
             $auth = $this->client->auth();
-            $this->_logger->debug('Auth aplazo '.print_r($auth,true));
-
             $quote = $this->_checkoutSession->getQuote();
             if ($auth && is_array($auth)) {
+                if(!empty($this->getRequest()->getParam('m'))){
+                    
+                    $resultUrl = $this->client->create($auth, $quote, $this->getRequest()->getParam('m'));
+                }else{
+                    $resultUrl = $this->client->create($auth, $quote);
 
-                $resultUrl = $this->client->create($auth, $quote);
-
+                }
                 if ($resultUrl) {
                     $data = [
                         'error' => false,
@@ -89,13 +95,6 @@ class Onplaceorder extends Action
         } catch (\Exception $e) {
             $data['message_catch'] = $e->getMessage();
             $this->_logger->debug($e->getMessage());
-
-            $data = [
-                'error' => true,
-                'message' => __('Service temporarily unavailable. Please try again later. Error : '.$e->getMessage()),
-                'transactionId' => null
-            ];
-
         }
         $resultJson->setData($data);
         return $resultJson;
