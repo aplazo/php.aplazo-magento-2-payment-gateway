@@ -243,12 +243,12 @@ class Client
             ],
             "totalPrice" => $quote->getGrandTotal(),
             "buyer" => [
+                "addressLine"=>$fullStreet." ".$quote->getShippingAddress()->getCity(),
                 "email" => $quote->getCustomerEmail(),
                 "firstName"=>$quote->getShippingAddress()->getFirstname(),
                 "lastName"=>$quote->getShippingAddress()->getLastname(),
-                "addressLine1"=>$fullStreet." ".$quote->getShippingAddress()->getCity(),
                 "phone"=>$quote->getShippingAddress()->getTelephone(),
-                "postCode"=>$quote->getShippingAddress()->getPostcode()
+                "postalCode"=>$quote->getShippingAddress()->getPostcode()
             ]            
         ];
 
