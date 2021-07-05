@@ -148,7 +148,7 @@ class Client
      * @param $quote
      * @return bool|string
      */
-    public function create($authHeader, $quote)
+    public function create($authHeader, $quote, $mail = null)
     {
         $writer = new \Zend\Log\Writer\Stream(BP . '/var/log/aplazo.log');
         $logger = new \Zend\Log\Logger();
@@ -160,7 +160,13 @@ class Client
         $headers['Content-Type'] = 'application/json';
         $this->curl->setHeaders($headers);
 
-        $body = $this->prepareCreateParams($quote);
+        if(!empty($mail)){
+            $body = $this->prepareCreateParams($quote,$mail);
+        }else{
+           $body = $this->prepareCreateParams($quote); 
+        }
+
+        
         $payload = json_encode($body);
         $this->curl->post($url, $payload);
 
@@ -190,7 +196,7 @@ class Client
      * @return array
      * @throws \Magento\Framework\Exception\NoSuchEntityException
      */
-    protected function prepareCreateParams(Quote $quote)
+    protected function prepareCreateParams(Quote $quote, $mail = null)
     {
 
         $writer = new \Zend\Log\Writer\Stream(BP . '/var/log/aplazo.log');
@@ -223,6 +229,7 @@ class Client
         $fullStreet .= (!empty($street[0]))?$street[0]:'';
         $fullStreet .= (!empty($street[1]))?$street[1]:'';
 
+
         $return = [
             "cartId" => $this->updateReservedOrderId(), 
             "discount" => [
@@ -244,12 +251,12 @@ class Client
             "totalPrice" => $quote->getGrandTotal(),
             "buyer" => [
                 "addressLine"=>$fullStreet." ".$quote->getShippingAddress()->getCity(),
-                "email" => $quote->getCustomerEmail(),
+                "email" => ($mail != NULL)?$mail:$quote->getCustomerEmail(),
                 "firstName"=>$quote->getShippingAddress()->getFirstname(),
                 "lastName"=>$quote->getShippingAddress()->getLastname(),
                 "phone"=>$quote->getShippingAddress()->getTelephone(),
                 "postalCode"=>$quote->getShippingAddress()->getPostcode()
-            ]            
+            ]             
         ];
 
         $logger->info("aplazo request ". print_r($return,true));
