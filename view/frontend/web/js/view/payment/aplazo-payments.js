@@ -12,6 +12,10 @@ define(
             {
                 type: 'aplazo_payment',
                 component: 'Aplazo_AplazoPayment/js/view/payment/method-renderer/aplazo-method'
+            },
+            {
+                type: 'aplazo_payment',
+                component: 'Aplazo_AplazoPayment/js/view/payment/method-renderer/aplazo-widgets'
             }
         );
 
