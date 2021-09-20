@@ -10,8 +10,9 @@
             data-bind="attr: {'id': getCode()}, value: getCode(), checked: isChecked, click: selectPaymentMethod, visible: isRadioButtonVisible()" />
         <label data-bind="attr: {'for': getCode()}" class="label"><span data-bind="text: getTitle()"></span>
             <img
-                    src="https://aplazoassets.s3-us-west-2.amazonaws.com/aplazo-logo-png-colores%402x.png" width="80px"
-                    height="21px" />
+                    src="https://aplazoassets.s3-us-west-2.amazonaws.com/aplazo-logo-png-colores%402x.png"
+                    style="height: 21px; padding-left: 10px;" />
+            <aplazo-placement></aplazo-placement>
         </label>
     </div>
     <div class="payment-method-content">

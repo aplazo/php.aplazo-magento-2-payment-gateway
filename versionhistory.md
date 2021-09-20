@@ -13,3 +13,7 @@
 * More than one product fix.
 ## 1.0.5.1
 * Logo fix
+## 1.0.9
+* Add cron to cancel orders
+## 1.0.9.1
+* add conoce mas description and fix logo
