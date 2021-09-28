@@ -1141,7 +1141,7 @@
     exports.template.innerHTML = `
        <style>
        :host{
-          display: inline !important;
+          display: inline;
           font-family: inherit;
           color: inherit;
           padding: 15px 0px 15px 0px;

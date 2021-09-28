@@ -33,6 +33,11 @@ class Config
     const APLAZO_API_TOKEN = 'payment/aplazo_payment/api_token';
 
     /**
+     * config path for api_token
+     */
+    const APLAZO_ORDER_CANCELLATION_TIME = 'payment/aplazo_payment/order_cancellation_time';
+
+    /**
      * config path for merchant_id
      */
     const APLAZO_MERCHANT_ID = 'payment/aplazo_payment/merchant_id';
@@ -112,6 +117,14 @@ class Config
     public function getApiToken()
     {
         return $this->scopeConfig->getValue(self::APLAZO_API_TOKEN);
+    }
+
+    /**
+     * @return mixed
+     */
+    public function getOrderCancellationTime()
+    {
+        return $this->scopeConfig->getValue(self::APLAZO_ORDER_CANCELLATION_TIME);
     }
 
     /**
