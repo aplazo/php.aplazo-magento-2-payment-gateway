@@ -63,10 +63,10 @@ class ProductpageShorcut extends Template implements ShortcutInterface
      */
     protected function _toHtml()
     {
-        if ($this->isActive()) {
+        /*if ($this->isActive()) {
             $this->setTemplate('Aplazo_AplazoPayment::buy_with_aplazo.phtml');
             return parent::_toHtml();
-        }
+        }*/
 
         return '';
     }

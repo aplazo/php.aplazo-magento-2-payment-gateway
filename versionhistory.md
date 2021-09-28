@@ -17,3 +17,5 @@
 * Add cron to cancel orders
 ## 1.0.9.1
 * add conoce mas description and fix logo
+## 1.0.10
+* Add widgets to product and cart page
