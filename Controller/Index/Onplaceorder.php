@@ -67,25 +67,36 @@ class Onplaceorder extends Action
      */
     public function execute()
     {
-        $data = [
-            'error' => true,
-            'message' => __('Service temporarily unavailable. Please try again later.'),
-            'transactionId' => null
-        ];
         $resultJson = $this->resultFactory->create(ResultFactory::TYPE_JSON);
         try {
             $auth = $this->client->auth();
             $quote = $this->_checkoutSession->getQuote();
-            if ($auth && is_array($auth)) {
-
-                $resultUrl = $this->client->create($auth, $quote);
-
-                if ($resultUrl) {
-                    $data = [
-                        'error' => false,
-                        'message' => '',
-                        'redirecturl' => $resultUrl
-                    ];
+            if(isset($auth['error']) && $auth['error'] == 1){
+                $data = [
+                    'error' => true,
+                    'message' => __($auth['message']),
+                    'transactionId' => null
+                ];
+            }
+            else{
+                if ($auth && is_array($auth)) {
+                    $result = $this->client->create($auth, $quote);
+                    if(isset($result['error']) && $result['error'] == 1){
+                        $data = [
+                            'error' => true,
+                            'message' => __($result['message']),
+                            'transactionId' => null
+                        ];
+                    }
+                    $result_decode = json_decode($result, true);
+                    $redirectUrl = $result_decode['url'];
+                    if ($redirectUrl) {
+                        $data = [
+                            'error' => false,
+                            'message' => '',
+                            'redirecturl' => $redirectUrl
+                        ];
+                    }
                 }
             }
         } catch (\Exception $e) {
