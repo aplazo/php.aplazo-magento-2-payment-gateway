@@ -19,3 +19,7 @@
 * add conoce mas description and fix logo
 ## 1.0.10
 * Add widgets to product and cart page
+## 2.0.0
+* Fix cronjob bugs
+* Add webhook to listen Aplazo SDK Petitions
+* Add error catalog to debug

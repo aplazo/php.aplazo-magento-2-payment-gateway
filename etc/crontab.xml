@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:module:Magento_Cron:etc/crontab.xsd">
     <group id="default">
-        <job name="aplazo_aplazopayment_cancel_order_pending" instance="Aplazo\AplazoPayment\Cron\CancelOrderPending" method="execute">
+        <job name="aplazo_aplazopayment_cancel_order_pending" instance="Aplazo\AplazoPayment\Model\Cron\CancelOrderPending" method="execute">
             <schedule>* * * * *</schedule>
         </job>
     </group>

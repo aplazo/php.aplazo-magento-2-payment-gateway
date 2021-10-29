@@ -128,7 +128,6 @@ class Client
     public function auth()
     {
         $url = $this->makeUrl("auth");
-
         $body = [
             "apiToken" => $this->config->getApiToken(),
             "merchantId" => $this->config->getMerchantId()
@@ -140,7 +139,11 @@ class Client
         if ($this->curl->getStatus() == 200) {
             return json_decode($result, true);
         }
-        return false;
+        else{
+            $response = json_decode($result, true);
+            $message = $this->errorCatalog((strval($response['status'])));
+            return array ("error" => 1, "message" => $message);
+        }
     }
 
     /**
@@ -163,10 +166,14 @@ class Client
         if ($this->curl->getStatus() == 200) {
             return $result;
         }
-        if ($this->curl->getStatus() == 100 && strpos($result,'https://')===0) {
+        elseif ($this->curl->getStatus() == 100 && strpos($result,'https://')===0) {
             return $result;
         }
-        return false;
+        else{
+            $response = json_decode($result, true);
+            $message = $this->errorCatalog((strval($response['status'])));
+            return array ("error" => 1, "message" => $message);
+        }
     }
 
     /**
@@ -206,7 +213,15 @@ class Client
             $products[] = $productArr;
         }
         return [
-            "cartId" => $this->updateReservedOrderId(), 
+            "cartId" => $this->updateReservedOrderId(),
+            "buyer" => [
+                "addressLine" => $quote->getShippingAddress()->getCity(),
+                "email" => $quote->getCustomerEmail(),
+                "firstName" => $quote->getShippingAddress()->getFirstname(),
+                "lastName" => $quote->getShippingAddress()->getLastname(),
+                "phone" => $quote->getShippingAddress()->getTelephone(),
+                "postalCode" => $quote->getShippingAddress()->getPostcode()
+            ],
             "discount" => [
                 "price" => $quote->getShippingAddress()->getDiscountAmount(),
                 "title" => $quote->getShippingAddress()->getDiscountDescription()
@@ -219,11 +234,13 @@ class Client
             ],
             "shopId" => $this->storeManager->getStore()->getName(),
             "successUrl" => $this->storeManager->getStore()->getUrl('aplazopayment/index/success'),
+            "webHookUrl" => $this->storeManager->getStore()->getUrl('aplazopayment/index/webhook'),
+            "cartUrl" => $this->storeManager->getStore()->getUrl('checkout/cart/'),
             "taxes" => [
                 "price" => $quote->getShippingAddress()->getTaxAmount(),
                 "title" => __('Tax')
             ],
-            "totalPrice" => $quote->getGrandTotal()
+            "totalPrice" => $quote->getGrandTotal(),
         ];
     }
 
@@ -243,6 +260,16 @@ class Client
         $connection->query("UPDATE quote SET reserved_order_id = '$reservedOrderId' WHERE entity_id = $quoteId");
 
         return $reservedOrderId;
+    }
+
+    public function errorCatalog($code){
+        $catalog = array(
+            "0" => "The minimum amount is 250.0",
+            "404" => "Invalid Credentials",
+            "500" => "Internal Server Error"
+        );
+        $response = $catalog[$code];
+        return $response;
     }
 
 }
