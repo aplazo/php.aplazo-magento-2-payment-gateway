@@ -23,3 +23,5 @@
 * Fix cronjob bugs
 * Add webhook to listen Aplazo SDK Petitions
 * Add error catalog to debug
+## 2.0.1
+* Refactor js script from jquery to vanilla js
