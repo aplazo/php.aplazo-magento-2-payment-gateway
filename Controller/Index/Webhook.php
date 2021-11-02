@@ -17,6 +17,7 @@ use Magento\Quote\Model\QuoteFactory;
 use Magento\Quote\Model\QuoteManagement;
 use Magento\Sales\Model\Service\InvoiceService;
 use Psr\Log\LoggerInterface;
+use Aplazo\AplazoPayment\Helper\Data;
 
 class Webhook extends Action implements HttpPostActionInterface, CsrfAwareActionInterface {
 	const PARAM_NAME_TOKEN = 'token';
@@ -72,6 +73,11 @@ class Webhook extends Action implements HttpPostActionInterface, CsrfAwareAction
     protected $http;
 
 	/**
+     * @var Data
+     */
+    protected $aplazoHelper;
+
+	/**
 	 * Success constructor.
 	 * @param Context $context
 	 * @param RedirectFactory $redirectFactory
@@ -83,6 +89,7 @@ class Webhook extends Action implements HttpPostActionInterface, CsrfAwareAction
 	 * @param QuoteManagement $quoteManagement
 	 * @param InvoiceService $invoiceService
 	 * @param TransactionFactory $transactionFactory
+	 * @param Data $aplazoHelper
 	 */
 	public function __construct(
 		Context $context,
@@ -95,7 +102,8 @@ class Webhook extends Action implements HttpPostActionInterface, CsrfAwareAction
 		QuoteManagement $quoteManagement,
 		InvoiceService $invoiceService,
 		TransactionFactory $transactionFactory,
-        Http $http
+        Http $http,
+		Data $aplazoHelper
 	) {
 		$this->_logger = $logger;
 		$this->_quoteFactory = $quoteFactory;
@@ -107,7 +115,7 @@ class Webhook extends Action implements HttpPostActionInterface, CsrfAwareAction
 		$this->invoiceService = $invoiceService;
 		$this->transactionFactory = $transactionFactory;
         $this->http = $http;
-
+		$this->aplazoHelper = $aplazoHelper;
 		parent::__construct($context);
 	}
 
@@ -128,6 +136,9 @@ class Webhook extends Action implements HttpPostActionInterface, CsrfAwareAction
         $params = $this->getPost();
         $this->_logger->debug($params);
 		try {
+			$quote = $this->quoteFactory->create()->load($params['extOrderId']);
+			$createOrder = $this->_quoteFactory->createMageOrder($quote);
+			$this->_logger->debug($createOrder);
 			$lastOrder = $params['cartid'];
 			if ($lastOrder->canInvoice()) {
 				$invoice = $this->invoiceService->prepareInvoice($lastOrder);

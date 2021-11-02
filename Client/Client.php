@@ -160,9 +160,11 @@ class Client
         $this->curl->setHeaders($headers);
 
         $body = $this->prepareCreateParams($quote);
+        $this->logger->debug($body);
         $payload = json_encode($body);
         $this->curl->post($url, $payload);
         $result = $this->curl->getBody();
+        $this->logger->debug($result);
         if ($this->curl->getStatus() == 200) {
             return $result;
         }
@@ -214,6 +216,7 @@ class Client
         }
         return [
             "cartId" => $this->updateReservedOrderId(),
+            "extOrderId" => $quote->getId(),
             "buyer" => [
                 "addressLine" => $quote->getShippingAddress()->getCity(),
                 "email" => $quote->getCustomerEmail(),
