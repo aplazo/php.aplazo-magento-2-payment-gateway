@@ -23,3 +23,5 @@
 * Fix cronjob bugs
 * Add webhook to listen Aplazo SDK Petitions
 * Add error catalog to debug
+## 2.1.0
+* Add new logical to the payment method
