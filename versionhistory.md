@@ -25,5 +25,8 @@
 * Add error catalog to debug
 ## 2.1.0
 * Add new logical to the payment method
-* ## 2.1.1
+## 2.1.1
 * Refactor interfaces
+## 2.2.0
+* Optimize and fix js
+
