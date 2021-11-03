@@ -3,6 +3,7 @@
     "description": "Aplazo Payment Gateway for Magento 2",
     "type": "magento2-module",
     "version": "2.2.0",
+
     "license": [
         "OSL-3.0"
     ],
