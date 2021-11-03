@@ -130,13 +130,14 @@ class Webhook extends Action {
 	 * Response IF order is correct CODE 200 ELSE CODE 500
 	 */
 	public function execute() {
+		$this->_logger->debug('webhook');
 		$params = $this->getPost();
-		$this->_logger->debug($params);
 		try {
 			$quote = $this->quoteFactory->create()->load($params['extOrderId']);
 			$createOrder = $this->_quoteFactory->createMageOrder($quote);
-			$this->_logger->debug($createOrder);
+			$this->_logger->debug('toorder');
 			$lastOrder = $params['cartid'];
+			$this->_logger->debug($lastOrder);
 			if ($lastOrder->canInvoice()) {
 				$invoice = $this->invoiceService->prepareInvoice($lastOrder);
 				$invoice->setRequestedCaptureCase(\Magento\Sales\Model\Order\Invoice::CAPTURE_ONLINE);
