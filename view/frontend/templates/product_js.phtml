@@ -1,85 +1,89 @@
 <script type="text/javascript">
-    require([
-        'jquery',
-        'mage/url'
-    ], function($, url) {
-
-        window.AplazoProduct = new Function();
-
-        AplazoProduct.prototype = {
-            initialize : function () {
-                this.buyWithAplazoId = '#buy_with_aplazo';
-                this.buyWithAplazoSelector = $(this.buyWithAplazoId);
-
-                this.addToCartButtonId = '#product-addtocart-button';
-                this.addToCartButtonSelector = $(this.addToCartButtonId);
-
-                this.aplazoPaymentAjaxUrl = '<?= $block->escapeHtml($block->getBaseUrl()); ?>aplazopayment/index/singleTransaction';
-                this.aplazoErrorClass = '.error-aplazopayment';
-
-                this.showButton();
-                this.initEvents();
-
-            },
-
-            initEvents: function () {
-                this.buyWithAplazoSelector.on('click', e => {
-                    e.preventDefault();
-                    this.addToCartButtonSelector.click();
-                });
-                this.buyWithAplazoSelector.on('click', this.buyWithAplazoEventClick(this));
-            },
-
-
-            showButton: function() {
-                let _this = this;
+ require([
+    'mage/url'
+], function (url
+) {
+    window.AplazoProduct = new Function();
+​
+    function _findElementById(elementId) {
+        return document.getElementById(elementId);
+    }
+​
+    function _showLoader() {
+        const [_body] = document.getElementsByName('body');
+        _body.dispatchEvent(new Event("processStart"));
+    }
+    function _hideLoader() {
+        const [_body] = document.getElementsByName('body');
+        _body.dispatchEvent(new Event("processStop"));
+    }
+    AplazoProduct.prototype = {
+​
+        initialize: function () {
+            this.buyWithAplazoId = '#buy_with_aplazo';
+            this.buyWithAplazoSelector = _findElementById(this.buyWithAplazoId);
+​
+            this.addToCartButtonId = '#product-addtocart-button';
+            this.addToCartButtonSelector = _findElementById(this.addToCartButtonId);
+​
+            this.aplazoPaymentAjaxUrl = '<?= $block->escapeHtml($block->getBaseUrl()); ?>aplazopayment/index/singleTransaction';
+            this.aplazoErrorClass = '.error-aplazopayment';
+​
+            this.showButton();
+            this.initEvents();
+​
+        },
+​
+        initEvents: function () {
+            this.buyWithAplazoSelector.addEventListener('click', e => {
+                e.preventDefault();
+                this.addToCartButtonSelector.click();
+            });
+            this.buyWithAplazoSelector.addEventListener('click', this.buyWithAplazoEventClick(this));
+        },
+​
+​
+        showButton: function () {
+            let _this = this;
+            let checkAddToCartButton = setInterval(() => {
+                if (_this.addToCartButtonSelector.disabled === false) {
+                    _this.buyWithAplazoSelector.style.display = "block";
+                    clearInterval(checkAddToCartButton);
+                }
+            }, 500);
+        },
+​
+        buyWithAplazoEventClick: function (_this) {
+            return function () {
                 let checkAddToCartButton = setInterval(() => {
-                    if (_this.addToCartButtonSelector.is(":disabled") === false) {
-                        _this.buyWithAplazoSelector.show();
+                    if (_this.addToCartButtonSelector.disabled === false) {
+                        _showLoader();
+                        fetch(_this.aplazoPaymentAjaxUrl)
+                            .then(response => {
+                                localStorage.removeItem('mage-cache-storage');
+                                _hideLoader();
+                                if (response.error === false && response.redirecturl !== null) {
+                                    let url = response.redirecturl;
+                                    window.location = url;
+                                } else {
+                                    console.log(response);
+                                }
+                            }).catch(error => {
+                            _hideLoader();
+                            console.log(error);
+                        });
+​
                         clearInterval(checkAddToCartButton);
                     }
                 }, 500);
-            },
-
-            buyWithAplazoEventClick: function(_this) {
-                return function () {
-                    let checkAddToCartButton = setInterval(() => {
-                        if (_this.addToCartButtonSelector.is(":disabled") === false) {
-
-                            jQuery('body').loader('show');
-                            $.ajax({
-                                url: _this.aplazoPaymentAjaxUrl,
-                                type: 'GET',
-                                cache: false,
-
-                                success: function (response) {
-                                    localStorage.removeItem('mage-cache-storage');
-                                    jQuery('body').loader('hide');
-                                    if (response.error === false && response.redirecturl !== null) {
-                                        let url = response.redirecturl;
-                                        window.location = url;
-                                    } else {
-                                        console.log(response);
-                                    }
-                                },
-                                error: function (response) {
-                                    jQuery('body').loader('hide');
-                                    console.log(response);
-                                }
-                            });
-                            clearInterval(checkAddToCartButton);
-                        }
-                    }, 500);
-
-                }
-            },
-        };
-
-        var aplazoProduct = new AplazoProduct();
-
-        aplazoProduct.initialize();
-        window.aplazo = aplazoProduct;
-
-    });
-
+            }
+        },
+    };
+​
+    var aplazoProduct = new AplazoProduct();
+​
+    aplazoProduct.initialize();
+    window.aplazo = aplazoProduct;
+​
+});
 </script>

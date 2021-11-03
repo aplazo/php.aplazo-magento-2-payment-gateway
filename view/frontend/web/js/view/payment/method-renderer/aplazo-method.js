@@ -45,9 +45,7 @@ define([
 
                 success: function (response) {
                     jQuery('body').loader('hide');
-                    //localStorage.removeItem('mage-cache-storage');
                     if (response.error === false && response.redirecturl !== null) {
-                        _this.placeOrder(data, event);
                         let url = response.redirecturl;
                         window.location = url;
                     } else {

@@ -5,6 +5,14 @@ namespace Aplazo\AplazoPayment\Helper;
 use Magento\Customer\Model\Session;
 use Magento\Framework\App\Helper\AbstractHelper;
 use Magento\Framework\App\Helper\Context;
+use Magento\Store\Model\StoreManagerInterface;
+use Magento\Catalog\Model\Product;
+use Magento\Framework\Data\Form\FormKey;
+use Magento\Quote\Model\QuoteFactory;
+use Magento\Quote\Model\QuoteManagement;
+use Magento\Customer\Model\CustomerFactory;
+use Magento\Customer\Api\CustomerRepositoryInterface;
+use Magento\Sales\Model\Service\OrderService;
 
 class Data extends AbstractHelper
 {
@@ -21,15 +29,76 @@ class Data extends AbstractHelper
     protected $customerSession;
 
     /**
+     * @var Context
+     */
+    protected $context;
+
+    /**
+     * @var StoreManager
+     */
+    protected $storeManager;
+
+    /**
+     * @var Product
+     */
+    protected $product;
+
+    /**
+     * @var FromKey
+     */
+    protected $formkey;
+
+    /**
+     * @var QuoteFactory
+     */
+    protected $quoteFactory;
+
+    /**
+     * @var QuoteManagement
+     */
+    protected $quoteManagement;
+
+    /**
+     * @var CustomerFactory
+     */
+    protected $customerFactory;
+
+    /**
+     * @var CustomerRepository
+     */
+    protected $customerRepository;
+
+    /**
+     * @var OrderService
+     */
+    protected $orderService;
+
+    /**
      * Data constructor.
      * @param Session $customerSession
      * @param Context $context
      */
     public function __construct(
         Session $customerSession,
-        Context $context
+        Context $context,
+        StoreManagerInterface $storeManager,
+        Product $product,
+        FormKey $formkey,
+        QuoteFactory $quoteFactory,
+        QuoteManagement $quoteManagement,
+        CustomerFactory $customerFactory,
+        CustomerRepositoryInterface $customerRepository,
+        OrderService $orderService
     ) {
         $this->customerSession = $customerSession;
+        $this->_storeManager = $storeManager;
+        $this->_product = $product;
+        $this->_formkey = $formkey;
+        $this->quoteFactory = $quoteFactory;
+        $this->quoteManagement = $quoteManagement;
+        $this->customerFactory = $customerFactory;
+        $this->customerRepository = $customerRepository;
+        $this->orderService = $orderService;
         parent::__construct($context);
     }
 
@@ -142,6 +211,31 @@ class Data extends AbstractHelper
             $config_path,
             \Magento\Store\Model\ScopeInterface::SCOPE_STORE
         );
+    }
+
+    /**
+     * Create Order On Your Store
+     * 
+     * @param array $orderData
+     * @return array
+     * 
+    */
+    public function createMageOrder($quote) {
+        $quote->setCurrency();
+        $quote->setPaymentMethod('aplazo_payment'); //payment method
+        $quote->setInventoryProcessed(false); //not effetc inventory
+        $quote->save(); 
+        $quote->getPayment()->importData(['method' => 'aplazo_payment']);
+        $quote->collectTotals()->save();
+        $order = $this->quoteManagement->submit($quote);
+        $order->setEmailSent(0);
+        $increment_id = $order->getRealOrderId();
+        if($order->getEntityId()){
+            $result['order_id']= $order->getRealOrderId();
+        }else{
+            $result=['error'=>1,'msg'=>'Something was wrong'];
+        }
+        return $result;
     }
 
 }

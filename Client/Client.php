@@ -133,9 +133,11 @@ class Client
             "merchantId" => $this->config->getMerchantId()
         ];
         $payload = json_encode($body);
+        $this->logger->debug($payload);
         $this->curl->setHeaders(['Content-Type' => 'application/json']);
         $this->curl->post($url, $payload);
         $result = $this->curl->getBody();
+        $this->logger->debug($result);
         if ($this->curl->getStatus() == 200) {
             return json_decode($result, true);
         }
@@ -158,11 +160,12 @@ class Client
         $headers = $authHeader;
         $headers['Content-Type'] = 'application/json';
         $this->curl->setHeaders($headers);
-
         $body = $this->prepareCreateParams($quote);
         $payload = json_encode($body);
+        $this->logger->debug($payload);
         $this->curl->post($url, $payload);
         $result = $this->curl->getBody();
+        $this->logger->debug($result);
         if ($this->curl->getStatus() == 200) {
             return $result;
         }
@@ -214,6 +217,7 @@ class Client
         }
         return [
             "cartId" => $this->updateReservedOrderId(),
+            "extOrderId" => $quote->getId(),
             "buyer" => [
                 "addressLine" => $quote->getShippingAddress()->getCity(),
                 "email" => $quote->getCustomerEmail(),
