@@ -5,64 +5,32 @@
 ?>
 <script type="text/javascript">
 
-    var aplazoSubtitle = '<?php echo $block->getSubtitle(); ?>';
-
-    require([
-        'jquery',
-        'mage/url'
-    ], function($, url) {
-
-        window.Aplazo = new Function();
-
-        Aplazo.prototype = {
-            initialize : function () {
-                this.buyWithAplazoId = '#buy_with_aplazo_checkout';
-                this.buyWithAplazoSelector = $(this.buyWithAplazoId);
-
-                this.aplazoPaymentAjaxUrl = '<?= $block->escapeHtml($block->getBaseUrl()); ?>aplazopayment/index/transaction';
-                this.aplazoErrorClass = '.error-aplazopayment';
-
-                this.initEvents();
-
-            },
-
-            initEvents: function () {
-                var that = this;
-                $(document).on("click", this.buyWithAplazoId, function() {
-                    that.buyWithAplazoEventClick(that);
-                });
-            },
-
-            buyWithAplazoEventClick: function(_this) {
-                    jQuery('body').loader('show');
-                    $.ajax({
-                        url: _this.aplazoPaymentAjaxUrl,
-                        type: 'GET',
-                        cache: false,
-
-                        success: function (response) {
-                            localStorage.removeItem('mage-cache-storage');
-                            jQuery('body').loader('hide');
-                            if (response.error === false && response.redirecturl !== null) {
-                                let url = response.redirecturl;
-                                window.location = url;
-                            } else {
-                                console.log(response);
-                            }
-                        },
-                        error: function (response) {
-                            jQuery('body').loader('hide');
-                            console.log(response);
-                        }
-                    });
-            },
-        };
-
-        var aplazo = new Aplazo();
-
-        aplazo.initialize();
-        window.aplazo = aplazo;
-
-    });
+var aplazoSubtitle = '<?php echo $block->getSubtitle(); ?>';
+require([
+    'mage/url'
+], function (url) {
+    window.Aplazo = new Function();
+    function _findElementById(elementId) {
+        return document.getElementById(elementId);
+    }
+    function _showLoader() {
+        const [_body] = document.getElementsByName('body');
+        _body.dispatchEvent(new Event("processStart"));
+    }
+    function _hideLoader() {
+        const [_body] = document.getElementsByName('body');
+        _body.dispatchEvent(new Event("processStop"));
+    }
+    Aplazo.prototype = {
+        initialize: function () {
+            this.aplazoPaymentAjaxUrl = '<?= $block->escapeHtml($block->getBaseUrl()); ?>aplazopayment/index/transaction';
+            this.aplazoErrorClass = '.error-aplazopayment';
+            this.initEvents();
+        }
+    };
+    var aplazo = new Aplazo();
+    aplazo.initialize();
+    window.aplazo = aplazo;
+});
 
 </script>
