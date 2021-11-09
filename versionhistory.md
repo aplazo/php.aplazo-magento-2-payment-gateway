@@ -27,3 +27,7 @@
 * Add new logical to the payment method
 ## 2.2.0
 * Optimize and fix js
+## 2.3.0
+* Fix webhook
+## 2.3.1
+* Fix thankyoupage
