@@ -133,11 +133,9 @@ class Client
             "merchantId" => $this->config->getMerchantId()
         ];
         $payload = json_encode($body);
-        $this->logger->debug($payload);
         $this->curl->setHeaders(['Content-Type' => 'application/json']);
         $this->curl->post($url, $payload);
         $result = $this->curl->getBody();
-        $this->logger->debug($result);
         if ($this->curl->getStatus() == 200) {
             return json_decode($result, true);
         }

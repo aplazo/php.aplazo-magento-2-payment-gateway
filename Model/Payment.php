@@ -63,6 +63,11 @@ class Payment extends \Magento\Payment\Model\Method\AbstractMethod
     protected $_isInitializeNeeded = true;
 
     /**
+     * @var session
+     */
+    protected $_coreSession;
+
+    /**
      * Payment constructor.
      * @param \Magento\Framework\Model\Context $context
      * @param \Magento\Framework\Registry $registry
@@ -83,6 +88,7 @@ class Payment extends \Magento\Payment\Model\Method\AbstractMethod
         \Magento\Framework\Api\AttributeValueFactory $customAttributeFactory,
         \Magento\Payment\Helper\Data $paymentData,
         \Magento\Framework\App\Config\ScopeConfigInterface $scopeConfig,
+        \Magento\Framework\Session\SessionManagerInterface $coreSession,
         \Magento\Payment\Model\Method\Logger $logger,
         \Magento\Directory\Model\CountryFactory $countryFactory,
         \Psr\Log\LoggerInterface $psrLogger,
@@ -102,6 +108,7 @@ class Payment extends \Magento\Payment\Model\Method\AbstractMethod
             $data,
             null
         );
+        $this->_coreSession = $coreSession;
         $this->_logger = $psrLogger;
         $this->_checkoutSession = $_checkoutSession;
     }
@@ -115,7 +122,7 @@ class Payment extends \Magento\Payment\Model\Method\AbstractMethod
     public function capture(\Magento\Payment\Model\InfoInterface $payment, $amount)
     {
         try {
-            $transactionID = uniqid('aplazo_');
+            $transactionID = 'aplazo_'.$this->getLoanId();
             $payment
                 ->setTransactionId($transactionID)
                 ->setIsTransactionClosed(0);
@@ -154,4 +161,31 @@ class Payment extends \Magento\Payment\Model\Method\AbstractMethod
     {
         return $this;
     }
+
+    /**
+	 * @return OrderId
+	 */
+	public function getOrderId()
+	{
+		$this->_coreSession->start();
+    	return $this->_coreSession->getOrderId();
+	}
+
+	/**
+	 * @return IncrementId
+	 */
+	public function getIncrementId()
+	{
+		$this->_coreSession->start();
+    	return $this->_coreSession->getIncrementId();
+	}
+
+	/**
+	 * @return LoanId
+	 */
+	public function getLoanId()
+	{
+		$this->_coreSession->start();
+    	return $this->_coreSession->getLoanId();
+	}
 }

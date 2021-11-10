@@ -5,6 +5,7 @@ namespace Aplazo\AplazoPayment\Controller\Index;
 use Magento\Checkout\Model\Session as CheckoutSession;
 use Magento\Framework\App\Action\Action;
 use Magento\Framework\App\Action\Context;
+use Magento\Framework\App\CsrfAwareActionInterface;
 use Magento\Framework\App\RequestInterface;
 use Magento\Framework\App\Request\InvalidRequestException;
 use Magento\Framework\Controller\ResultFactory;
@@ -19,7 +20,7 @@ use Magento\Quote\Model\QuoteManagement;
 use Magento\Sales\Model\Service\InvoiceService;
 use Psr\Log\LoggerInterface;
 
-class Success extends Action {
+class Success extends Action  implements CsrfAwareActionInterface{
 	const PARAM_NAME_TOKEN = 'token';
 
 	/**
@@ -106,55 +107,31 @@ class Success extends Action {
 	}
 
 	/**
-	 * @param RequestInterface $request
-	 * @return InvalidRequestException|null
-	 */
-	public function createCsrfValidationException(RequestInterface $request):  ? InvalidRequestException{
-		$result = $this->resultFactory->create(ResultFactory::TYPE_JSON);
-		$result->setHttpResponseCode(Exception::HTTP_BAD_REQUEST);
-		$result->setData([
-			"success" => false,
-			"message" => __('Invalid token'),
-			"data" => [
-				"order_id" => null,
-			],
-			"errors" => [],
-		]);
-
-		return new InvalidRequestException($result, [new Phrase('Invalid token')]);
-	}
-
-	/**
-	 * @param RequestInterface $request
-	 * @return bool|null
-	 */
-	public function validateForCsrf(RequestInterface $request) :  ? bool {
-		return true;
-	}
-
-	/**
 	 * @return \Magento\Framework\App\ResponseInterface|\Magento\Framework\Controller\ResultInterface|\Magento\Framework\View\Result\Layout
 	 */
 	public function execute() {
 		$result = $this->resultFactory->create(ResultFactory::TYPE_REDIRECT);
 		try {
-			$lastOrder = $this->_checkoutSession->getLastRealOrder();
-			if ($lastOrder->canInvoice()) {
-				$invoice = $this->invoiceService->prepareInvoice($lastOrder);
-				$invoice->setRequestedCaptureCase(\Magento\Sales\Model\Order\Invoice::CAPTURE_ONLINE);
-				$invoice->register();
-				$transaction = $this->transactionFactory->create()
-					->addObject($invoice)
-					->addObject($invoice->getOrder());
-
-				$transaction->save();
-			}
-			$result->setUrl('/checkout/onepage/success');
-			return $result;
+			$result->setUrl('/aplazopayment/index/successpage');
+			return $result;	
 		} catch (\Exception $e) {
 			$this->_logger->debug($e->getMessage());
 			$result->setUrl('/checkout/cart');
 			return $result;
 		}
 	}
-}
+
+	/**
+	 * @param RequestInterface $request
+	 * @return InvalidRequestException|null
+	 */
+	public function createCsrfValidationException(RequestInterface $request): ? InvalidRequestException
+    {
+        return null;
+    }
+
+    public function validateForCsrf(RequestInterface $request): ?bool
+    {
+        return true;
+    }
+} 

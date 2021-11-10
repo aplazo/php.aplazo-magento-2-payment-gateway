@@ -6,162 +6,256 @@ use Aplazo\AplazoPayment\Helper\Data;
 use Magento\Checkout\Model\Session as CheckoutSession;
 use Magento\Framework\App\Action\Action;
 use Magento\Framework\App\Action\Context;
+use Magento\Framework\App\Action\HttpPostActionInterface;
+use Magento\Framework\App\CsrfAwareActionInterface;
+use Magento\Framework\App\RequestInterface;
+use Magento\Framework\App\Request\InvalidRequestException;
 use Magento\Framework\App\Request\Http;
+use Magento\Framework\Controller\ResultFactory;
 use Magento\Framework\Controller\Result\JsonFactory;
 use Magento\Framework\Controller\Result\RedirectFactory;
 use Magento\Framework\DB\TransactionFactory;
 use Magento\Framework\Webapi\Exception;
+use Magento\Framework\Session\SessionManagerInterface;
 use Magento\Quote\Api\CartRepositoryInterface;
+use Magento\Quote\Api\CartManagementInterface;
 use Magento\Quote\Model\QuoteFactory;
 use Magento\Quote\Model\QuoteManagement;
+use Magento\Sales\Model\Order;
 use Magento\Sales\Model\Service\InvoiceService;
+use Magento\Sales\Api\OrderRepositoryInterface;
 use Psr\Log\LoggerInterface;
 
-class Webhook extends Action {
-	const PARAM_NAME_TOKEN = 'token';
+class Webhook extends Action implements HttpPostActionInterface, CsrfAwareActionInterface{
+    const PARAM_NAME_TOKEN = 'token';
+
+    /**
+     * @var RedirectFactory
+     */
+    protected $_redirectFactory;
+
+    /**
+     * @var JsonFactory
+     */
+    protected $_jsonFactory;
+
+    /**
+     * @var CheckoutSession
+     */
+    protected $_checkoutSession;
+
+    /**
+     * @var CartRepositoryInterface
+     */
+    protected $_quoteRepository;
 
 	/**
-	 * @var RedirectFactory
+	 *  @var CartManagementInterface
 	 */
-	protected $_redirectFactory;
+	protected $cartManagementInterface;
+    /**
+     * @var QuoteFactory
+     */
+    protected $_quoteFactory;
 
-	/**
-	 * @var JsonFactory
-	 */
-	protected $_jsonFactory;
+    /**
+     * @var LoggerInterface
+     */
+    protected $_logger;
 
-	/**
-	 * @var CheckoutSession
-	 */
-	protected $_checkoutSession;
+    /**
+     * @var QuoteManagement
+     */
+    protected $quoteManagement;
 
-	/**
-	 * @var CartRepositoryInterface
-	 */
-	protected $_quoteRepository;
+    /**
+     * @var InvoiceService
+     */
+    protected $invoiceService;
 
-	/**
-	 * @var QuoteFactory
-	 */
-	protected $_quoteFactory;
+    /**
+     * @var TransactionFactory
+     */
+    protected $transactionFactory;
 
-	/**
-	 * @var LoggerInterface
-	 */
-	protected $_logger;
+    /**
+     * @var SessionManagerInterface
+     */
+    protected $coreSession;
 
-	/**
-	 * @var QuoteManagement
-	 */
-	protected $quoteManagement;
+    /**
+     * @var Http
+     */
+    protected $http;
 
-	/**
-	 * @var InvoiceService
-	 */
-	protected $invoiceService;
+    /**
+     * @var Data
+     */
+    protected $aplazoHelper;
 
-	/**
-	 * @var TransactionFactory
-	 */
-	protected $transactionFactory;
+    /**
+     * @var Order
+     */
+    protected $orderModel;
 
-	/**
-	 * @var Http
-	 */
-	protected $http;
+    /**
+     * @var OrderRepositoryInterface
+     */
+    protected $orderRepository;
 
-	/**
-	 * @var Data
-	 */
-	protected $aplazoHelper;
+    /**
+     * Success constructor.
+     * @param Context $context
+     * @param ResultFactory $resultFactory
+     * @param RedirectFactory $redirectFactory
+     * @param JsonFactory $jsonFactory
+     * @param CheckoutSession $checkoutSession
+     * @param CartRepositoryInterface $quoteRepository
+	 * @param CartManagementInterface $cartManagementInterface
+     * @param QuoteFactory $quoteFactory
+     * @param LoggerInterface $logger
+     * @param QuoteManagement $quoteManagement
+     * @param InvoiceService $invoiceService
+     * @param TransactionFactory $transactionFactory
+     * @param SessionManagerInterface $coreSession
+     * @param Data $aplazoHelper
+     * @param OrderModel $orderModel
+     * @param OrderRepositoryInterface $orderRepository
+     */
+    public function __construct(
+        Context $context,
+        ResultFactory $resultFactory,
+        RedirectFactory $redirectFactory,
+        JsonFactory $jsonFactory,
+        CheckoutSession $checkoutSession,
+        CartRepositoryInterface $quoteRepository,
+		CartManagementInterface $cartManagementInterface,
+        QuoteFactory $quoteFactory,
+        LoggerInterface $logger,
+        QuoteManagement $quoteManagement,
+        InvoiceService $invoiceService,
+        TransactionFactory $transactionFactory,
+        SessionManagerInterface $coreSession,
+        Http $http,
+        Data $aplazoHelper,
+        Order $orderModel,
+        OrderRepositoryInterface $orderRepository 
+    ) {
+        $this->_logger = $logger;
+        $this->_quoteFactory = $quoteFactory;
+        $this->_quoteRepository = $quoteRepository;
+        $this->_checkoutSession = $checkoutSession;
+        $this->resultFactory = $resultFactory;
+        $this->_jsonFactory = $jsonFactory;
+        $this->_redirectFactory = $redirectFactory;
+        $this->quoteManagement = $quoteManagement;
+		$this->cartManagementInterface = $cartManagementInterface;
+        $this->invoiceService = $invoiceService;
+        $this->transactionFactory = $transactionFactory;
+        $this->_coreSession = $coreSession;
+        $this->http = $http;
+        $this->aplazoHelper = $aplazoHelper;
+        $this->orderModel = $orderModel;
+        $this->orderRepository = $orderRepository;
+        parent::__construct($context);
+    }
 
-	/**
-	 * Success constructor.
-	 * @param Context $context
-	 * @param RedirectFactory $redirectFactory
-	 * @param JsonFactory $jsonFactory
-	 * @param CheckoutSession $checkoutSession
-	 * @param CartRepositoryInterface $quoteRepository
-	 * @param QuoteFactory $quoteFactory
-	 * @param LoggerInterface $logger
-	 * @param QuoteManagement $quoteManagement
-	 * @param InvoiceService $invoiceService
-	 * @param TransactionFactory $transactionFactory
-	 * @param Data $aplazoHelper
+    /**
+     * @return
+     * Request Post Data
+     */
+    public function getPost() {
+        return $this->http->getPost();
+    }
+
+    /**
+     * @return
+     * Response IF order is correct CODE 200 ELSE CODE 500
+     */
+    public function execute() {
+        $entityBody = file_get_contents('php://input');
+        $params = json_decode($entityBody,true);
+        if($params['status'] == "Activo"){
+            try {
+                $this->setOrderId($params['extOrderId']);
+                $this->setIncrementId($params['cartId']);
+                $this->setLoanId($params['loanId']);
+                $quote = $this->_quoteRepository->get(intval($params['extOrderId']));
+				$quote->setPaymentMethod('aplazo_payment');
+				if($quote->getCustomer()->getId()==""){
+					$quote->setCustomerIsGuest(true);
+					$quote->setCustomerEmail($quote->getBillingAddress()->getEmail())
+					->setCustomerFirstname($quote->getBillingAddress()->getFirstName())
+					->setCustomerLastname($quote->getBillingAddress()->getLastName());
+					$quote->save();
+				}
+                $order_id = $this->cartManagementInterface->placeOrder($quote->getId());
+                $order = $this->orderRepository->get($order_id);
+                $this->_logger->debug('after get order');
+                if ($order->canInvoice()) {
+                    $this->_logger->debug('try to invoice');
+                    $invoice = $this->invoiceService->prepareInvoice($order);
+                    $invoice->setRequestedCaptureCase(\Magento\Sales\Model\Order\Invoice::CAPTURE_ONLINE);
+                    $invoice->register();
+                    $transaction = $this->transactionFactory->create()
+                        ->addObject($invoice)
+                        ->addObject($invoice->getOrder());
+                    $transaction->save();
+                }
+                $response_body = array(
+					'code' => 200,
+					'orderId' => $order_id,
+					'message' => 'The order was created successfully',
+                );
+                $response = json_encode($response_body, JSON_PRETTY_PRINT);
+                echo $response;
+                header("Content-type:application/json");
+            } catch (\Exception $e) {
+                $response_body = array(
+					'code' => 500,
+					'message' => $e->getMessage(),
+                );
+                $response = json_encode($response_body, JSON_PRETTY_PRINT);
+                echo $response;
+                header("Content-type:application/json");
+            }
+        }
+    }
+
+    /**
+	 * @param OrderId
 	 */
-	public function __construct(
-		Context $context,
-		RedirectFactory $redirectFactory,
-		JsonFactory $jsonFactory,
-		CheckoutSession $checkoutSession,
-		CartRepositoryInterface $quoteRepository,
-		QuoteFactory $quoteFactory,
-		LoggerInterface $logger,
-		QuoteManagement $quoteManagement,
-		InvoiceService $invoiceService,
-		TransactionFactory $transactionFactory,
-		Http $http,
-		Data $aplazoHelper
-	) {
-		$this->_logger = $logger;
-		$this->_quoteFactory = $quoteFactory;
-		$this->_quoteRepository = $quoteRepository;
-		$this->_checkoutSession = $checkoutSession;
-		$this->_jsonFactory = $jsonFactory;
-		$this->_redirectFactory = $redirectFactory;
-		$this->quoteManagement = $quoteManagement;
-		$this->invoiceService = $invoiceService;
-		$this->transactionFactory = $transactionFactory;
-		$this->http = $http;
-		$this->aplazoHelper = $aplazoHelper;
-		parent::__construct($context);
+	public function setOrderId($orderId)
+	{
+		$this->_coreSession->start();
+        $this->_coreSession->setOrderId($orderId);
 	}
 
 	/**
-	 * @return
-	 * Request Post Data
+	 * @param IncrementId
 	 */
-	public function getPost() {
-		return $this->http->getPost();
+	public function setIncrementId($incrementId)
+	{
+		$this->_coreSession->start();
+        $this->_coreSession->setIncrementId($incrementId);
 	}
 
 	/**
-	 * @return
-	 * Response IF order is correct CODE 200 ELSE CODE 500
+	 * @param LoanId
 	 */
-	public function execute() {
-		$this->_logger->debug('webhook');
-		$params = $this->getPost();
-		try {
-			$quote = $this->quoteFactory->create()->load($params['extOrderId']);
-			$createOrder = $this->_quoteFactory->createMageOrder($quote);
-			$this->_logger->debug('toorder');
-			$lastOrder = $params['cartid'];
-			$this->_logger->debug($lastOrder);
-			if ($lastOrder->canInvoice()) {
-				$invoice = $this->invoiceService->prepareInvoice($lastOrder);
-				$invoice->setRequestedCaptureCase(\Magento\Sales\Model\Order\Invoice::CAPTURE_ONLINE);
-				$invoice->register();
-				$transaction = $this->transactionFactory->create()
-					->addObject($invoice)
-					->addObject($invoice->getOrder());
-				$transaction->save();
-			}
-			$response_body = array(
-				'code' => 200,
-				'orderId' => $lastOrder,
-				'message' => 'The order was created successfully',
-			);
-			$response = json_encode($response_body);
-			return $response;
-		} catch (\Exception $e) {
-			$this->_logger->debug($e->getMessage());
-			$response_body = array(
-				'code' => 500,
-				'message' => $e->getMessage(),
-			);
-			$response = json_encode($response_body);
-			return $response;
-		}
+	public function setLoanId($loanId)
+	{
+		$this->_coreSession->start();
+        $this->_coreSession->setLoanId($loanId);
 	}
-}
+
+    public function createCsrfValidationException(RequestInterface $request): ? InvalidRequestException
+    {
+        return null;
+    }
+
+    public function validateForCsrf(RequestInterface $request): ?bool
+    {
+        return true;
+    }
+} 
