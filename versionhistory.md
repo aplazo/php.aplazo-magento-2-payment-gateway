@@ -33,3 +33,5 @@
 * Fix webhook
 ## 2.3.1
 * Fix thankyoupage
+## 2.3.2
+* Fix minicart and order number
