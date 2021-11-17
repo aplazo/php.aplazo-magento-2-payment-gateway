@@ -235,7 +235,7 @@ class Client
                 "title" => $quote->getShippingAddress()->getShippingDescription()
             ],
             "shopId" => $this->storeManager->getStore()->getName(),
-            "successUrl" => $this->storeManager->getStore()->getUrl('aplazopayment/index/success'),
+            "successUrl" => $this->storeManager->getStore()->getUrl('aplazopayment/index/successpage?orderId='.$this->updateReservedOrderId()),
             "webHookUrl" => $this->storeManager->getStore()->getUrl('aplazopayment/index/webhook'),
             "cartUrl" => $this->storeManager->getStore()->getUrl('checkout/cart/'),
             "taxes" => [

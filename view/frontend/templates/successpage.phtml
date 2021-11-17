@@ -4,6 +4,15 @@
  * @var \Aplazo\AplazoPayment\Block\Successpage $block
  */
 ?>
+<script>
+    require([
+        'Magento_Customer/js/customer-data'
+    ], function (customerData) {
+        var sections = ['cart'];
+        customerData.invalidate(sections);
+        customerData.reload(sections, true);
+    });
+</script>
 <div class="checkout-success">
     <h1><?= $block->escapeHtml(__('Thank you for your purchase!')) ?></h1>
     <h2><?= $block->escapeHtml(__('Your order has been placed and will be processed as soon as posible.')) ?></h2>
