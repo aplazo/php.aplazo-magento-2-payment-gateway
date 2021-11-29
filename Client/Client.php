@@ -209,7 +209,7 @@ class Client {
 			"extOrderId" => $quote->getId(),
 			"buyer" => [
 				"addressLine" => $quote->getShippingAddress()->getCity(),
-				"email" => $quote->getShippingAddress()->getFirstname(),
+				"email" => $quote->getShippingAddress()->getEmail(),
 				"firstName" => $quote->getShippingAddress()->getFirstname(),
 				"lastName" => $quote->getShippingAddress()->getLastname(),
 				"phone" => $quote->getShippingAddress()->getTelephone(),
