@@ -217,6 +217,8 @@ class Webhook extends Action implements HttpPostActionInterface, CsrfAwareAction
 				);
 				$response = json_encode($response_body, JSON_PRETTY_PRINT);
 				http_response_code(500);
+				header("HTTP/1.1 500 Internal Server Error");
+				header("code : 500");
 				echo $response;
 				header("Content-type:application/json");
 			}
