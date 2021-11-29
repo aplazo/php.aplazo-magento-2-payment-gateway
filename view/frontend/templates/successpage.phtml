@@ -17,7 +17,7 @@
     <h1><?= $block->escapeHtml(__('Thank you for your purchase!')) ?></h1>
     <h2><?= $block->escapeHtml(__('Your order has been placed and will be processed as soon as posible.')) ?></h2>
     <?php //if ($block->getOrderId()) :?>
-            <p><?= $block->escapeHtml(__('Your order # is: ')) ?><b><?php echo $block->getIncrementId(); ?></b></p>
+            <p><?= $block->escapeHtml(__('Your order # is: ')) ?><b><?php echo str_replace ( '/', '', $block->getIncrementId()); ?></b></p>
             <p><?= $block->escapeHtml(__('We\'ll email you an order confirmation with details and tracking info.')) ?></p>
     <?php //endif;?>
 
