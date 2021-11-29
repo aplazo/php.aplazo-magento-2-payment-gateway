@@ -184,9 +184,9 @@ class Webhook extends Action implements HttpPostActionInterface, CsrfAwareAction
 				$quote->setPaymentMethod('aplazo_payment');
 				if ($quote->getCustomer()->getId() == "") {
 					$quote->setCustomerIsGuest(true);
-					$quote->setCustomerEmail($quote->getShippingAddress()->getEmail())
-						->setCustomerFirstname($quote->getShippingAddress()->getFirstName())
-						->setCustomerLastname($quote->getShippingAddress()->getLastName());
+					$quote->setCustomerEmail($quote->getBillingAddress()->getEmail())
+						->setCustomerFirstname($quote->getBillingAddress()->getFirstName())
+						->setCustomerLastname($quote->getBillingAddress()->getLastName());
 					$quote->save();
 				}
 				$order_id = $this->cartManagementInterface->placeOrder($quote->getId());
@@ -216,6 +216,7 @@ class Webhook extends Action implements HttpPostActionInterface, CsrfAwareAction
 					'message' => $e->getMessage(),
 				);
 				$response = json_encode($response_body, JSON_PRETTY_PRINT);
+				http_response_code(500);
 				echo $response;
 				header("Content-type:application/json");
 			}
