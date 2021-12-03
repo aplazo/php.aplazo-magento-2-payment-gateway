@@ -156,7 +156,6 @@ class Client {
 		$body = $this->prepareCreateParams($quote);
 		$payload = json_encode($body);
 		$this->logger->debug($payload);
-		exit();
 		$this->curl->post($url, $payload);
 		$result = $this->curl->getBody();
 		$this->logger->debug($result);
