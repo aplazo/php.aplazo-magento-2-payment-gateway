@@ -1,19 +1,16 @@
 {
-    "name": "aplazo/aplazopayment",
-    "description": "Aplazo Payment Gateway for Magento 2",
-    "type": "magento2-module",
-    "version": "2.3.3",
-    "license": [
-        "OSL-3.0"
-    ],
-    "extra": {
-        "map": [
-            [
-                "*",
-                "Aplazo/AplazoPayment"
-            ]
-        ]
+  "name": "aplazo/aplazopayment",
+  "description": "Aplazo Payment Gateway for Magento 2",
+  "type": "magento2-module",
+  "version": "2.3.3",
+  "license": [
+    "OSL-3.0",
+    "AFL-3.0"
+  ],
+  "autoload": {
+    "files": [ "registration.php" ],
+    "psr-4": {
+      "Aplazo\\AplazoPayment\\": ""
     }
+  }
 }
-
-
