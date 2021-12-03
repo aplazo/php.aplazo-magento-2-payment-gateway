@@ -37,3 +37,5 @@
 * Fix minicart and order number
 ## 2.3.3
 * Fix customer email
+## 2.3.4
+* Fix composer.json
