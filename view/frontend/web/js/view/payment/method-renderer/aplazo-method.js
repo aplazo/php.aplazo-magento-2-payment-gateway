@@ -1,11 +1,13 @@
 define([
     'Magento_Payment/js/view/payment/cc-form',
     'jquery',
-    'mage/url'
+    'mage/url',
+    'Magento_Checkout/js/model/quote'
 ], function (
     Component,
     $,
-    url
+    url,
+    quote
 ) {
     'use strict';
 
@@ -38,8 +40,9 @@ define([
         continueWithAplazo: function (data, event) {
             let _this = this;
             jQuery('body').loader('show');
+            var email = quote.guestEmail;
             $.ajax({
-                url: url.build('aplazopayment/index/onplaceorder'),
+                url: url.build('aplazopayment/index/onplaceorder?email='+email),
                 type: 'GET',
                 cache: false,
 

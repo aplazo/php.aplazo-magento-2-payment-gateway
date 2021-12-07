@@ -147,13 +147,13 @@ class Client {
 	 * @param $quote
 	 * @return bool|string
 	 */
-	public function create($authHeader, $quote) {
+	public function create($authHeader, $quote, $email) {
 		$url = $this->makeUrl("create");
 
 		$headers = $authHeader;
 		$headers['Content-Type'] = 'application/json';
 		$this->curl->setHeaders($headers);
-		$body = $this->prepareCreateParams($quote);
+		$body = $this->prepareCreateParams($quote, $email);
 		$payload = json_encode($body);
 		$this->logger->debug($payload);
 		$this->curl->post($url, $payload);
@@ -183,7 +183,7 @@ class Client {
 	 * @return array
 	 * @throws \Magento\Framework\Exception\NoSuchEntityException
 	 */
-	protected function prepareCreateParams(Quote $quote) {
+	protected function prepareCreateParams(Quote $quote, $email) {
 		$products = [];
 		foreach ($quote->getAllVisibleItems() as $quoteItem) {
 			if ($quoteItem->getProduct()->getTypeId() == 'configurable') {
@@ -209,7 +209,7 @@ class Client {
 			"extOrderId" => $quote->getId(),
 			"buyer" => [
 				"addressLine" => $quote->getShippingAddress()->getCity(),
-				"email" => $quote->getShippingAddress()->getEmail(),
+				"email" => $email,
 				"firstName" => $quote->getShippingAddress()->getFirstname(),
 				"lastName" => $quote->getShippingAddress()->getLastname(),
 				"phone" => $quote->getShippingAddress()->getTelephone(),

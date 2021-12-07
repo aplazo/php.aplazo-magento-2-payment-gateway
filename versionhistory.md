@@ -39,3 +39,7 @@
 * Fix customer email
 ## 2.3.4
 * Fix composer.json
+## 2.4.0
+* Fix customer email data to magento 2.3
+* Remove cronjob code
+* Widgets Fix
