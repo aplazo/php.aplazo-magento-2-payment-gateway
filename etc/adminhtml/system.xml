@@ -19,9 +19,6 @@
                     <label>Api token</label>
                     <backend_model>Magento\Config\Model\Config\Backend\Encrypted</backend_model>
                 </field>
-                <field id="order_cancellation_time" translate="label" type="text" sortOrder="35" showInDefault="1" showInWebsite="1" showInStore="0">
-                    <label>Order cancellation time</label>
-                </field>
                 <field id="merchant_id" translate="label" type="obscure" sortOrder="40" showInDefault="1" showInWebsite="1" showInStore="0">
                     <label>Merchant_id</label>
                     <backend_model>Magento\Config\Model\Config\Backend\Encrypted</backend_model>

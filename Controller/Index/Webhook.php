@@ -184,16 +184,14 @@ class Webhook extends Action implements HttpPostActionInterface, CsrfAwareAction
 				$quote->setPaymentMethod('aplazo_payment');
 				if ($quote->getCustomer()->getId() == "") {
 					$quote->setCustomerIsGuest(true);
-					$quote->setCustomerEmail($quote->getBillingAddress()->getEmail())
+					$quote->setCustomerEmail($quote->getCustomerEmail())
 						->setCustomerFirstname($quote->getBillingAddress()->getFirstName())
 						->setCustomerLastname($quote->getBillingAddress()->getLastName());
 					$quote->save();
 				}
 				$order_id = $this->cartManagementInterface->placeOrder($quote->getId());
 				$order = $this->orderRepository->get($order_id);
-				$this->_logger->debug('after get order');
 				if ($order->canInvoice()) {
-					$this->_logger->debug('try to invoice');
 					$invoice = $this->invoiceService->prepareInvoice($order);
 					$invoice->setRequestedCaptureCase(\Magento\Sales\Model\Order\Invoice::CAPTURE_ONLINE);
 					$invoice->register();
