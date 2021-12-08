@@ -112,21 +112,21 @@ class Onplaceorder extends Action {
 			} else {
 				if ($auth && is_array($auth)) {
 					$result = $this->client->create($auth, $quote, $email);
-					if (isset($result['error']) && $result['error'] == 1) {
+					if (isset($result->error) && $result->error == 1) {
 						$data = [
 							'error' => true,
-							'message' => __($result['message']),
+							'message' => __($result->message),
 							'transactionId' => null,
 						];
-					}
-					$result_decode = json_decode($result, true);
-					$redirectUrl = $result_decode['url'];
-					if ($redirectUrl) {
-						$data = [
-							'error' => false,
-							'message' => '',
-							'redirecturl' => $redirectUrl,
-						];
+					} else {
+						$redirectUrl = $result->url;
+						if ($redirectUrl) {
+							$data = [
+								'error' => false,
+								'message' => '',
+								'redirecturl' => $redirectUrl,
+							];
+						}
 					}
 				}
 			}
