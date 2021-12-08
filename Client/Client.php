@@ -159,15 +159,8 @@ class Client {
 		$this->curl->post($url, $payload);
 		$result = $this->curl->getBody();
 		$this->logger->debug($result);
-		if ($this->curl->getStatus() == 200) {
-			return $result;
-		} elseif ($this->curl->getStatus() == 100 && strpos($result, 'https://') === 0) {
-			return $result;
-		} else {
-			$response = json_decode($result, true);
-			$message = $this->errorCatalog((strval($response['status'])));
-			return array("error" => 1, "message" => $message);
-		}
+		$resultDecode = json_decode($result);
+		return $resultDecode;
 	}
 
 	/**

@@ -43,3 +43,5 @@
 * Fix customer email data to magento 2.3
 * Remove cronjob code
 * Widgets Fix
+## 2.4.1
+* Fix header status code from curl
