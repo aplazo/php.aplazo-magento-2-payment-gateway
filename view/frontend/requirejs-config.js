@@ -1,8 +1,7 @@
 var config = {
     map: {
         '*': {
-            aplazo: 'Aplazo_AplazoPayment/js/aplazo',
+            aplazo: 'Aplazo_AplazoPayment/js/view/payment/method-render/aplazo-payments',
         }
     },
-    deps: ['Aplazo_AplazoPayment/js/aplazo']
 };
