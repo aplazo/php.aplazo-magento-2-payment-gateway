@@ -45,3 +45,5 @@
 * Widgets Fix
 ## 2.4.1
 * Fix header status code from curl
+## 2.4.2
+* change declaration into require-config.js
