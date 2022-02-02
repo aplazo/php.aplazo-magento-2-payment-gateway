@@ -1,5 +1,5 @@
 <?php 
-    $show = $this->helper('Aplazo\AplazoPayment\Helper\Data')->getConfig('payment/aplazo_payment/show_on_product');
+    $show = $this->helper('Aplazo\AplazoPayment\Helper\Data')->getConfig('payment/aplazo_payment/show_on_product_page');
     if($show == 1){
         $myBlock = \Magento\Framework\App\ObjectManager::getInstance()->get('Aplazo\AplazoPayment\Block\AplazoPayment');
         if ($currentProduct = $myBlock->getCurrentProduct()) {
