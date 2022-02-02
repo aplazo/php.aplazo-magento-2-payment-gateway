@@ -47,3 +47,6 @@
 * Fix header status code from curl
 ## 2.4.2
 * change declaration into require-config.js
+## 2.4.3
+* fix widget functionality
+* add new pop up and logo style
