@@ -49,4 +49,5 @@
 * change declaration into require-config.js
 ## 2.4.3
 * fix widget functionality
-* add new pop up and logo style
+## 2.4.4
+* no cache on webhook controller

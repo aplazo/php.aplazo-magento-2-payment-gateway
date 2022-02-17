@@ -174,6 +174,7 @@ class Webhook extends Action implements HttpPostActionInterface, CsrfAwareAction
 	 */
 	public function execute() {
 		$entityBody = file_get_contents('php://input');
+		$page->setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0', true);
 		$params = json_decode($entityBody, true);
 		if ($params['status'] == "Activo") {
 			try {
