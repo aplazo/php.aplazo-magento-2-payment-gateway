@@ -12,6 +12,7 @@ use Magento\Newsletter\Model\Subscriber;
 use Magento\Quote\Model\Quote;
 use Magento\Store\Model\StoreManagerInterface;
 use Psr\Log\LoggerInterface;
+use Aplazo\AplazoPayment\Logger\Logger as AplazoLogger;
 
 class Client {
 
@@ -96,6 +97,12 @@ class Client {
 	private $objectManager;
 
 	/**
+     * Logging instance
+     * @var Aplazo\AplazoPayment\Logger\Logger
+     */
+    protected $aplazoLogger;
+
+	/**
 	 * Client constructor.
 	 * @param Config $config
 	 * @param Curl $curl
@@ -105,6 +112,7 @@ class Client {
 	 * @param ImageFactory $imageHelperFactory
 	 */
 	public function __construct(
+		AplazoLogger $aplazoLogger,
 		Config $config,
 		Curl $curl,
 		LoggerInterface $logger,
@@ -121,23 +129,38 @@ class Client {
 		$this->imageHelperFactory = $imageHelperFactory;
 		$this->domain = $this->config->getBaseApiUrl();
 		$this->objectManager = $objectManager;
+		$this->aplazoLogger = $aplazoLogger;
 	}
 
 	public function auth() {
+		$enableLog = $this->config->getEnableLog();
 		$url = $this->makeUrl("auth");
 		$body = [
 			"apiToken" => $this->config->getApiToken(),
 			"merchantId" => $this->config->getMerchantId(),
 		];
 		$payload = json_encode($body);
+		if($enableLog){
+			$this->aplazoLogger->info('====Auth Request===');
+			$this->aplazoLogger->info($payload);
+		}
 		$this->curl->setHeaders(['Content-Type' => 'application/json']);
 		$this->curl->post($url, $payload);
 		$result = $this->curl->getBody();
+		if($enableLog){
+			$this->aplazoLogger->info('====Auth Response===');
+			$this->aplazoLogger->info($this->curl->getStatus());
+			$this->aplazoLogger->info($result);
+		}
 		if ($this->curl->getStatus() == 200) {
 			return json_decode($result, true);
 		} else {
 			$response = json_decode($result, true);
 			$message = $this->errorCatalog((strval($response['status'])));
+			if($enableLog){
+				$this->aplazoLogger->info('====Auth Error===');
+				$this->aplazoLogger->info($message);
+			}
 			return array("error" => 1, "message" => $message);
 		}
 	}
@@ -148,6 +171,8 @@ class Client {
 	 * @return bool|string
 	 */
 	public function create($authHeader, $quote, $email) {
+		$enableLog = $this->config->getEnableLog();
+
 		$url = $this->makeUrl("create");
 
 		$headers = $authHeader;
@@ -155,10 +180,17 @@ class Client {
 		$this->curl->setHeaders($headers);
 		$body = $this->prepareCreateParams($quote, $email);
 		$payload = json_encode($body);
-		$this->logger->debug($payload);
+		if($enableLog){
+			$this->aplazoLogger->info('====Create Request===');
+			$this->aplazoLogger->info($payload);
+		}
 		$this->curl->post($url, $payload);
 		$result = $this->curl->getBody();
-		$this->logger->debug($result);
+		if($enableLog){
+			$this->aplazoLogger->info('====Create Response===');
+			$this->aplazoLogger->info($result);
+		}
+		
 		$resultDecode = json_decode($result);
 		return $resultDecode;
 	}

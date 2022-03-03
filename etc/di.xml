@@ -3,4 +3,18 @@
     <type name="Magento\Quote\Observer\SubmitObserver">
         <plugin name="stop_sending_order_email_for_custom_payment" type="Aplazo\AplazoPayment\Plugin\Quote\Observer\SubmitObserver" sortOrder="1"/>
     </type>
+    <!--Logger-->
+    <type name="Aplazo\AplazoPayment\Logger\Handler">
+        <arguments>
+            <argument name="filesystem" xsi:type="object">Magento\Framework\Filesystem\Driver\File</argument>
+        </arguments>
+    </type>
+    <type name="Aplazo\AplazoPayment\Logger\Logger">
+        <arguments>
+            <argument name="name" xsi:type="string">aplazoLogger</argument>
+            <argument name="handlers"  xsi:type="array">
+                <item name="system" xsi:type="object">Aplazo\AplazoPayment\Logger\Handler</item>
+            </argument>
+        </arguments>
+    </type>
 </config>

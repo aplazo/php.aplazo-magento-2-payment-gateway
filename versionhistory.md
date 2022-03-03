@@ -53,3 +53,5 @@
 * no cache on webhook controller
 ## 2.4.5
 * fix js file
+## 2.4.6
+* add logger
