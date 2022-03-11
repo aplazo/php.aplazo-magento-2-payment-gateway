@@ -27,7 +27,7 @@ class Client {
 	protected $scopeConfig;
 
 	/**
-	 * @var LoggerInterface
+	 * @var AplazoLogger
 	 */
 	protected $logger;
 
@@ -115,7 +115,7 @@ class Client {
 		AplazoLogger $aplazoLogger,
 		Config $config,
 		Curl $curl,
-		LoggerInterface $logger,
+		//LoggerInterface $logger,
 		StoreManagerInterface $storeManager,
 		ManagerInterface $messageManager,
 		ImageFactory $imageHelperFactory,
@@ -124,33 +124,34 @@ class Client {
 		$this->storeManager = $storeManager;
 		$this->config = $config;
 		$this->curl = $curl;
-		$this->logger = $logger;
+		$this->logger = $aplazoLogger;
 		$this->messageManager = $messageManager;
 		$this->imageHelperFactory = $imageHelperFactory;
 		$this->domain = $this->config->getBaseApiUrl();
 		$this->objectManager = $objectManager;
-		$this->aplazoLogger = $aplazoLogger;
+		//$this->aplazoLogger = $aplazoLogger;
 	}
 
 	public function auth() {
 		$enableLog = $this->config->getEnableLog();
 		$url = $this->makeUrl("auth");
+		
 		$body = [
 			"apiToken" => $this->config->getApiToken(),
 			"merchantId" => $this->config->getMerchantId(),
 		];
 		$payload = json_encode($body);
 		if($enableLog){
-			$this->aplazoLogger->info('====Auth Request===');
-			$this->aplazoLogger->info($payload);
+			$this->logger->info('====Auth Request===');
+			$this->logger->info($payload);
 		}
 		$this->curl->setHeaders(['Content-Type' => 'application/json']);
 		$this->curl->post($url, $payload);
 		$result = $this->curl->getBody();
 		if($enableLog){
-			$this->aplazoLogger->info('====Auth Response===');
-			$this->aplazoLogger->info($this->curl->getStatus());
-			$this->aplazoLogger->info($result);
+			$this->logger->info('====Auth Response===');
+			$this->logger->info($this->curl->getStatus());
+			$this->logger->info($result);
 		}
 		if ($this->curl->getStatus() == 200) {
 			return json_decode($result, true);
@@ -158,8 +159,8 @@ class Client {
 			$response = json_decode($result, true);
 			$message = $this->errorCatalog((strval($response['status'])));
 			if($enableLog){
-				$this->aplazoLogger->info('====Auth Error===');
-				$this->aplazoLogger->info($message);
+				$this->logger->info('====Auth Error===');
+				$this->logger->info($message);
 			}
 			return array("error" => 1, "message" => $message);
 		}
@@ -181,14 +182,14 @@ class Client {
 		$body = $this->prepareCreateParams($quote, $email);
 		$payload = json_encode($body);
 		if($enableLog){
-			$this->aplazoLogger->info('====Create Request===');
-			$this->aplazoLogger->info($payload);
+			$this->logger->info('====Create Request===');
+			$this->logger->info($payload);
 		}
 		$this->curl->post($url, $payload);
 		$result = $this->curl->getBody();
 		if($enableLog){
-			$this->aplazoLogger->info('====Create Response===');
-			$this->aplazoLogger->info($result);
+			$this->logger->info('====Create Response===');
+			$this->logger->info($result);
 		}
 		
 		$resultDecode = json_decode($result);
@@ -229,6 +230,8 @@ class Client {
 			];
 			$products[] = $productArr;
 		}
+		$storeCode = $this->storeManager->getStore()->getCode();
+		$webhookUrl = 'rest/'.$storeCode.'/V1/aplazopayment/updateOrder';
 		return [
 			"cartId" => $this->updateReservedOrderId(),
 			"extOrderId" => $quote->getId(),
@@ -252,7 +255,7 @@ class Client {
 			],
 			"shopId" => $this->storeManager->getStore()->getName(),
 			"successUrl" => $this->storeManager->getStore()->getUrl('aplazopayment/index/successpage?orderId=' . $this->updateReservedOrderId()),
-			"webHookUrl" => $this->storeManager->getStore()->getUrl('aplazopayment/index/webhook'),
+			"webHookUrl" => $this->storeManager->getStore()->getUrl($webhookUrl),
 			"cartUrl" => $this->storeManager->getStore()->getUrl('checkout/cart/'),
 			"taxes" => [
 				"price" => $quote->getShippingAddress()->getTaxAmount(),
