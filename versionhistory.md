@@ -57,3 +57,6 @@
 * add logger
 ## 2.4.7
 * no cache fix varnish
+## 2.5.0
+* create webapi to listen Aplazo
+* add custom logs from Aplazo
