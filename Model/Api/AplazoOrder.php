@@ -198,6 +198,8 @@ class AplazoOrder
                             )
     {
         $currentToken = $this->config->getApiToken();
+
+		$version = floatval( $this->aplazoHelper->getMageVersion() );
         
         if( $currentToken != $merchantApiToken ){
             $dataResponse = [
@@ -215,11 +217,9 @@ class AplazoOrder
                 $this->setLoanId($loanId);
                 $quote = $this->_quoteRepository->get(intval($extOrderId));
 
-                //Magento version
-                //$quote->setPaymentMethod('aplazo_payment');
-                $quote->getPayment()->importData(['method' => 'aplazo_payment']);
-
-                $this->logger->info($quote->getPaymentMethod());
+				//$quote->setPaymentMethod('aplazo_payment');
+				$quote->getPayment()->importData(['method' => 'aplazo_payment']);
+                
                 
                 if ($quote->getCustomer()->getId() == "") {
 					$quote->setCustomerIsGuest(true);
@@ -230,11 +230,24 @@ class AplazoOrder
 				}
 
                 //Magento version
-                //$order = $this->quoteManagement->submit($quote);
-                //$order_id = $order->getId();
+				//Magento version
+				switch( $version ){
+					case 2.3:
+						$order = $this->quoteManagement->submit($quote);
+                		$order_id = $order->getId();
+						break;
+					case 2.4:
+						$order_id = $this->cartManagementInterface->placeOrder($quote->getId());
+                		$order = $this->orderRepository->get($order_id);
+						break;
+					default:
+						$order_id = $this->cartManagementInterface->placeOrder($quote->getId());
+						$order = $this->orderRepository->get($order_id);
+						break;
+				}
+                
 
-                $order_id = $this->cartManagementInterface->placeOrder($quote->getId());
-                $order = $this->orderRepository->get($order_id);
+                
 
                 if ($order->canInvoice()) {
 					$invoice = $this->invoiceService->prepareInvoice($order);

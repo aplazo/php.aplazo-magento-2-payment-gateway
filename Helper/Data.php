@@ -13,6 +13,7 @@ use Magento\Quote\Model\QuoteManagement;
 use Magento\Customer\Model\CustomerFactory;
 use Magento\Customer\Api\CustomerRepositoryInterface;
 use Magento\Sales\Model\Service\OrderService;
+use Magento\Framework\App\ProductMetadataInterface;
 
 class Data extends AbstractHelper
 {
@@ -79,6 +80,7 @@ class Data extends AbstractHelper
      * @param Context $context
      */
     public function __construct(
+        ProductMetadataInterface $productMetadata,
         Session $customerSession,
         Context $context,
         StoreManagerInterface $storeManager,
@@ -99,6 +101,8 @@ class Data extends AbstractHelper
         $this->customerFactory = $customerFactory;
         $this->customerRepository = $customerRepository;
         $this->orderService = $orderService;
+        $this->productMetadata = $productMetadata;
+
         parent::__construct($context);
     }
 
@@ -236,6 +240,10 @@ class Data extends AbstractHelper
             $result=['error'=>1,'msg'=>'Something was wrong'];
         }
         return $result;
+    }
+
+    public function getMageVersion(){
+        return $this->productMetadata->getVersion();
     }
 
 }
