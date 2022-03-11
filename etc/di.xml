@@ -18,4 +18,8 @@
         </arguments>
     </type>
     <preference for="Aplazo\AplazoPayment\Api\OrderInterface" type="Aplazo\AplazoPayment\Model\Api\AplazoOrder"/>
+
+    <type name="Magento\Quote\Api\ChangeQuoteControlInterface">
+        <plugin name="UpdateQuoteWhenRestricted" type="Aplazo\AplazoPayment\Plugin\UpdateQuoteWhenRestrictedPlugin"/>
+    </type>
 </config>
