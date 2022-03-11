@@ -60,3 +60,5 @@
 ## 2.5.0
 * create webapi to listen Aplazo
 * add custom logs from Aplazo
+## 2.5.1
+* fix tag
