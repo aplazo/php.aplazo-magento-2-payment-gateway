@@ -26,6 +26,10 @@ use Magento\Sales\Api\OrderRepositoryInterface;
 use Magento\Sales\Model\Order;
 use Magento\Sales\Model\Service\InvoiceService;
 
+use Magento\Sales\Model\Spi\OrderResourceInterface;
+use Magento\Sales\Api\Data\OrderInterfaceFactory;
+use Magento\Sales\Api\Data\OrderInterface;
+
 use Aplazo\AplazoPayment\Logger\Logger as AplazoLogger;
 
 class AplazoOrder
@@ -113,6 +117,10 @@ class AplazoOrder
 
     protected $response;
 
+	protected $orderResource;
+
+    protected $orderFactory;
+
     const HTTP_INTERNAL_ERROR = \Magento\Framework\Webapi\Exception::HTTP_INTERNAL_ERROR;
     const HTTP_UNAUTHORIZED = \Magento\Framework\Webapi\Exception::HTTP_UNAUTHORIZED;
     const HTTP_FORBIDDEN = \Magento\Framework\Webapi\Exception::HTTP_FORBIDDEN;
@@ -161,11 +169,16 @@ class AplazoOrder
 		Order $orderModel,
 		OrderRepositoryInterface $orderRepository,
         ResponseInterface $response,
+		OrderResourceInterface $orderResource,
+		OrderInterfaceFactory $orderFactory,
         \Magento\Framework\Webapi\Rest\Request $request
     )
     {
         $this->logger = $logger;
         $this->config = $config;
+
+		$this->orderResource = $orderResource;
+        $this->orderFactory = $orderFactory;
 
         $this->_quoteFactory = $quoteFactory;
 		$this->_quoteRepository = $quoteRepository;
@@ -209,80 +222,98 @@ class AplazoOrder
             $this->sendResponse($dataResponse, self::HTTP_UNAUTHORIZED);
         }
 
-        if ($status == "Activo") {
-
-			try {
-                $this->setOrderId($extOrderId);
-                $this->setIncrementId($cartId);
-                $this->setLoanId($loanId);
-                $quote = $this->_quoteRepository->get(intval($extOrderId));
-
-				//$quote->setPaymentMethod('aplazo_payment');
-				$quote->getPayment()->importData(['method' => 'aplazo_payment']);
-                
-                
-                if ($quote->getCustomer()->getId() == "") {
-					$quote->setCustomerIsGuest(true);
-					$quote->setCustomerEmail($quote->getCustomerEmail())
-						->setCustomerFirstname($quote->getBillingAddress()->getFirstName())
-						->setCustomerLastname($quote->getBillingAddress()->getLastName());
-					$quote->save();
-				}
-
-                //Magento version
-				//Magento version
-				switch( $version ){
-					case 2.3:
-						$order = $this->quoteManagement->submit($quote);
-                		$order_id = $order->getId();
-						break;
-					case 2.4:
-						$order_id = $this->cartManagementInterface->placeOrder($quote->getId());
-                		$order = $this->orderRepository->get($order_id);
-						break;
-					default:
-						$order_id = $this->cartManagementInterface->placeOrder($quote->getId());
-						$order = $this->orderRepository->get($order_id);
-						break;
-				}
-                
-
-                
-
-                if ($order->canInvoice()) {
-					$invoice = $this->invoiceService->prepareInvoice($order);
-					$invoice->setRequestedCaptureCase(\Magento\Sales\Model\Order\Invoice::CAPTURE_ONLINE);
-					$invoice->register();
-					$transaction = $this->transactionFactory->create()
-						->addObject($invoice)
-						->addObject($invoice->getOrder());
-					$transaction->save();
-				}
-
-                $dataResponse = array(
+		switch($status){
+			case 'New':
+				$dataResponse = array(
 					'code' => 200,
-					'orderId' => $order_id,
-					'message' => 'The order was created successfully',
+					'message' => 'Webhook is up.'
 				);
-                $this->sendResponse($dataResponse, self::HTTP_SUCCESS);
-                
-			} catch (\Exception $e) {
+				$this->sendResponse($dataResponse, self::HTTP_SUCCESS);
+				break;
+			case 'Activo':
 
-                $dataResponse = array(
-                    'code' => 500,
-                    'message' => $e->getMessage()
-                );
-                $this->sendResponse($dataResponse, self::HTTP_INTERNAL_ERROR);
-			}
-		}else{
-            $dataResponse = array(
-                'code' => 400,
-                'message' => 'Invalid Satus'
-            );
-            $this->sendResponse($dataResponse, self::HTTP_BAD_REQUEST);
-        }
+				try {
+					$order = $this->orderFactory->create();
+					$this->orderResource->load($order, $cartId, OrderInterface::INCREMENT_ID);
+	
+					if( $order->getId() ){
+						$dataResponse = array(
+							'code' => 400,
+							'message' => 'The order already exists.'
+						);
+						$this->sendResponse($dataResponse, self::HTTP_SUCCESS);
+					}
+	
+					$this->setOrderId($extOrderId);
+					$this->setIncrementId($cartId);
+					$this->setLoanId($loanId);
+					$quote = $this->_quoteRepository->get(intval($extOrderId));
+	
+					$quote->getPayment()->importData(['method' => 'aplazo_payment']);
+					
+					if ($quote->getCustomer()->getId() == "") {
+						$quote->setCustomerIsGuest(true);
+						$quote->setCustomerEmail($quote->getCustomerEmail())
+							->setCustomerFirstname($quote->getBillingAddress()->getFirstName())
+							->setCustomerLastname($quote->getBillingAddress()->getLastName());
+						$quote->save();
+					}
+	
+					//Magento version
+					switch( $version ){
+						case 2.3:
+							$order = $this->quoteManagement->submit($quote);
+							$order_id = $order->getId();
+							break;
+						case 2.4:
+							$order_id = $this->cartManagementInterface->placeOrder($quote->getId());
+							$order = $this->orderRepository->get($order_id);
+							break;
+						default:
+							$order_id = $this->cartManagementInterface->placeOrder($quote->getId());
+							$order = $this->orderRepository->get($order_id);
+							break;
+					}
+					
+					if ($order->canInvoice()) {
+						$invoice = $this->invoiceService->prepareInvoice($order);
+						$invoice->setRequestedCaptureCase(\Magento\Sales\Model\Order\Invoice::CAPTURE_ONLINE);
+						$invoice->register();
+						$transaction = $this->transactionFactory->create()
+							->addObject($invoice)
+							->addObject($invoice->getOrder());
+						$transaction->save();
+					}
+	
+					if ($version==2.3) {
+						$quote->delete();
+					}
+	
+					$dataResponse = array(
+						'code' => 200,
+						'orderId' => $order_id,
+						'message' => 'The order was created successfully',
+					);
+					$this->sendResponse($dataResponse, self::HTTP_SUCCESS);
+					
+				} catch (\Exception $e) {
+	
+					$dataResponse = array(
+						'code' => 500,
+						'message' => $e->getMessage()
+					);
+					$this->sendResponse($dataResponse, self::HTTP_INTERNAL_ERROR);
+				}
 
-
+				break;
+			default:
+				$dataResponse = array(
+					'code' => 400,
+					'message' => 'Invalid Satus.'
+				);
+				$this->sendResponse($dataResponse, self::HTTP_BAD_REQUEST);
+				break;
+		}
    }
 
    /**
