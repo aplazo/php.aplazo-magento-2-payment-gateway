@@ -135,7 +135,7 @@ class Client {
 	public function auth() {
 		$enableLog = $this->config->getEnableLog();
 		$url = $this->makeUrl("auth");
-		
+
 		$body = [
 			"apiToken" => $this->config->getApiToken(),
 			"merchantId" => $this->config->getMerchantId(),
@@ -191,7 +191,7 @@ class Client {
 			$this->logger->info('====Create Response===');
 			$this->logger->info($result);
 		}
-		
+
 		$resultDecode = json_decode($result);
 		return $resultDecode;
 	}
@@ -293,4 +293,27 @@ class Client {
 		return $response;
 	}
 
+    public function refund($body)
+    {
+        $enableLog = $this->config->getEnableLog();
+        $url = $this->makeUrl("refund");
+        $this->curl->setHeaders( [
+            'merchant_id' => $this->config->getMerchantId(),
+            'api_token' => $this->config->getApiToken(),
+            'Content-Type' => 'application/json'
+        ]);
+        $payload = json_encode($body);
+        if($enableLog){
+            $this->logger->info('====Refund Request===');
+            $this->logger->info($payload);
+        }
+        $this->curl->post($url, $payload);
+        $result = $this->curl->getBody();
+        if($enableLog){
+            $this->logger->info('====Refund Response===');
+            $this->logger->info($result);
+        }
+
+        return json_decode($result, true);
+    }
 }

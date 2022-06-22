@@ -2,7 +2,9 @@
 namespace Aplazo\AplazoPayment\Model\Api;
 
 use Aplazo\AplazoPayment\Helper\Data;
+use Aplazo\AplazoPayment\Model\AplazoSaveOrder;
 use Aplazo\AplazoPayment\Model\Config;
+use Aplazo\AplazoPayment\Model\Data\Sale;
 use Magento\Checkout\Model\Session as CheckoutSession;
 use Magento\Framework\App\Action\Action;
 use Magento\Framework\App\Action\Context;
@@ -111,6 +113,11 @@ class AplazoOrder
 	 */
 	protected $config;
 
+    /**
+     * @var AplazoSaveOrder
+     */
+    protected $aplazoSaveOrder;
+
     protected $response;
 
     const HTTP_INTERNAL_ERROR = \Magento\Framework\Webapi\Exception::HTTP_INTERNAL_ERROR;
@@ -161,7 +168,8 @@ class AplazoOrder
 		Order $orderModel,
 		OrderRepositoryInterface $orderRepository,
         ResponseInterface $response,
-        \Magento\Framework\Webapi\Rest\Request $request
+        \Magento\Framework\Webapi\Rest\Request $request,
+        AplazoSaveOrder $aplazoSaveOrder
     )
     {
         $this->logger = $logger;
@@ -182,6 +190,7 @@ class AplazoOrder
 		$this->aplazoHelper = $aplazoHelper;
 		$this->orderModel = $orderModel;
 		$this->orderRepository = $orderRepository;
+        $this->aplazoSaveOrder = $aplazoSaveOrder;
 
 
         $this->response = $response;
@@ -200,13 +209,15 @@ class AplazoOrder
         $currentToken = $this->config->getApiToken();
 
 		$version = floatval( $this->aplazoHelper->getMageVersion() );
-        
+
         if( $currentToken != $merchantApiToken ){
             $dataResponse = [
                 'code' => 401,
                 'message' => 'Authentication Failed'
             ];
+            $this->aplazoSaveOrder->updateAplazoOrder(intval($extOrderId), Sale::STATUS_ERROR, $dataResponse['message']);
             $this->sendResponse($dataResponse, self::HTTP_UNAUTHORIZED);
+            return;
         }
 
         if ($status == "Activo") {
@@ -219,8 +230,7 @@ class AplazoOrder
 
 				//$quote->setPaymentMethod('aplazo_payment');
 				$quote->getPayment()->importData(['method' => 'aplazo_payment']);
-                
-                
+
                 if ($quote->getCustomer()->getId() == "") {
 					$quote->setCustomerIsGuest(true);
 					$quote->setCustomerEmail($quote->getCustomerEmail())
@@ -264,21 +274,24 @@ class AplazoOrder
 					'orderId' => $order_id,
 					'message' => 'The order was created successfully',
 				);
+                $this->aplazoSaveOrder->updateAplazoOrder(intval($extOrderId), Sale::STATUS_PROCESSING, $dataResponse['message']);
                 $this->sendResponse($dataResponse, self::HTTP_SUCCESS);
-                
+
 			} catch (\Exception $e) {
 
                 $dataResponse = array(
                     'code' => 500,
                     'message' => $e->getMessage()
                 );
+                $this->aplazoSaveOrder->updateAplazoOrder(intval($extOrderId), Sale::STATUS_ERROR, $dataResponse['message']);
                 $this->sendResponse($dataResponse, self::HTTP_INTERNAL_ERROR);
 			}
 		}else{
             $dataResponse = array(
                 'code' => 400,
-                'message' => 'Invalid Satus'
+                'message' => 'Invalid Status'
             );
+            $this->aplazoSaveOrder->updateAplazoOrder(intval($extOrderId), Sale::STATUS_ERROR, $dataResponse['message']);
             $this->sendResponse($dataResponse, self::HTTP_BAD_REQUEST);
         }
 

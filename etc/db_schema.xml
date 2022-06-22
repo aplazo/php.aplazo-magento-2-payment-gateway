@@ -1,0 +1,21 @@
+<?xml version="1.0" ?>
+<schema xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:framework:Setup/Declaration/Schema/etc/schema.xsd">
+	<table name="aplazo_aplazopayment_sale" resource="default" engine="innodb" comment="aplazo_aplazopayment_sale Table">
+		<column xsi:type="int" name="sale_id" padding="10" unsigned="true" nullable="false" identity="true" comment="Entity Id"/>
+		<constraint xsi:type="primary" referenceId="PRIMARY">
+			<column name="sale_id"/>
+		</constraint>
+		<column name="quote_id" nullable="false" xsi:type="int" comment="quote_id" identity="false"/>
+		<index referenceId="APLAZO_APLAZOPAYMENT_SALE_QUOTE_ID" indexType="btree">
+			<column name="quote_id"/>
+		</index>
+		<column name="reserved_order_id" nullable="true" xsi:type="varchar" comment="reserved_order_id" length="255"/>
+		<column name="firstname" nullable="true" xsi:type="varchar" comment="firstname" length="255"/>
+		<column name="lastname" nullable="true" xsi:type="varchar" comment="lastname" length="255"/>
+		<column name="email" nullable="true" xsi:type="varchar" comment="email" length="255"/>
+		<column name="status" nullable="true" xsi:type="varchar" comment="status" length="255"/>
+		<column name="message" nullable="true" xsi:type="text" comment="message"/>
+		<column name="created_at" nullable="true" xsi:type="timestamp" comment="created_at" default="CURRENT_TIMESTAMP"/>
+		<column name="updated_at" nullable="true" xsi:type="timestamp" comment="updated_at" default="CURRENT_TIMESTAMP" on_update="true"/>
+	</table>
+</schema>
