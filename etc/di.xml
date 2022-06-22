@@ -22,4 +22,22 @@
     <type name="Magento\Quote\Api\ChangeQuoteControlInterface">
         <plugin name="UpdateQuoteWhenRestricted" type="Aplazo\AplazoPayment\Plugin\UpdateQuoteWhenRestrictedPlugin"/>
     </type>
+
+    <preference for="Aplazo\AplazoPayment\Api\SaleRepositoryInterface" type="Aplazo\AplazoPayment\Model\SaleRepository"/>
+    <preference for="Aplazo\AplazoPayment\Api\Data\SaleInterface" type="Aplazo\AplazoPayment\Model\Data\Sale"/>
+    <preference for="Aplazo\AplazoPayment\Api\Data\SaleSearchResultsInterface" type="Magento\Framework\Api\SearchResults"/>
+
+    <virtualType name="Aplazo\AplazoPayment\Model\ResourceModel\Sale\Grid\Collection" type="Magento\Framework\View\Element\UiComponent\DataProvider\SearchResult">
+        <arguments>
+            <argument name="mainTable" xsi:type="string">aplazo_aplazopayment_sale</argument>
+            <argument name="resourceModel" xsi:type="string">Aplazo\AplazoPayment\Model\ResourceModel\Sale\Collection</argument>
+        </arguments>
+    </virtualType>
+    <type name="Magento\Framework\View\Element\UiComponent\DataProvider\CollectionFactory">
+        <arguments>
+            <argument name="collections" xsi:type="array">
+                <item name="aplazo_aplazopayment_sale_listing_data_source" xsi:type="string">Aplazo\AplazoPayment\Model\ResourceModel\Sale\Grid\Collection</item>
+            </argument>
+        </arguments>
+    </type>
 </config>

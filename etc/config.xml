@@ -7,6 +7,7 @@
                 <active>0</active>
                 <show_on_product_page>0</show_on_product_page>
                 <show_on_cart>0</show_on_cart>
+                <refund>1</refund>
                 <model>Aplazo\AplazoPayment\Model\Payment</model>
                 <payment_action>authorize_capture</payment_action>
                 <order_status>processing</order_status>
