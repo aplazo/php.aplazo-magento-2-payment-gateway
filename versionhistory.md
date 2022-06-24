@@ -62,5 +62,5 @@
 * add custom logs from Aplazo
 ## 2.5.1
 * fix version
-* ## 2.6.0
+## 2.6.0
 * Refund added
