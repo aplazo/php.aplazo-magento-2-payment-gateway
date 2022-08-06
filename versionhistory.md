@@ -64,3 +64,5 @@
 * fix version
 ## 2.6.0
 * Refund added
+## 2.6.1
+* Partial refund added

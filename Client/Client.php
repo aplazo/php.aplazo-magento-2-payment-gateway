@@ -67,6 +67,7 @@ class Client {
 	public $endpoints = [
 		"auth" => "api/auth",
 		"create" => "api/loan",
+        "refund" => "api/pos/loan/refund"
 	];
 
 	/**
