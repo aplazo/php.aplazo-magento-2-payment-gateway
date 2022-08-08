@@ -47,6 +47,11 @@ class Config {
 	const APLAZO_SHOW_ON_CART = 'payment/aplazo_payment/show_on_cart';
 
 	/**
+	 * config path for refund
+	 */
+	const APLAZO_REFUND = 'payment/aplazo_payment/refund';
+
+	/**
 	 * config path for debug
 	 */
 	const APLAZO_DEBUG = 'payment/aplazo_payment/debug';
@@ -112,13 +117,6 @@ class Config {
 	/**
 	 * @return mixed
 	 */
-	public function getOrderCancellationTime() {
-		return $this->scopeConfig->getValue(self::APLAZO_ORDER_CANCELLATION_TIME);
-	}
-
-	/**
-	 * @return mixed
-	 */
 	public function getMerchantId() {
 		return $this->scopeConfig->getValue(self::APLAZO_MERCHANT_ID);
 	}
@@ -164,6 +162,13 @@ class Config {
 	public function getSortOrder() {
 		return $this->scopeConfig->getValue(self::APLAZO_SORT_ORDER);
 	}
+
+    /**
+     * @return mixed
+     */
+    public function getRefund() {
+        return $this->scopeConfig->getValue(self::APLAZO_REFUND);
+    }
 
 	/**
 	 * @return string
