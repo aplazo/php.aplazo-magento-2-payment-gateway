@@ -20,9 +20,9 @@ class RefundObserverBeforeSave implements ObserverInterface
      */
     protected $messageManager;
 
-    private Config $_config;
-    private AplazoLogger $_logger;
-    private Client $_client;
+    private $_config;
+    private $_logger;
+    private $_client;
 
 
     /**
