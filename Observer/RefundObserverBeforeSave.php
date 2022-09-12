@@ -73,10 +73,6 @@ class RefundObserverBeforeSave implements ObserverInterface
         }
 
         $amountRefund = $creditMemo->getGrandTotal();
-        // Todo: At the moment, partial refunds are not allowed.
-        if ($amountRefund != $order->getGrandTotal()) {
-            $this->throwRefundException(__("Partial refunds are not allowed."));
-        }
 
         $reason = '';
         foreach($creditMemo->getComments() as $index => $comment){
