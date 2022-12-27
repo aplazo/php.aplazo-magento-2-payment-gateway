@@ -13,6 +13,8 @@ class Sale extends \Magento\Framework\Api\AbstractExtensibleObject implements Sa
 {
     const STATUS_PENDING = 'pending';
     const STATUS_PROCESSING = 'processing';
+    const STATUS_CANCELLED = 'cancelled';
+    const STATUS_REFUNDED = 'refunded';
     const STATUS_ERROR = 'webhook_error';
 
     /**
@@ -166,6 +168,25 @@ class Sale extends \Magento\Framework\Api\AbstractExtensibleObject implements Sa
     public function setStatus($status)
     {
         return $this->setData(self::STATUS, $status);
+    }
+
+    /**
+     * Get loanId
+     * @return string|null
+     */
+    public function getLoanId()
+    {
+        return $this->_get(self::LOAN_ID);
+    }
+
+    /**
+     * Set loanId
+     * @param string $loanId
+     * @return \Aplazo\AplazoPayment\Api\Data\SaleInterface
+     */
+    public function setLoanId($loanId)
+    {
+        return $this->setData(self::LOAN_ID, $loanId);
     }
 
     /**

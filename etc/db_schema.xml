@@ -14,6 +14,7 @@
 		<column name="lastname" nullable="true" xsi:type="varchar" comment="lastname" length="255"/>
 		<column name="email" nullable="true" xsi:type="varchar" comment="email" length="255"/>
 		<column name="status" nullable="true" xsi:type="varchar" comment="status" length="255"/>
+		<column name="loan_id" nullable="true" xsi:type="varchar" comment="loanId" length="255"/>
 		<column name="message" nullable="true" xsi:type="text" comment="message"/>
 		<column name="created_at" nullable="true" xsi:type="timestamp" comment="created_at" default="CURRENT_TIMESTAMP"/>
 		<column name="updated_at" nullable="true" xsi:type="timestamp" comment="updated_at" default="CURRENT_TIMESTAMP" on_update="true"/>

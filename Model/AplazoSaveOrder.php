@@ -62,11 +62,12 @@ class AplazoSaveOrder
      * @param $message
      * @return void
      */
-    public function updateAplazoOrder($quoteId, $status, $message)
+    public function updateAplazoOrder($quoteId, $status, $message, $loanId)
     {
         try {
             $aplazoModelOrder = $this->saleRepository->getByQuoteId($quoteId);
             $aplazoModelOrder->setMessage($message)
+                ->setLoanId($loanId)
                 ->setStatus($status);
             $this->saleRepository->save($aplazoModelOrder);
         } catch (LocalizedException $e) {

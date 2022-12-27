@@ -41,6 +41,15 @@
 				<indexField>sale_id</indexField>
 			</settings>
 		</selectionsColumn>
+        <actionsColumn name="actions" class = "Aplazo\AplazoPayment\Ui\Component\Listing\Sale\Column\Action">
+            <argument name="data" xsi:type="array">
+                <item name="config" xsi:type="array">
+                    <item name="resizeEnabled" xsi:type="boolean">false</item>
+                    <item name="resizeDefaultWidth" xsi:type="string">107</item>
+                    <item name="indexField" xsi:type="string">sale_id</item>
+                </item>
+            </argument>
+        </actionsColumn>
 		<column name="sale_id">
 			<settings>
 				<filter>text</filter>
