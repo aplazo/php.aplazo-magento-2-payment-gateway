@@ -14,6 +14,7 @@ interface SaleInterface extends \Magento\Framework\Api\ExtensibleDataInterface
     const EMAIL = 'email';
     const MESSAGE = 'message';
     const STATUS = 'status';
+    const LOAN_ID = 'loan_id';
     const LASTNAME = 'lastname';
     const UPDATED_AT = 'updated_at';
     const RESERVED_ORDER_ID = 'reserved_order_id';
@@ -126,6 +127,19 @@ interface SaleInterface extends \Magento\Framework\Api\ExtensibleDataInterface
      * @return \Aplazo\AplazoPayment\Api\Data\SaleInterface
      */
     public function setStatus($status);
+
+    /**
+     * Get loanId
+     * @return string|null
+     */
+    public function getLoanId();
+
+    /**
+     * Set loanId
+     * @param string $loanId
+     * @return \Aplazo\AplazoPayment\Api\Data\SaleInterface
+     */
+    public function setLoanId($loanId);
 
     /**
      * Get message

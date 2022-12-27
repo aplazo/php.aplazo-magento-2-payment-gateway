@@ -195,6 +195,7 @@ class AplazoOrder
 
         $this->response = $response;
     }
+
     /**
      * @inheritdoc
      */
@@ -208,94 +209,93 @@ class AplazoOrder
     {
         $currentToken = $this->config->getApiToken();
 
-		$version = floatval( $this->aplazoHelper->getMageVersion() );
-
         if( $currentToken != $merchantApiToken ){
             $dataResponse = [
                 'code' => 401,
                 'message' => 'Authentication Failed'
             ];
-            $this->aplazoSaveOrder->updateAplazoOrder(intval($extOrderId), Sale::STATUS_ERROR, $dataResponse['message']);
+            $this->aplazoSaveOrder->updateAplazoOrder(intval($extOrderId), Sale::STATUS_ERROR, $dataResponse['message'], $loanId);
             $this->sendResponse($dataResponse, self::HTTP_UNAUTHORIZED);
             return;
         }
 
         if ($status == "Activo") {
-
-			try {
-                $this->setOrderId($extOrderId);
-                $this->setIncrementId($cartId);
-                $this->setLoanId($loanId);
-                $quote = $this->_quoteRepository->get(intval($extOrderId));
-
-				//$quote->setPaymentMethod('aplazo_payment');
-				$quote->getPayment()->importData(['method' => 'aplazo_payment']);
-
-                if ($quote->getCustomer()->getId() == "") {
-					$quote->setCustomerIsGuest(true);
-					$quote->setCustomerEmail($quote->getCustomerEmail())
-						->setCustomerFirstname($quote->getBillingAddress()->getFirstName())
-						->setCustomerLastname($quote->getBillingAddress()->getLastName());
-					$quote->save();
-				}
-
-                //Magento version
-				//Magento version
-				switch( $version ){
-					case 2.3:
-						$order = $this->quoteManagement->submit($quote);
-                		$order_id = $order->getId();
-						break;
-					case 2.4:
-						$order_id = $this->cartManagementInterface->placeOrder($quote->getId());
-                		$order = $this->orderRepository->get($order_id);
-						break;
-					default:
-						$order_id = $this->cartManagementInterface->placeOrder($quote->getId());
-						$order = $this->orderRepository->get($order_id);
-						break;
-				}
-                
-
-                
-
-                if ($order->canInvoice()) {
-					$invoice = $this->invoiceService->prepareInvoice($order);
-					$invoice->setRequestedCaptureCase(\Magento\Sales\Model\Order\Invoice::CAPTURE_ONLINE);
-					$invoice->register();
-					$transaction = $this->transactionFactory->create()
-						->addObject($invoice)
-						->addObject($invoice->getOrder());
-					$transaction->save();
-				}
-
-                $dataResponse = array(
-					'code' => 200,
-					'orderId' => $order_id,
-					'message' => 'The order was created successfully',
-				);
-                $this->aplazoSaveOrder->updateAplazoOrder(intval($extOrderId), Sale::STATUS_PROCESSING, $dataResponse['message']);
-                $this->sendResponse($dataResponse, self::HTTP_SUCCESS);
-
-			} catch (\Exception $e) {
-
-                $dataResponse = array(
-                    'code' => 500,
-                    'message' => $e->getMessage()
-                );
-                $this->aplazoSaveOrder->updateAplazoOrder(intval($extOrderId), Sale::STATUS_ERROR, $dataResponse['message']);
-                $this->sendResponse($dataResponse, self::HTTP_INTERNAL_ERROR);
-			}
+			$dataResponse = $this->submitOrder($extOrderId, $cartId, $loanId);
+            $this->aplazoSaveOrder->updateAplazoOrder(intval($extOrderId), $dataResponse['status'], $dataResponse['response']['message'], $loanId);
+            $this->sendResponse($dataResponse['response'], self::HTTP_SUCCESS);
 		}else{
             $dataResponse = array(
                 'code' => 400,
                 'message' => 'Invalid Status'
             );
-            $this->aplazoSaveOrder->updateAplazoOrder(intval($extOrderId), Sale::STATUS_ERROR, $dataResponse['message']);
+            $this->aplazoSaveOrder->updateAplazoOrder(intval($extOrderId), Sale::STATUS_ERROR, $dataResponse['message'], $loanId);
             $this->sendResponse($dataResponse, self::HTTP_BAD_REQUEST);
         }
+   }
 
+   public function submitOrder($extOrderId, $cartId, $loanId)
+   {
+       $version = floatval( $this->aplazoHelper->getMageVersion() );
+       try {
+           $this->setOrderId($extOrderId);
+           $this->setIncrementId($cartId);
+           $this->setLoanId($loanId);
+           $quote = $this->_quoteRepository->get(intval($extOrderId));
 
+           //$quote->setPaymentMethod('aplazo_payment');
+           $quote->getPayment()->importData(['method' => 'aplazo_payment']);
+
+           if ($quote->getCustomer()->getId() == "") {
+               $quote->setCustomerIsGuest(true);
+               $quote->setCustomerEmail($quote->getCustomerEmail())
+                   ->setCustomerFirstname($quote->getBillingAddress()->getFirstName())
+                   ->setCustomerLastname($quote->getBillingAddress()->getLastName());
+               $quote->save();
+           }
+
+           //Magento version
+           switch( $version ){
+               case 2.3:
+                   $order = $this->quoteManagement->submit($quote);
+                   $order_id = $order->getId();
+                   break;
+               case 2.4:
+                   $order_id = $this->cartManagementInterface->placeOrder($quote->getId());
+                   $order = $this->orderRepository->get($order_id);
+                   break;
+               default:
+                   $order_id = $this->cartManagementInterface->placeOrder($quote->getId());
+                   $order = $this->orderRepository->get($order_id);
+                   break;
+           }
+
+           if ($order->canInvoice()) {
+               $invoice = $this->invoiceService->prepareInvoice($order);
+               $invoice->setRequestedCaptureCase(\Magento\Sales\Model\Order\Invoice::CAPTURE_ONLINE);
+               $invoice->register();
+               $transaction = $this->transactionFactory->create()
+                   ->addObject($invoice)
+                   ->addObject($invoice->getOrder());
+               $transaction->save();
+           }
+
+           return array(
+               'response' => [
+                   'code' => 200,
+                   'orderId' => $order_id,
+                   'message' => 'The order was created successfully'
+               ],
+               'status' => Sale::STATUS_PROCESSING
+           );
+       } catch (\Exception $e) {
+           return array(
+               'response' => [
+                   'code' => 200, // If 500, aplazo loan goes from Paid to Pending
+                   'message' => $e->getMessage()
+               ],
+               'status' => Sale::STATUS_ERROR
+           );
+       }
    }
 
    /**
