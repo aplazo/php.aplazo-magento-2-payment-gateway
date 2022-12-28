@@ -16,9 +16,9 @@ use Magento\Quote\Model\QuoteRepository;
 class Refund extends \Magento\Backend\App\Action
 {
     protected $resultPageFactory;
-    private \Aplazo\AplazoPayment\Api\SaleRepositoryInterface $aplazoSaleOrderRepository;
-    private Client $client;
-    private QuoteRepository $quoteRepository;
+    private $aplazoSaleOrderRepository;
+    private $client;
+    private $quoteRepository;
 
     /**
      * @param \Aplazo\AplazoPayment\Api\SaleRepositoryInterface $aplazoSaleOrderRepository
