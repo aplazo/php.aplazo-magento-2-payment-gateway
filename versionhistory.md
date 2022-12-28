@@ -72,3 +72,5 @@
 * Partial refund fix
 ## 2.6.5
 * Aplazo Order and magento bug communication fixed
+## 2.6.6
+* Php version properties fixed

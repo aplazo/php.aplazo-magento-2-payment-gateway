@@ -14,8 +14,8 @@ class Recreate extends \Magento\Backend\App\Action
 {
 
     protected $resultPageFactory;
-    private \Aplazo\AplazoPayment\Api\SaleRepositoryInterface $aplazoSaleOrderRepository;
-    private \Aplazo\AplazoPayment\Model\Api\AplazoOrder $aplazoOrderApi;
+    private $aplazoSaleOrderRepository;
+    private $aplazoOrderApi;
 
     /**
      * @param \Aplazo\AplazoPayment\Model\Api\AplazoOrder $saleOrder
