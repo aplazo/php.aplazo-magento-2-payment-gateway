@@ -274,8 +274,6 @@ class Client {
 
 		$quoteId = $checkoutSession->getQuoteId();
 
-		$cartData = $this->objectManager->create('Magento\Quote\Model\QuoteRepository')->get($quoteId);
-
 		$checkoutSession->getQuote()->reserveOrderId();
 		$reservedOrderId = $checkoutSession->getQuote()->getReservedOrderId();
 
@@ -289,8 +287,9 @@ class Client {
 			"0" => "The minimum amount is 250.0",
 			"404" => "Invalid Credentials",
 			"500" => "Internal Server Error",
+			"503" => "Service Temporarily Unavailable",
 		);
-		$response = $catalog[$code];
+		$response = empty($catalog[$code]) ? $code : $catalog[$code];
 		return $response;
 	}
 

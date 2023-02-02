@@ -74,3 +74,5 @@
 * Aplazo Order and magento bug communication fixed
 ## 2.6.6
 * Php version properties fixed
+## 2.6.7
+* Webhook improved
