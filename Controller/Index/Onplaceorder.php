@@ -109,6 +109,11 @@ class Onplaceorder extends Action
         $email = $this->http->getParam('email');
         $resultJson = $this->resultFactory->create(ResultFactory::TYPE_JSON);
         $quote = $this->_checkoutSession->getQuote();
+        $data = [
+            'error' => true,
+            'message' => __('Try again later'),
+            'transactionId' => null,
+        ];
         try {
             if ($quote->getCustomer()->getId() == "") {
                 $quote->setCustomerIsGuest(true);
@@ -150,6 +155,4 @@ class Onplaceorder extends Action
         $resultJson->setData($data);
         return $resultJson;
     }
-
-
 }
