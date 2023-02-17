@@ -106,7 +106,7 @@ class Data extends \Magento\Payment\Helper\Data
     }
 
     public function getServiceUrl(){
-        return $this->getConfigFlag(self::GENERAL_SECTION . 'sanbox_mode') ? 'https://api.aplazo.dev' : 'https://api.aplazo.mx';
+        return $this->getConfigFlag(self::GENERAL_SECTION . 'sanbox_mode') ? 'https://api.aplazo.net' : 'https://api.aplazo.mx';
     }
 
     public function getUrl($route, $params = []){

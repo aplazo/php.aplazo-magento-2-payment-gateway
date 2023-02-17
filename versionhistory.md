@@ -78,3 +78,5 @@
 * Webhook improved
 ## 3.0.0
 * Change to Conexa version
+## 3.0.1
+* Sandbox changed from dev to net
