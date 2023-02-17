@@ -1,11 +1,14 @@
 <?xml version="1.0"?>
 <page xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:framework:View/Layout/etc/page_configuration.xsd">
+    <head>
+        <link src="Aplazo_AplazoPayment::js/aplazo.js"/>
+    </head>
     <body>
         <referenceContainer name="product.info.main">
-            <block 
-                class="Magento\Framework\View\Element\Template" 
-                name="catalog.product.view.widget.aplazo"
-                after="product.info.price" 
+            <block
+                class="Magento\Framework\View\Element\Template"
+                name="catalog.product.view.widget.aplazo.gateway"
+                after="product.info.price"
                 template="Aplazo_AplazoPayment::aplazo_product_widget.phtml"
             />
         </referenceContainer>

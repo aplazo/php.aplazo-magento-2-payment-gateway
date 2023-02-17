@@ -76,3 +76,5 @@
 * Php version properties fixed
 ## 2.6.7
 * Webhook improved
+## 3.0.0
+* Change to Conexa version

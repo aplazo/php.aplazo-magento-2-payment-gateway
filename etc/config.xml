@@ -1,23 +1,28 @@
 <?xml version="1.0"?>
-
 <config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:module:Magento_Store:etc/config.xsd">
     <default>
         <payment>
-            <aplazo_payment>
-                <active>0</active>
-                <show_on_product_page>0</show_on_product_page>
-                <show_on_cart>0</show_on_cart>
-                <refund>1</refund>
-                <model>Aplazo\AplazoPayment\Model\Payment</model>
-                <payment_action>authorize_capture</payment_action>
-                <order_status>processing</order_status>
-                <title>Aplazo | Paga en 5 quincenas sin tarjeta de crédito</title>
-                <subtitle>Serás redirigido al sitio web de Aplazo</subtitle>
-                <api_token backend_model="Magento\Config\Model\Config\Backend\Encrypted" />
-                <merchant_id backend_model="Magento\Config\Model\Config\Backend\Encrypted" />
-                <is_test_mode>1</is_test_mode>
-                <enable_log>0</enable_log>
-            </aplazo_payment>
+            <aplazo_gateway>
+                <model>AplazoFacade</model>
+                <can_authorize>0</can_authorize>
+                <can_capture>0</can_capture>
+                <can_void>0</can_void>
+                <is_gateway>0</is_gateway>
+                <title>Paga con Aplazo (en quincenas)</title>
+                <sanbox_mode>1</sanbox_mode>
+                <allowspecific>1</allowspecific>
+                <can_use_checkout>1</can_use_checkout>
+                <active>1</active>
+                <order_status>pending</order_status>
+                <approved_order_status>processing</approved_order_status>
+                <failure_order_status>canceled</failure_order_status>
+                <reserve_stock>1</reserve_stock>
+                <show_on_product_page>1</show_on_product_page>
+                <show_on_cart>1</show_on_cart>
+                <cancel_order>1</cancel_order>
+                <debug_mode>1</debug_mode>
+                <sort_order>1</sort_order>
+            </aplazo_gateway>
         </payment>
     </default>
 </config>
