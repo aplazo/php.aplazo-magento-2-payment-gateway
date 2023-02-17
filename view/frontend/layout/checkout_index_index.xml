@@ -1,6 +1,8 @@
 <?xml version="1.0"?>
-
 <page xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" layout="1column" xsi:noNamespaceSchemaLocation="urn:magento:framework:View/Layout/etc/page_configuration.xsd">
+    <head>
+        <css src="Aplazo_AplazoPayment::css/aplazo-gateway.css" rel="stylesheet" type="text/css"  />
+    </head>
     <body>
         <referenceBlock name="checkout.root">
             <arguments>
@@ -16,11 +18,12 @@
                                                 <item name="payment" xsi:type="array">
                                                     <item name="children" xsi:type="array">
                                                         <item name="renders" xsi:type="array">
+                                                            <!-- merge payment method renders here -->
                                                             <item name="children" xsi:type="array">
-                                                                <item name="aplazo_payment-payments" xsi:type="array">
-                                                                    <item name="component" xsi:type="string">Aplazo_AplazoPayment/js/view/payment/aplazo-payments</item>
+                                                                <item name="aplazo_gateway" xsi:type="array">
+                                                                    <item name="component" xsi:type="string">Aplazo_AplazoPayment/js/view/payment/aplazo-gateway</item>
                                                                     <item name="methods" xsi:type="array">
-                                                                        <item name="aplazo_payment" xsi:type="array">
+                                                                        <item name="aplazo_gateway" xsi:type="array">
                                                                             <item name="isBillingAddressRequired" xsi:type="boolean">true</item>
                                                                         </item>
                                                                     </item>
@@ -41,4 +44,3 @@
         </referenceBlock>
     </body>
 </page>
-

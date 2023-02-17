@@ -1,14 +1,17 @@
 <?xml version="1.0"?>
 <page xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+    <head>
+        <link src="Aplazo_AplazoPayment::js/aplazo.js"/>
+    </head>
     <body>
         <referenceContainer name="content">
-            <block 
+            <block
                 class="Magento\Framework\View\Element\Template"
-                name="aplazopaiment.cart.block"
+                name="aplazogateway.cart.block"
                 template="Aplazo_AplazoPayment::aplazo_cart_widget.phtml"
                 after="-"
             />
         </referenceContainer>
-        <move element="aplazopaiment.cart.block" destination="checkout.cart.methods" before="-" />
+        <move element="aplazogateway.cart.block" destination="checkout.cart.methods" before="-" />
     </body>
 </page>

@@ -2,248 +2,137 @@
 
 namespace Aplazo\AplazoPayment\Helper;
 
-use Magento\Customer\Model\Session;
-use Magento\Framework\App\Helper\AbstractHelper;
-use Magento\Framework\App\Helper\Context;
+use Magento\Framework\View\LayoutFactory;
 use Magento\Store\Model\StoreManagerInterface;
-use Magento\Catalog\Model\Product;
-use Magento\Framework\Data\Form\FormKey;
-use Magento\Quote\Model\QuoteFactory;
-use Magento\Quote\Model\QuoteManagement;
-use Magento\Customer\Model\CustomerFactory;
-use Magento\Customer\Api\CustomerRepositoryInterface;
-use Magento\Sales\Model\Service\OrderService;
-use Magento\Framework\App\ProductMetadataInterface;
+use Aplazo\AplazoPayment\Service\ApiService as AplazoService;
 
-class Data extends AbstractHelper
+class Data extends \Magento\Payment\Helper\Data
 {
+    const GENERAL_SECTION = 'payment/aplazo_gateway/';
+    const CHECKOUT_SECTION = 'payment/aplazo_gateway/checkout/';
+    const CREDENTIAL_SECTION = 'payment/aplazo_gateway/credentials/';
+    const DEBUG_SECTION = 'payment/aplazo_gateway/debug/';
 
-    const DUMMY_FIRST_NAME = 'Aplazo';
-
-    const DUMMY_LAST_NAME = 'Client';
-
-    const DUMMY_EMAIL = 'aplazoclient@aplazo.mx';
-
-    /**
-     * @var Session
-     */
-    protected $customerSession;
+    const USER_AUTHENTICATED = 1;
+    const INCOMPLETE_CREDENTIALS = 0;
+    const USER_NOT_AUTHENTICATED = -1;
+    const CALLBACK_NOT_EQUALS = 2;
 
     /**
-     * @var Context
+     * @var StoreManagerInterface
      */
-    protected $context;
+    private $storeManager;
 
     /**
-     * @var StoreManager
+     * @var \Magento\Framework\Encryption\EncryptorInterface
      */
-    protected $storeManager;
-
+    private $encryptor;
     /**
-     * @var Product
+     * @var \Aplazo\AplazoPayment\Logger\Logger
      */
-    protected $product;
+    private $aplazoLogger;
 
-    /**
-     * @var FromKey
-     */
-    protected $formkey;
-
-    /**
-     * @var QuoteFactory
-     */
-    protected $quoteFactory;
-
-    /**
-     * @var QuoteManagement
-     */
-    protected $quoteManagement;
-
-    /**
-     * @var CustomerFactory
-     */
-    protected $customerFactory;
-
-    /**
-     * @var CustomerRepository
-     */
-    protected $customerRepository;
-
-    /**
-     * @var OrderService
-     */
-    protected $orderService;
-
-    /**
-     * Data constructor.
-     * @param Session $customerSession
-     * @param Context $context
-     */
     public function __construct(
-        ProductMetadataInterface $productMetadata,
-        Session $customerSession,
-        Context $context,
+        \Magento\Framework\App\Helper\Context $context,
+        LayoutFactory $layoutFactory,
+        \Magento\Payment\Model\Method\Factory $paymentMethodFactory,
+        \Magento\Store\Model\App\Emulation $appEmulation,
+        \Magento\Payment\Model\Config $paymentConfig,
+        \Magento\Framework\App\Config\Initial $initialConfig,
         StoreManagerInterface $storeManager,
-        Product $product,
-        FormKey $formkey,
-        QuoteFactory $quoteFactory,
-        QuoteManagement $quoteManagement,
-        CustomerFactory $customerFactory,
-        CustomerRepositoryInterface $customerRepository,
-        OrderService $orderService
-    ) {
-        $this->customerSession = $customerSession;
-        $this->_storeManager = $storeManager;
-        $this->_product = $product;
-        $this->_formkey = $formkey;
-        $this->quoteFactory = $quoteFactory;
-        $this->quoteManagement = $quoteManagement;
-        $this->customerFactory = $customerFactory;
-        $this->customerRepository = $customerRepository;
-        $this->orderService = $orderService;
-        $this->productMetadata = $productMetadata;
-
-        parent::__construct($context);
+        \Aplazo\AplazoPayment\Logger\Logger $logger,
+        \Magento\Framework\Encryption\EncryptorInterface $encryptor
+    )
+    {
+        parent::__construct($context, $layoutFactory, $paymentMethodFactory, $appEmulation, $paymentConfig, $initialConfig);
+        $this->storeManager = $storeManager;
+        $this->aplazoLogger = $logger;
+        $this->encryptor = $encryptor;
     }
 
-    /**
-     * @return string
-     */
-    protected function getCustomerFirstname()
-    {
-        if ($this->customerSession->isLoggedIn()){
-            return $this->customerSession->getCustomer()->getFirstname();
-        } else {
-            return self::DUMMY_FIRST_NAME;
-        }
+    public function isDebugEnabled(){
+        return $this->getConfigFlag(
+            self::GENERAL_SECTION . 'debug_mode'
+        );
     }
 
-    /**
-     * @return string
-     */
-    protected function getCustomerLastname()
-    {
-        if ($this->customerSession->isLoggedIn()){
-            return $this->customerSession->getCustomer()->getLastname();
-        } else {
-            return self::DUMMY_LAST_NAME;
-        }
+    public function isActive(){
+        return $this->getConfigFlag(self::GENERAL_SECTION . 'active');
     }
 
-    /**
-     * @return string
-     */
-    public function getCustomerEmail()
-    {
-        if ($this->customerSession->isLoggedIn()){
-            return $this->customerSession->getCustomer()->getEmail();
-        } else {
-            return self::DUMMY_EMAIL;
-        }
+    public function getNewOrderStatus(){
+        return $this->getConfigData(self::GENERAL_SECTION . 'order_status');
     }
 
-    /**
-     * @param $quote
-     */
-    public function fillDummyQuote(&$quote)
-    {
-        $this->setAddressDataToQuote($quote);
-        $this->setCustomerDataToQuote($quote);
-        $quote->collectTotals();
-        $this->setShippingDataToQuote($quote);
-        $this->setPaymentDataToQuote($quote);
+    public function getApprovedOrderStatus(){
+        return $this->getConfigData(self::GENERAL_SECTION . 'approved_order_status');
     }
 
-    /**
-     * @param $quote
-     */
-    protected function setAddressDataToQuote(&$quote)
-    {
-        $quote->getShippingAddress()->setEmail($this->getCustomerEmail());
-        $quote->getShippingAddress()->setEmail($this->getCustomerEmail());
-        $quote->getShippingAddress()->setFirstname($this->getCustomerFirstname());
-        $quote->getBillingAddress()->setFirstname($this->getCustomerFirstname());
-        $quote->getShippingAddress()->setLastname($this->getCustomerLastname());
-        $quote->getBillingAddress()->setLastname($this->getCustomerLastname());
-        $quote->getShippingAddress()->setCity('Mexico City');
-        $quote->getBillingAddress()->setCity('Mexico City');
-        $quote->getShippingAddress()->setPostcode('11000');
-        $quote->getBillingAddress()->setPostcode('11000');
-        $quote->getShippingAddress()->setCountryId('MX');
-        $quote->getBillingAddress()->setCountryId('MX');
-        $quote->getShippingAddress()->setRegionId(664);
-        $quote->getBillingAddress()->setRegionId(664);
-        $quote->getShippingAddress()->setStreet('Avenida Paseo de las Palmas, number 755');
-        $quote->getBillingAddress()->setStreet('Avenida Paseo de las Palmas, number 755');
-        $quote->getShippingAddress()->setTelephone('1234567890');
-        $quote->getBillingAddress()->setTelephone('1234567890');
-        $quote->getShippingAddress()->setCollectShippingRates(true)
-            ->collectShippingRates();
+    public function getFailureOrderStatus(){
+        return $this->getConfigData(self::GENERAL_SECTION . 'failure_order_status');
     }
 
-    /**
-     * @param $quote
-     */
-    public function setCustomerDataToQuote(&$quote)
-    {
-        $quote->setCustomerEmail($this->getCustomerEmail());
+    public function getReserveStock(){
+        return $this->getConfigData(self::GENERAL_SECTION . 'reserve_stock');
     }
 
-    /**
-     * @param $quote
-     */
-    protected function setPaymentDataToQuote(&$quote)
-    {
-        $quote->setPaymentMethod(\Aplazo\AplazoPayment\Model\Payment::CODE);
-        $quote->getPayment()->importData(['method' => \Aplazo\AplazoPayment\Model\Payment::CODE]);
+    public function getShowOnProductPage(){
+        return $this->getConfigData(self::GENERAL_SECTION . 'show_on_product_page');
     }
 
-    /**
-     * @param $quote
-     */
-    protected function setShippingDataToQuote(&$quote)
-    {
-        $rates = $quote->getShippingAddress()->getAllShippingRates();
-        if (is_array($rates) && count($rates)) {
-            $quote->getShippingAddress()->setShippingMethod($rates[0]->getCode());
-        }
+    public function getShowOnCart(){
+        return $this->getConfigData(self::GENERAL_SECTION . 'show_on_cart');
     }
 
-    public function getConfig($config_path)
+    public function canCancelOnFailure(){
+        return $this->getConfigFlag(self::GENERAL_SECTION . 'cancel_order');
+    }
+
+    public function getMerchantId(){
+        return $this->getConfigData(self::GENERAL_SECTION . 'merchantid');
+    }
+
+    public function getApiToken(){
+        return $this->encryptor->decrypt($this->getConfigData(self::GENERAL_SECTION . 'apitoken'));
+    }
+
+    public function getCallbackUrl(): string
     {
-        return $this->scopeConfig->getValue(
-            $config_path,
+        return $this->storeManager->getStore()->getBaseUrl(\Magento\Framework\UrlInterface::URL_TYPE_WEB) . 'rest/default/V1/aplazo/callback';
+    }
+
+    public function getCurrentCurrencyCode(){
+        return $this->storeManager->getStore()->getCurrentCurrency()->getCode();
+    }
+
+    public function getServiceUrl(){
+        return $this->getConfigFlag(self::GENERAL_SECTION . 'sanbox_mode') ? 'https://api.aplazo.dev' : 'https://api.aplazo.mx';
+    }
+
+    public function getUrl($route, $params = []){
+        return $this->_getUrl($route, $params);
+    }
+
+    private function getConfigFlag($path){
+        return $this->scopeConfig->isSetFlag(
+            $path,
             \Magento\Store\Model\ScopeInterface::SCOPE_STORE
         );
     }
 
-    /**
-     * Create Order On Your Store
-     * 
-     * @param array $orderData
-     * @return array
-     * 
-    */
-    public function createMageOrder($quote) {
-        $quote->setCurrency();
-        $quote->setPaymentMethod('aplazo_payment'); //payment method
-        $quote->setInventoryProcessed(false); //not effetc inventory
-        $quote->save(); 
-        $quote->getPayment()->importData(['method' => 'aplazo_payment']);
-        $quote->collectTotals()->save();
-        $order = $this->quoteManagement->submit($quote);
-        $order->setEmailSent(0);
-        $increment_id = $order->getRealOrderId();
-        if($order->getEntityId()){
-            $result['order_id']= $order->getRealOrderId();
-        }else{
-            $result=['error'=>1,'msg'=>'Something was wrong'];
+    private function getConfigData($path){
+        return $this->scopeConfig->getValue(
+            $path,
+            \Magento\Store\Model\ScopeInterface::SCOPE_STORE
+        );
+    }
+
+    public function log($message)
+    {
+        if($this->isDebugEnabled()) {
+            $this->aplazoLogger->setName('aplazo_payments.log');
+            $this->aplazoLogger->info($message);
         }
-        return $result;
+        return true;
     }
-
-    public function getMageVersion(){
-        return $this->productMetadata->getVersion();
-    }
-
 }

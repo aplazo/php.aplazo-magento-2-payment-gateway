@@ -1,0 +1,106 @@
+<!--
+
+-->
+<div class="payment-method" data-bind="css: {'_active': (getCode() == isChecked())}">
+    <div class="payment-method-title field choice">
+        <input type="radio"
+               name="payment[method]"
+               class="radio"
+               data-bind="attr: {'id': getCode()}, value: getCode(), checked: isChecked, click: selectPaymentMethod, visible: isRadioButtonVisible()"/>
+        <div class="aplazo-banner-checkout">
+            <img data-bind="attr: {alt: 'Aplazo Banner', src: getBannerUrl()}" class="payment-banner-checkout"
+                 width="80" height="21"/>
+        </div>
+        <label class="aplazo-title label" data-bind="attr: {'for': getCode()}">
+            <!-- Aplazo Title -->
+            <span data-bind="text: getTitle()"></span>
+        </label>
+    </div>
+
+    <div class="payment-method-content">
+        <!-- ko foreach: getRegion('messages') -->
+        <!-- ko template: getTemplate() --><!-- /ko -->
+        <!--/ko-->
+
+        <div class="aplazo-container">
+            <div class="aplazo-title">
+                <p style="text-align: center;">
+                    <strong class="aplazo-font-text" style="font-size: 18px;">
+                        <!-- ko text: getTotalSegment() --><!-- /ko -->
+                        <span data-bind="i18n: 'in 5 biweekly installments of'"></span>
+
+                        <!-- ko text: getInstallmentAmount() --><!-- /ko -->
+                    </strong>
+                </p>
+                <p style="text-align: center;">
+                    <span style="font-size: 12px; font-weight: bold;" data-bind="i18n: 'the first payment will be made at the time of purchase'"></span>
+                </p>
+            </div>
+
+            <div class="aplazo-content">
+                <!-- ko foreach: { data: getInstallmentData() , as: 'installment' } -->
+                    <div data-bind="css: installment.class">
+                        <div class="aplazo-item-bull-container"><div class="aplazo-item-bull"></div></div>
+                        <div class="aplazo-item-date-container"><span data-bind="css: installment.class"><!-- ko text: installment.label --><!-- /ko --></span></div>
+                        <div class="aplazo-installment-amount"><span class="aplazo-amount"><!-- ko text: installment.amount --><!-- /ko --></span></div>
+                    </div>
+                    <!-- ko if: ($index() !== (5 - 1)) -->
+                        <!--  <tr><td><div class="aplazo-item-line"></div></td></tr> -->
+                    <!-- /ko -->
+                <!--/ko-->
+                    <div class="aplazo-last-item aplazo-font-text">
+                        <div class="aplazo-last-item-title"><span class="aplazo-font-text">Subtotal</span></div>
+                        <div class="aplazo-installment-amount"><span class="aplazo-amount" data-bind="text: getTotalSegment()"></span></div>
+                    </div>
+            </div>
+            <!--<table class="aplazo-content">
+                <tbody>
+                    <tr>
+                        <td>Today</td>
+                        <td class="aplazo-installment-amount">$6.06</td>
+                    </tr>
+                    <tr>
+                        <td>15 de Diciembre</td>
+                        <td class="aplazo-installment-amount">$6.06</td>
+                    </tr>
+                    <tr>
+                        <td>30 de Diciembre</td>
+                        <td class="aplazo-installment-amount">$6.06</td>
+                    </tr>
+                    <tr>
+                        <td>14 de Enero</td>
+                        <td class="aplazo-installment-amount">$6.06</td>
+                    </tr>
+                    <tr>
+                        <td>29 de Enero</td>
+                        <td class="aplazo-installment-amount">$6.06</td>
+                    </tr>
+                    <tr class="aplazo-last-item">
+                        <td>End</td>
+                        <td class="aplazo-installment-amount">$30000000000.30</td>
+                    </tr>
+                </tbody>
+            </table>-->
+        <div class="disclaimer">Al subtotal aquí presentado se le sumará en el próximo paso, la comisión por servicio.</div>
+        </div>
+
+        <div class="payment-method-billing-address">
+            <!-- ko foreach: $parent.getRegion(getBillingAddressFormName()) -->
+            <!-- ko template: getTemplate() --><!-- /ko -->
+            <!--/ko-->
+        </div>
+
+        <div class="actions-toolbar">
+            <div class="primary">
+                <button class="action primary checkout"
+                        type="submit"
+                        data-bind="
+                        click: placeOrder,
+                        attr: {title: $t('Place Order')}
+                        ">
+                    <span data-bind="i18n: 'Place Order'"></span>
+                </button>
+            </div>
+        </div>
+    </div>
+</div>

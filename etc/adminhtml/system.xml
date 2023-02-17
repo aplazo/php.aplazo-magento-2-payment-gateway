@@ -1,55 +1,105 @@
 <?xml version="1.0"?>
-
 <config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:module:Magento_Config:etc/system_file.xsd">
     <system>
         <section id="payment">
-            <group id="aplazo_payment" translate="label" type="text" sortOrder="50" showInDefault="1" showInWebsite="1" showInStore="1">
-                <label>Aplazo Payment</label>
-                <field id="active" translate="label" type="select" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="0">
-                    <label>Enabled</label>
-                    <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+            <group id="aplazo_gateway" translate="label" type="text" sortOrder="1" showInDefault="1" showInWebsite="1" showInStore="1">
+                <comment>
+                    <![CDATA[<div class="aplazo-payment-logo"></div><div class="aplazo-payment-text">Atrae a más clientes con nuevas e innovadoras soluciones de pago. Somos tu aliado para generar nuevos clientes e incrementar tus ventas gracias al financiamiento en quincenas de forma fácil, rápida y segura. ¡Tu comercio recibe el 100% del pago, nosotros nos encargamos del resto!<br>Dale a tus clientes la flexibilidad para obtener lo que quieren hoy.</div>]]>
+                </comment>
+                <fieldset_css>complex aplazo</fieldset_css>
+                <frontend_model>Magento\Paypal\Block\Adminhtml\System\Config\Fieldset\Payment</frontend_model>
+                <field id="credentials_status" translate="label" type="text" sortOrder="7" showInDefault="1" showInWebsite="1"
+                       showInStore="1">
+                    <label>Estado de credenciales</label>
+                    <frontend_model>Aplazo\AplazoPayment\Block\Adminhtml\System\Config\CredentialsStatus</frontend_model>
                 </field>
-                <field id="title" translate="label" type="text" sortOrder="20" showInDefault="1" showInWebsite="1" showInStore="1">
-                    <label>Title</label>
+                <field id="currency" translate="label" type="label" sortOrder="8" showInDefault="1" showInWebsite="1"
+                       showInStore="1">
+                    <label>Moneda configurada</label>
+                    <frontend_model>Aplazo\AplazoPayment\Block\Adminhtml\System\Config\CurrencyStatus</frontend_model>
                 </field>
-                <field id="subtitle" translate="label" type="text" sortOrder="20" showInDefault="1" showInWebsite="1" showInStore="1">
-                    <label>Sub-Title</label>
-                </field>
-                <field id="api_token" translate="label" type="obscure" sortOrder="33" showInDefault="1" showInWebsite="1" showInStore="0">
-                    <label>Api token</label>
-                    <backend_model>Magento\Config\Model\Config\Backend\Encrypted</backend_model>
-                </field>
-                <field id="merchant_id" translate="label" type="obscure" sortOrder="40" showInDefault="1" showInWebsite="1" showInStore="0">
-                    <label>Merchant_id</label>
-                    <backend_model>Magento\Config\Model\Config\Backend\Encrypted</backend_model>
-                </field>
-                <field id="order_status" translate="label" type="select" sortOrder="20" showInDefault="1" showInWebsite="1" showInStore="1">
-                    <label>New Order Status</label>
-                    <source_model>Aplazo\AplazoPayment\Model\Source\OrderStatus</source_model>
-                </field>
-                <field id="show_on_product_page" translate="label" type="select" sortOrder="50" showInDefault="1" showInWebsite="1" showInStore="0">
-                    <label>Show on product page</label>
-                    <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
-                </field>
-                <field id="show_on_cart" translate="label" type="select" sortOrder="60" showInDefault="1" showInWebsite="1" showInStore="0">
-                    <label>Show on cart</label>
-                    <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
-                </field>
-                <field id="refund" translate="label" type="select" sortOrder="70" showInDefault="1" showInWebsite="1" showInStore="0">
-                    <label>Enable refund</label>
-                    <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
-                </field>
-                <field id="mode" translate="label" type="select" sortOrder="80" showInDefault="1" showInWebsite="1" showInStore="0">
-                    <label>Mode</label>
-                    <source_model>Aplazo\AplazoPayment\Model\Config\Source\Mode</source_model>
-                </field>
-                <field id="enable_log" translate="label" type="select" sortOrder="90" showInDefault="1" showInWebsite="1" showInStore="0">
-                    <label>Enable Logs</label>
-                    <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
-                </field>
-                <field id="sort_order" translate="label" type="text" sortOrder="100" showInDefault="1" showInWebsite="1" showInStore="0">
-                    <label>Sort Order</label>
-                </field>
+                <!--<field id="service_url" translate="label" type="label" sortOrder="9" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Webhook registrado</label>
+                    <frontend_model>Aplazo\AplazoPayment\Block\Adminhtml\System\Config\CallbackStatus</frontend_model>
+                </field>-->
+                <group id="checkout" translate="label" type="text" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="0">
+                    <label>APLAZO checkout</label>
+                    <field id="active" translate="label" type="select" sortOrder="1" showInDefault="1" showInWebsite="1" showInStore="0">
+                        <label>Activar</label>
+                        <config_path>payment/aplazo_gateway/active</config_path>
+                        <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+                        <comment>Habilitar APLAZO en tu E-commerce.</comment>
+                    </field>
+                    <field id="sanbox_mode" translate="label" type="select" sortOrder="2" showInDefault="1" showInWebsite="1" showInStore="0">
+                        <label>Modo de pruebas</label>
+                        <config_path>payment/aplazo_gateway/sanbox_mode</config_path>
+                        <source_model>Magento\Config\Model\Config\Source\Enabledisable</source_model>
+                        <comment>Habilitar o desactivar el modo de pruebas.</comment>
+                    </field>
+                    <field id="sort_order" translate="label" type="text" sortOrder="6" showInDefault="1" showInWebsite="1" showInStore="0">
+                        <label>Posición en el checkout</label>
+                        <config_path>payment/aplazo_gateway/sort_order</config_path>
+                        <frontend_class>validate-number</frontend_class>
+                        <comment>Asigna un orden de prioridad para la visualización en el checkout respecto a otros medios de pagos.</comment>
+                    </field>
+                    <field id="order_status" translate="label" type="select" sortOrder="25" showInDefault="1" showInWebsite="1" showInStore="0">
+                        <label>Estado de orden nueva</label>
+                        <config_path>payment/aplazo_gateway/order_status</config_path>
+                        <source_model>Magento\Sales\Model\Config\Source\Order\Status</source_model>
+                        <comment>Este es el estado que las ordenes tendrán cuando se creen en el E-commerce.</comment>
+                    </field>
+                    <field id="approved_order_status" translate="label" type="select" sortOrder="30" showInDefault="1" showInWebsite="1" showInStore="0">
+                        <label>Estado de orden aprobada</label>
+                        <config_path>payment/aplazo_gateway/approved_order_status</config_path>
+                        <source_model>Magento\Sales\Model\Config\Source\Order\Status</source_model>
+                        <comment>Este es el estado que las ordenes tendrán cuando se el pago sea aprobado.</comment>
+                    </field>
+                    <field id="failure_order_status" translate="label" type="select" sortOrder="40" showInDefault="1" showInWebsite="1" showInStore="0">
+                        <label>Estado de orden rechazada</label>
+                        <config_path>payment/aplazo_gateway/failure_order_status</config_path>
+                        <source_model>Magento\Sales\Model\Config\Source\Order\Status</source_model>
+                        <comment>Este es el estado que las ordenes tendrán cuando se el pago sea rechazado.</comment>
+                    </field>
+                    <field id="reserve_stock" translate="label" type="select" sortOrder="50" showInDefault="1" showInWebsite="1" showInStore="0">
+                        <label>Reservar stock</label>
+                        <config_path>payment/aplazo_gateway/reserve_stock</config_path>
+                        <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+                        <comment>Reserva stock hasta que se confirme el pago a través del webhook.</comment>
+                    </field>
+                    <field id="show_on_product_page" translate="label" type="select" sortOrder="60" showInDefault="1" showInWebsite="1" showInStore="0">
+                        <label>Mostrar widget en página de producto</label>
+                        <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+                    </field>
+                    <field id="show_on_cart" translate="label" type="select" sortOrder="70" showInDefault="1" showInWebsite="1" showInStore="0">
+                        <label>Mostrar widget en página de carrito</label>
+                        <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+                    </field>
+                </group>
+
+                <group id="credentials" translate="label" type="text" sortOrder="20" showInDefault="1" showInWebsite="1" showInStore="0">
+                    <label>Credenciales</label>
+                    <comment>
+                        <![CDATA[<div class="aplazo-gateway-credentials-section"><span style="display:inline">¿Te gustaría tener Aplazo como método de pago? Da clic en el siguiente <a href="https://web.aplazo.mx/merchant-registration/become-merchant/company-info" target="_blank">link</a> para ponernos en contacto en menos de 24hrs.</span></div>]]>
+                    </comment>
+                    <field id="merchantid" translate="label" type="text" sortOrder="2" showInDefault="1" showInWebsite="1" showInStore="0">
+                        <config_path>payment/aplazo_gateway/merchantid</config_path>
+                        <label>Merchant ID</label>
+                        <backend_model>Aplazo\AplazoPayment\Model\Adminhtml\System\Config\InvalidateCacheOnChange</backend_model>
+                    </field>
+                    <field id="apitoken" translate="label" type="obscure" sortOrder="3" showInDefault="1" showInWebsite="1" showInStore="0">
+                        <config_path>payment/aplazo_gateway/apitoken</config_path>
+                        <label>API token</label>
+                        <backend_model>Aplazo\AplazoPayment\Model\Adminhtml\System\Config\Encrypted</backend_model>
+                    </field>
+                </group>
+                <group id="debug" translate="label" type="text" sortOrder="40" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Test &amp; Debug</label>
+                    <field id="debug_mode" translate="label" type="select" sortOrder="100" showInDefault="1" showInWebsite="1" showInStore="0">
+                        <label>Activar logs</label>
+                        <config_path>payment/aplazo_gateway/debug_mode</config_path>
+                        <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+                    </field>
+                </group>
             </group>
         </section>
     </system>

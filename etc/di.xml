@@ -1,42 +1,79 @@
 <?xml version="1.0"?>
 <config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:framework:ObjectManager/etc/config.xsd">
-    <type name="Magento\Quote\Observer\SubmitObserver">
-        <plugin name="stop_sending_order_email_for_custom_payment" type="Aplazo\AplazoPayment\Plugin\Quote\Observer\SubmitObserver" sortOrder="1"/>
+    <type name="Magento\Framework\Console\CommandListInterface">
+        <arguments>
+            <argument name="commands" xsi:type="array">
+                <item name="aplazoCancelOrders" xsi:type="object">Aplazo\AplazoPayment\Console\Command\CancelOrders</item>
+            </argument>
+        </arguments>
     </type>
-    <!--Logger-->
-    <type name="Aplazo\AplazoPayment\Logger\Handler">
+
+    <!-- Payment Method Facade configuration -->
+    <virtualType name="AplazoFacade" type="Magento\Payment\Model\Method\Adapter">
+        <arguments>
+            <argument name="code" xsi:type="const">Aplazo\AplazoPayment\Model\Ui\ConfigProvider::CODE</argument>
+            <argument name="formBlockType" xsi:type="string">Magento\Payment\Block\Form</argument>
+            <argument name="infoBlockType" xsi:type="string">Magento\Payment\Block\Info</argument>
+            <argument name="valueHandlerPool" xsi:type="object">AplazoValueHandlerPool</argument>
+            <argument name="commandPool" xsi:type="object">AplazoCommandPool</argument>
+        </arguments>
+    </virtualType>
+
+    <!-- Configuration reader -->
+    <virtualType name="AplazoConfig" type="Magento\Payment\Gateway\Config\Config">
+        <arguments>
+            <argument name="methodCode" xsi:type="const">Aplazo\AplazoPayment\Model\Ui\ConfigProvider::CODE</argument>
+        </arguments>
+    </virtualType>
+
+    <!-- Logger, initialized with GatewayConfig -->
+    <virtualType name="AplazoLogger" type="Magento\Payment\Model\Method\Logger">
+        <arguments>
+            <argument name="config" xsi:type="object">GatewayConfig</argument>
+        </arguments>
+    </virtualType>
+
+    <!-- Commands infrastructure -->
+    <virtualType name="AplazoCommandPool" type="Magento\Payment\Gateway\Command\CommandPool">
+        <arguments>
+            <argument name="commands" xsi:type="array">
+                <item name="sales" xsi:type="string">Aplazo\AplazoPayment\Gateway\Command\Authorize</item>
+            </argument>
+        </arguments>
+    </virtualType>
+
+    <virtualType name="AplazoValueHandlerPool" type="Magento\Payment\Gateway\Config\ValueHandlerPool">
+        <arguments>
+            <argument name="handlers" xsi:type="array">
+                <item name="default" xsi:type="string">AplazoConfigValueHandler</item>
+            </argument>
+        </arguments>
+    </virtualType>
+    <virtualType name="AplazoConfigValueHandler" type="Magento\Payment\Gateway\Config\ConfigValueHandler">
+        <arguments>
+            <argument name="configInterface" xsi:type="object">AplazoConfig</argument>
+        </arguments>
+    </virtualType>
+
+    <preference for="Aplazo\AplazoPayment\Api\NotificationsInterface" type="Aplazo\AplazoPayment\Model\Notifications"/>
+    <virtualType name="AplazoGatewayCustomLogger" type="Magento\Framework\Logger\Monolog">
+        <arguments>
+            <argument name="handlers" xsi:type="array">
+                <item name="info" xsi:type="object">Aplazo\AplazoPayment\Logger\Handler\InfoHandler</item>
+            </argument>
+        </arguments>
+    </virtualType>
+
+    <type name="Aplazo\AplazoPayment\Logger\Handler\InfoHandler">
         <arguments>
             <argument name="filesystem" xsi:type="object">Magento\Framework\Filesystem\Driver\File</argument>
         </arguments>
     </type>
     <type name="Aplazo\AplazoPayment\Logger\Logger">
         <arguments>
-            <argument name="name" xsi:type="string">aplazoLogger</argument>
-            <argument name="handlers"  xsi:type="array">
-                <item name="system" xsi:type="object">Aplazo\AplazoPayment\Logger\Handler</item>
-            </argument>
-        </arguments>
-    </type>
-    <preference for="Aplazo\AplazoPayment\Api\OrderInterface" type="Aplazo\AplazoPayment\Model\Api\AplazoOrder"/>
-
-    <type name="Magento\Quote\Api\ChangeQuoteControlInterface">
-        <plugin name="UpdateQuoteWhenRestricted" type="Aplazo\AplazoPayment\Plugin\UpdateQuoteWhenRestrictedPlugin"/>
-    </type>
-
-    <preference for="Aplazo\AplazoPayment\Api\SaleRepositoryInterface" type="Aplazo\AplazoPayment\Model\SaleRepository"/>
-    <preference for="Aplazo\AplazoPayment\Api\Data\SaleInterface" type="Aplazo\AplazoPayment\Model\Data\Sale"/>
-    <preference for="Aplazo\AplazoPayment\Api\Data\SaleSearchResultsInterface" type="Magento\Framework\Api\SearchResults"/>
-
-    <virtualType name="Aplazo\AplazoPayment\Model\ResourceModel\Sale\Grid\Collection" type="Magento\Framework\View\Element\UiComponent\DataProvider\SearchResult">
-        <arguments>
-            <argument name="mainTable" xsi:type="string">aplazo_aplazopayment_sale</argument>
-            <argument name="resourceModel" xsi:type="string">Aplazo\AplazoPayment\Model\ResourceModel\Sale\Collection</argument>
-        </arguments>
-    </virtualType>
-    <type name="Magento\Framework\View\Element\UiComponent\DataProvider\CollectionFactory">
-        <arguments>
-            <argument name="collections" xsi:type="array">
-                <item name="aplazo_aplazopayment_sale_listing_data_source" xsi:type="string">Aplazo\AplazoPayment\Model\ResourceModel\Sale\Grid\Collection</item>
+            <argument name="name" xsi:type="string">aplazo</argument>
+            <argument name="handlers" xsi:type="array">
+                <item name="system" xsi:type="object">Aplazo\AplazoPayment\Logger\Handler\InfoHandler</item>
             </argument>
         </arguments>
     </type>

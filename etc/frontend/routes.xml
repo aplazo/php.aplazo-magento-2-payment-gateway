@@ -1,7 +1,7 @@
-<?xml version="1.0" ?>
+<?xml version="1.0"?>
 <config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:framework:App/etc/routes.xsd">
     <router id="standard">
-        <route frontName="aplazopayment" id="aplazopayment">
+        <route id="aplazo" frontName="aplazo">
             <module name="Aplazo_AplazoPayment"/>
         </route>
     </router>

@@ -1,10 +1,12 @@
 <?xml version="1.0"?>
+<!--
+
+-->
 <config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:framework:ObjectManager/etc/config.xsd">
-    <type name="Aplazo\AplazoPayment\Observer\AddAplazoShortcuts">
+    <type name="Magento\Checkout\Model\CompositeConfigProvider">
         <arguments>
-            <argument name="buttonBlocks" xsi:type="array">
-                <item name="shopping_cart" xsi:type="string">Aplazo\AplazoPayment\Block\CartShorcut</item>
-                <item name="productpage" xsi:type="string">Aplazo\AplazoPayment\Block\ProductpageShorcut</item>
+            <argument name="configProviders" xsi:type="array">
+                <item name="aplazo_config_provider" xsi:type="object">Aplazo\AplazoPayment\Model\Ui\ConfigProvider</item>
             </argument>
         </arguments>
     </type>
