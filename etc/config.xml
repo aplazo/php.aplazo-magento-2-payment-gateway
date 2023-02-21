@@ -18,6 +18,7 @@
                 <failure_order_status>canceled</failure_order_status>
                 <reserve_stock>1</reserve_stock>
                 <show_on_product_page>1</show_on_product_page>
+                <refund>1</refund>
                 <show_on_cart>1</show_on_cart>
                 <cancel_order>1</cancel_order>
                 <debug_mode>1</debug_mode>

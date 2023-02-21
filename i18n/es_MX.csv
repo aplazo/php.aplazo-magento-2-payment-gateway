@@ -7,3 +7,4 @@
 "the first payment will be made at the time of purchase","El primer pago se realizará en el momento de la compra"
 "in 5 biweekly installments of","en 5 cuotas quincenales de"
 "Inventory error. Product stock could not decrease. Message > ","Error de inventario. No se pudo disminuir la cantidad de un producto. Mensaje > "
+"The refund will be made offline since the Aplazo refund option is not activated in the configuration","El rembolso se realizará offline debido a que la configuración de rembolso está desactivada"
