@@ -60,6 +60,23 @@ class ApiService
     }
 
     /**
+     * @param $orderData
+     * @return array
+     * @throws LocalizedException
+     */
+    public function createRefund($orderData){
+        $response = $this->request(
+            $this->getRefundLoanUrl(),
+            json_encode($orderData),
+            ['Content-Type: application/json',
+                'merchant_id' => $this->aplazoHelper->getMerchantId(),
+                'api_token' => $this->aplazoHelper->getApiToken(),]
+        );
+
+        return $response;
+    }
+
+    /**
      * @return string
      * @throws LocalizedException
      */
@@ -124,6 +141,14 @@ class ApiService
     private function getCreateLoanUrl(): string
     {
         return $this->aplazoHelper->getServiceUrl() . '/api/loan';
+    }
+
+    /**
+     * @return string
+     */
+    private function getRefundLoanUrl(): string
+    {
+        return $this->aplazoHelper->getServiceUrl() . '/api/pos/loan/refund';
     }
 
     /**

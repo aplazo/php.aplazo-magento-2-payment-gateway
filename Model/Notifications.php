@@ -42,7 +42,7 @@ class Notifications implements NotificationsInterface
     {
         $response = ['status' => true, 'message' => 'OK'];
         try {
-            $orderResult = $this->orderService->getOrderByIncrementId($cartId);
+            $orderResult = $this->orderService->getOrderById($cartId);
             if ($orderResult['success']) {
                 /**
                  * @var Order $order
