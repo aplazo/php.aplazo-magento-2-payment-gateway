@@ -2,19 +2,14 @@
 
 namespace Aplazo\AplazoPayment\Service;
 
-use Magento\Framework\App\Cache\Type\Config as Cache;
 use Aplazo\AplazoPayment\Helper\Data as AplazoHelper;
 use Magento\Framework\Exception\LocalizedException;
 use Magento\Framework\Exception\AuthenticationException;
+use Magento\Framework\HTTP\Client\Curl;
 
 class ApiService
 {
     const TOKEN_CACHE_KEY = 'aplazo_api_token';
-
-    /**
-     * @var Cache
-     */
-    private $cache;
 
     /**
      * @var AplazoHelper
@@ -30,14 +25,18 @@ class ApiService
      * @var array
      */
     private $merchant;
+    /**
+     * @var Curl
+     */
+    private $curl;
 
     public function __construct
     (
-        Cache $cacheManager,
+        Curl $curl,
         AplazoHelper $aplazoHelper
     )
     {
-        $this->cache = $cacheManager;
+        $this->curl = $curl;
         $this->aplazoHelper = $aplazoHelper;
     }
 
@@ -65,12 +64,14 @@ class ApiService
      * @throws LocalizedException
      */
     public function createRefund($orderData){
-        $response = $this->request(
+        $response = $this->requestRefund(
             $this->getRefundLoanUrl(),
             json_encode($orderData),
-            ['Content-Type: application/json',
+            [
                 'merchant_id' => $this->aplazoHelper->getMerchantId(),
-                'api_token' => $this->aplazoHelper->getApiToken(),]
+                'api_token' => $this->aplazoHelper->getApiToken(),
+                'Content-Type: application/json'
+            ]
         );
 
         return $response;
@@ -97,35 +98,13 @@ class ApiService
             if (!isset($response['Authorization'])) {
                 throw new AuthenticationException(__('No token returned from ' . $this->getAuthorizationUrl()));
             }
-            $authToken = $this->setAuthorizationToken($response['Authorization']);
+            $authToken = $response['Authorization'];
         } catch (LocalizedException $e) {
             throw new AuthenticationException(__('Unable to retrieve Aplazo API token. ' . $e->getMessage()));
         }
         return $authToken;
     }
 
-    /**
-     * @return string
-     */
-    private function getTokenFromCache(): string
-    {
-        $authToken = '';
-        if ($this->cache->test(self::TOKEN_CACHE_KEY)) {
-            $authToken = $this->cache->load(self::TOKEN_CACHE_KEY);
-            $authToken = $this->setAuthorizationToken($authToken);
-        }
-        return $authToken;
-    }
-
-    /**
-     * @param string
-     */
-    private function setAuthorizationToken($authToken): string
-    {
-        $this->accessToken = $authToken;
-        $this->cache->save($authToken, self::TOKEN_CACHE_KEY, [],10000);
-        return $this->accessToken;
-    }
 
     /**
      * @return string
@@ -175,6 +154,30 @@ class ApiService
         $response = curl_exec($curl);
         $error = curl_error($curl);
         curl_close($curl);
+
+        $this->aplazoHelper->log("From: \Aplazo\AplazoPayment\Service\ApiService::request\nURL: $url\nMETHOD: $method\nREQUEST: $body\nRESPONSE:$response");
+
+        if (!$response) {
+            throw new LocalizedException(__('No response from request to ' . $url));
+        }
+
+        if (!empty($error)) {
+            throw new LocalizedException(__('Error returned with request to ' . $url . '. Error: ' . $error));
+        }
+
+        return json_decode($response,true);
+    }
+
+    private function requestRefund($url, $body, $headers = [], $method = 'POST')
+    {
+        $this->curl->setHeaders( [
+            'merchant_id' => $this->aplazoHelper->getMerchantId(),
+            'api_token' => $this->aplazoHelper->getApiToken(),
+            'Content-Type: application/json'
+        ]);
+        $this->curl->post($url, $body);
+
+        $response = $this->curl->getBody();
 
         $this->aplazoHelper->log("From: \Aplazo\AplazoPayment\Service\ApiService::request\nURL: $url\nMETHOD: $method\nREQUEST: $body\nRESPONSE:$response");
 

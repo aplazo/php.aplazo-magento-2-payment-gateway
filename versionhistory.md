@@ -82,3 +82,5 @@
 * Sandbox changed from dev to net
 ## 3.0.2
 * Refund added
+## 3.0.3
+* Orders Canceled by Cron with system configuration. Fix with multisource inventory reservation
