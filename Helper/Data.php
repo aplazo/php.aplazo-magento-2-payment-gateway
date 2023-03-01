@@ -76,6 +76,10 @@ class Data extends \Magento\Payment\Helper\Data
         return $this->getConfigData(self::GENERAL_SECTION . 'reserve_stock');
     }
 
+    public function getCancelTime(){
+        return $this->getConfigData(self::GENERAL_SECTION . 'cancel_time');
+    }
+
     public function getShowOnProductPage(){
         return $this->getConfigData(self::GENERAL_SECTION . 'show_on_product_page');
     }

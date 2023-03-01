@@ -5,10 +5,25 @@ namespace Aplazo\AplazoPayment\Model\Service;
 use Magento\CatalogInventory\Api\StockRegistryInterface;
 use Magento\Framework\Api\SearchCriteriaBuilder;
 use Magento\Framework\DB\TransactionFactory;
+use Magento\Framework\Exception\CouldNotSaveException;
+use Magento\Framework\Exception\InputException;
 use Magento\Framework\Exception\LocalizedException;
 use Magento\Framework\Exception\NoSuchEntityException;
 use Magento\InventoryApi\Api\Data\SourceItemInterface;
 use Magento\InventoryApi\Api\SourceItemRepositoryInterface;
+use Magento\InventoryCatalogApi\Model\GetProductTypesBySkusInterface;
+use Magento\InventoryCatalogApi\Model\GetSkusByProductIdsInterface;
+use Magento\InventoryConfigurationApi\Model\IsSourceItemManagementAllowedForProductTypeInterface;
+use Magento\InventorySales\Model\CheckItemsQuantity;
+use Magento\InventorySalesApi\Api\Data\ItemToSellInterfaceFactory;
+use Magento\InventorySalesApi\Api\Data\SalesChannelInterface;
+use Magento\InventorySalesApi\Api\Data\SalesChannelInterfaceFactory;
+use Magento\InventorySalesApi\Api\Data\SalesEventExtensionFactory;
+use Magento\InventorySalesApi\Api\Data\SalesEventInterface;
+use Magento\InventorySalesApi\Api\Data\SalesEventInterfaceFactory;
+use Magento\InventorySalesApi\Api\PlaceReservationsForSalesEventInterface;
+use Magento\InventorySalesApi\Model\StockByWebsiteIdResolverInterface;
+use Magento\Quote\Api\CartRepositoryInterface;
 use Magento\Quote\Model\MaskedQuoteIdToQuoteIdInterface;
 use Magento\Sales\Api\Data\OrderInterface;
 use Magento\Sales\Api\OrderRepositoryInterface;
@@ -22,6 +37,7 @@ use Aplazo\AplazoPayment\Service\ApiService as AplazoService;
 use Magento\Sales\Model\Service\InvoiceService;
 use Magento\CatalogInventory\Api\StockConfigurationInterface;
 use Magento\CatalogInventory\Api\StockManagementInterface;
+use Magento\Store\Api\WebsiteRepositoryInterface;
 
 class OrderService
 {
@@ -29,86 +45,106 @@ class OrderService
      * @var OrderCollectionFactory
      */
     private $orderCollectionFactory;
-
     /**
      * @var OrderRepositoryInterface
      */
     private $orderRepository;
-
     /**
      * @var AplazoService
      */
     private $aplazoService;
-
     /**
      * @var AplazoHelper
      */
     private $aplazoHelper;
-
     /**
      * @var MaskedQuoteIdToQuoteIdInterface
      */
     private $maskedQuoteIdToQuoteId;
-
     /**
      * @var InvoiceService
      */
     private $invoiceService;
-
     /**
      * @var TransactionFactory
      */
     private $transactionFactory;
-
     /**
      * @var StockConfigurationInterface
      */
     private $stockConfiguration;
-
     /**
-     * @var StockManagementInterface
+     * @var PlaceReservationsForSalesEventInterface
      */
-    private $stockManagement;
-
+    private $placeReservationsForSalesEvent;
     /**
-     * @var \Magento\Catalog\Model\Indexer\Product\Price\Processor
+     * @var GetSkusByProductIdsInterface
      */
-    private $priceIndexer;
-
-    private $stockRegistry;
-
+    private $getSkusByProductIds;
     /**
-     * @var \Magento\InventoryApi\Api\SourceItemsSaveInterface
+     * @var WebsiteRepositoryInterface
      */
-    private $sourceItemsSaveInterface;
-
+    private $websiteRepository;
     /**
-     * @var SearchCriteriaBuilder
+     * @var SalesChannelInterfaceFactory
      */
-    private $searchCriteriaBuilder;
-
+    private $salesChannelFactory;
     /**
-     * @var SourceItemRepositoryInterface
+     * @var SalesEventInterfaceFactory
      */
-    private $sourceItemRepository;
+    private $salesEventFactory;
+    /**
+     * @var CheckItemsQuantity
+     */
+    private $checkItemsQuantity;
+    /**
+     * @var ItemToSellInterfaceFactory
+     */
+    private $itemsToSellFactory;
+    /**
+     * @var StockByWebsiteIdResolverInterface
+     */
+    private $stockByWebsiteIdResolver;
+    /**
+     * @var GetProductTypesBySkusInterface
+     */
+    private $getProductTypesBySkus;
+    /**
+     * @var IsSourceItemManagementAllowedForProductTypeInterface
+     */
+    private $isSourceItemManagementAllowedForProductType;
+    /**
+     * @var SalesEventExtensionFactory
+     */
+    private $salesEventExtensionFactory;
+    /**
+     * @var CartRepositoryInterface
+     */
+    private $quoteRepository;
 
     public function __construct
     (
-        OrderCollectionFactory                                 $orderCollectionFactory,
-        OrderRepositoryInterface                               $orderRepository,
-        AplazoService                                          $aplazoService,
-        AplazoHelper                                           $aplazoHelper,
-        MaskedQuoteIdToQuoteIdInterface                        $maskedQuoteIdToQuoteId,
-        InvoiceService                                         $invoiceService,
-        TransactionFactory                                     $transactionFactory,
-        \Magento\Framework\UrlInterface                        $url,
-        StockConfigurationInterface                            $stockConfiguration,
-        StockManagementInterface                               $stockManagement,
-        \Magento\CatalogInventory\Api\StockRegistryInterface   $stockRegistry,
-        \Magento\Catalog\Model\Indexer\Product\Price\Processor $priceIndexer,
-        \Magento\InventoryApi\Api\SourceItemsSaveInterface $sourceItemsSaveInterface,
-        SearchCriteriaBuilder $searchCriteriaBuilder,
-        SourceItemRepositoryInterface $sourceItemRepository
+        OrderCollectionFactory                               $orderCollectionFactory,
+        OrderRepositoryInterface                             $orderRepository,
+        AplazoService                                        $aplazoService,
+        AplazoHelper                                         $aplazoHelper,
+        MaskedQuoteIdToQuoteIdInterface                      $maskedQuoteIdToQuoteId,
+        InvoiceService                                       $invoiceService,
+        TransactionFactory                                   $transactionFactory,
+        \Magento\Framework\UrlInterface                      $url,
+        StockConfigurationInterface                          $stockConfiguration,
+        PlaceReservationsForSalesEventInterface              $placeReservationsForSalesEvent,
+        GetSkusByProductIdsInterface                         $getSkusByProductIds,
+        WebsiteRepositoryInterface                           $websiteRepository,
+        SalesChannelInterfaceFactory                         $salesChannelFactory,
+        SalesEventInterfaceFactory                           $salesEventFactory,
+        ItemToSellInterfaceFactory                           $itemsToSellFactory,
+        CheckItemsQuantity                                   $checkItemsQuantity,
+        StockByWebsiteIdResolverInterface                    $stockByWebsiteIdResolver,
+        GetProductTypesBySkusInterface                       $getProductTypesBySkus,
+        IsSourceItemManagementAllowedForProductTypeInterface $isSourceItemManagementAllowedForProductType,
+        SalesEventExtensionFactory                           $salesEventExtensionFactory,
+        CartRepositoryInterface           $quoteRepository
     )
     {
         $this->orderCollectionFactory = $orderCollectionFactory;
@@ -120,12 +156,18 @@ class OrderService
         $this->invoiceService = $invoiceService;
         $this->transactionFactory = $transactionFactory;
         $this->stockConfiguration = $stockConfiguration;
-        $this->stockManagement = $stockManagement;
-        $this->priceIndexer = $priceIndexer;
-        $this->stockRegistry = $stockRegistry;
-        $this->sourceItemsSaveInterface = $sourceItemsSaveInterface;
-        $this->searchCriteriaBuilder = $searchCriteriaBuilder;
-        $this->sourceItemRepository = $sourceItemRepository;
+        $this->placeReservationsForSalesEvent = $placeReservationsForSalesEvent;
+        $this->getSkusByProductIds = $getSkusByProductIds;
+        $this->websiteRepository = $websiteRepository;
+        $this->salesChannelFactory = $salesChannelFactory;
+        $this->salesEventFactory = $salesEventFactory;
+        $this->itemsToSellFactory = $itemsToSellFactory;
+        $this->checkItemsQuantity = $checkItemsQuantity;
+        $this->stockByWebsiteIdResolver = $stockByWebsiteIdResolver;
+        $this->getProductTypesBySkus = $getProductTypesBySkus;
+        $this->isSourceItemManagementAllowedForProductType = $isSourceItemManagementAllowedForProductType;
+        $this->salesEventExtensionFactory = $salesEventExtensionFactory;
+        $this->quoteRepository = $quoteRepository;
     }
 
     /**
@@ -140,7 +182,7 @@ class OrderService
         $result = $this->getOrderByAttribute(OrderInterface::QUOTE_ID, $quoteId, false);
         if ($result['success']) {
             $order = $result['order'];
-            $this->reservingStockUntilPayment($order);
+            $this->reservingStockUntilPayment($order, 'aplazo_item_reserved');
             $order->setStatus($this->aplazoHelper->getNewOrderStatus());
             $this->saveOrder($order);
             $result = $this->createLoan($order->getEntityId());
@@ -152,18 +194,15 @@ class OrderService
      * @param Order $order
      * @return void
      */
-    public function reservingStockUntilPayment($order)
+    public function reservingStockUntilPayment($order, $type = SalesEventInterface::EVENT_ORDER_PLACED)
     {
-        if ($this->stockConfiguration->canSubtractQty() && $this->aplazoHelper->getReserveStock()) {
-            /** @var Item $item */
-//            foreach ($order->getAllVisibleItems() as $item) {
-//                $qty = $item->getQtyOrdered() - max($item->getQtyShipped(), $item->getQtyInvoiced()) - $item->getQtyCanceled();
-//                if ($item->getId() && $item->getProductId() && $qty) {
-//                    $this->stockManagement->backItemQty($item->getProductId(), $qty, $item->getStore()->getWebsiteId());
-//                    $this->priceIndexer->reindexRow($item->getProductId());
-//                }
-//            }
-            $this->updateQty($order, true);
+        if ($this->aplazoHelper->getReserveStock()) {
+            try {
+                $this->updateQty($order, true, $type);
+            } catch (CouldNotSaveException|InputException|NoSuchEntityException|LocalizedException $e) {
+                $this->aplazoHelper->log('Webhook error inventory: Al crear pedido no se recupero la reserva de stock. Increment_id ' . $order->getIncrementId());
+                $this->aplazoHelper->log($e->getMessage());
+            }
         }
     }
 
@@ -171,84 +210,85 @@ class OrderService
      * @param Order $order
      * @return Order
      */
-    public function decreasingStockAfterPaymentSuccess($order)
+    public function decreasingStockAfterPaymentSuccess($order, $type = SalesEventInterface::EVENT_ORDER_CANCELED)
     {
-        if ($this->stockConfiguration->canSubtractQty() && $this->aplazoHelper->getReserveStock()) {
-//            try {
-//                $items = [];
-//                foreach ($order->getAllVisibleItems() as $item) {
-//                    if(!($productId = $item->getProductId())) {
-//                        continue;
-//                    }
-//                    $items[$productId] = $item->getQtyOrdered() - max($item->getQtyShipped(), $item->getQtyInvoiced()) - $item->getQtyCanceled();
-//                }
-//
-//                $itemsForReindex = $this->stockManagement->registerProductsSale(
-//                    $items,
-//                    $order->getStore()->getWebsiteId()
-//                );
-//                $ids = [];
-//
-//                foreach ($itemsForReindex as $itemForReindex) {
-//                    $this->priceIndexer->reindexRow($itemForReindex->getProductId());
-//                }
-//            } catch (LocalizedException $e) {
-//                $message = __("Error de inventario. No se pudo disminuir la cantidad de un producto. Mensaje > ") . $e->getMessage();
-//                $order->addCommentToStatusHistory($message);
-//                $this->aplazoHelper->log("Order " . $order->getIncrementId() . " posible error de inventario.");
-//            }
-
-            $order = $this->updateQty($order, false);
+        if ($this->aplazoHelper->getReserveStock()) {
+            try {
+                $this->updateQty($order, false, $type);
+            } catch (CouldNotSaveException|InputException|NoSuchEntityException|LocalizedException $e) {
+                $this->aplazoHelper->log('Webhook error inventory: Al crear invoice no se pudo reservar stock. Increment_id ' . $order->getIncrementId());
+                $this->aplazoHelper->log($e->getMessage());
+            }
         }
         return $order;
     }
 
-    public function updateQty($order, $plus)
+    /**
+     * @param Order $order
+     * @param $plus
+     * @param $type
+     * @return mixed
+     * @throws CouldNotSaveException
+     * @throws InputException
+     * @throws LocalizedException
+     * @throws NoSuchEntityException
+     */
+    public function updateQty($order, $plus, $type)
     {
-        /** @var Item $item */
-        foreach ($order->getAllVisibleItems() as $item) {
-            $qty = $item->getQtyOrdered() - max($item->getQtyShipped(), $item->getQtyInvoiced()) - $item->getQtyCanceled();
-            if ($item->getId() && $item->getProductId() && $qty) {
-//                $searchCriteria = $this->searchCriteriaBuilder
-//                    ->addFilter(SourceItemInterface::SKU, $item->getSku())
-//                    ->create();
-//
-//                $result = $this->sourceItemRepository->getList($searchCriteria)->getItems();
-//
-//                foreach($result as $sourceItem){
-//                    if($plus){
-//                        $sourceItem->setQuantity($sourceItem->getQuantity() + (float)$qty);
-//                    } else {
-//                        $sourceItem->setQuantity($sourceItem->getQuantity() - (float)$qty);
-//                    }
-//                }
-//                try {
-//                    $this->sourceItemsSaveInterface->execute([$sourceItem]);
-//                } catch (LocalizedException $e) {
-//                    $message = __("Error de inventario. No se pudo disminuir la cantidad del producto con sku " . $item->getSku() . ". Mensaje > ") . $e->getMessage();
-//                    $order->addCommentToStatusHistory($message);
-//                    $this->aplazoHelper->log("Order " . $order->getIncrementId() . " posible error de inventario.");
-//                }
+        $itemsById = $itemsBySku = $itemsToSell = [];
+        foreach ($order->getItems() as $item) {
+            if (!isset($itemsById[$item->getProductId()])) {
+                $itemsById[$item->getProductId()] = 0;
+            }
+            $itemsById[$item->getProductId()] += $item->getQtyOrdered();
+        }
+        $productSkus = $this->getSkusByProductIds->execute(array_keys($itemsById));
+        $productTypes = $this->getProductTypesBySkus->execute($productSkus);
 
-                try {
-                    $stockItem = $this->stockRegistry->getStockItemBySku($item->getSku());
-                    if($plus){
-                        $qtyTotal = $stockItem->getQty() + (float)$qty;
-                    } else {
-                        $qtyTotal = $stockItem->getQty() - (float)$qty;
-                    }
-                    $stockItem->setQty($qtyTotal);
-                    $stockItem->setIsInStock((bool)$qtyTotal);
-                    $stockItem->setStockStatusChangedAutomaticallyFlag(true);
-                    $this->stockRegistry->updateStockItemBySku($item->getSku(), $stockItem);
-                    $this->priceIndexer->reindexRow($item->getProductId());
-                } catch (LocalizedException $e) {
-                    $message = __("Error de inventario. No se pudo disminuir la cantidad del producto con sku " . $item->getSku() . ". Mensaje > ") . $e->getMessage();
-                    $order->addCommentToStatusHistory($message);
-                    $this->aplazoHelper->log("Order " . $order->getIncrementId() . " posible error de inventario.");
-                }
+        foreach ($productSkus as $productId => $sku) {
+            if (false === $this->isSourceItemManagementAllowedForProductType->execute($productTypes[$sku])) {
+                continue;
+            }
+
+            $itemsBySku[$sku] = (float)$itemsById[$productId];
+            if ($plus) {
+                $itemsToSell[] = $this->itemsToSellFactory->create([
+                    'sku' => $sku,
+                    'qty' => (float)$itemsById[$productId]
+                ]);
+            } else {
+                $itemsToSell[] = $this->itemsToSellFactory->create([
+                    'sku' => $sku,
+                    'qty' => -(float)$itemsById[$productId]
+                ]);
             }
         }
+
+        $websiteId = (int)$order->getStore()->getWebsiteId();
+        $websiteCode = $this->websiteRepository->getById($websiteId)->getCode();
+        $stockId = (int)$this->stockByWebsiteIdResolver->execute((int)$websiteId)->getStockId();
+
+        $this->checkItemsQuantity->execute($itemsBySku, $stockId);
+
+        $salesEventExtension = $this->salesEventExtensionFactory->create([
+            'data' => ['objectIncrementId' => (string)$order->getIncrementId()]
+        ]);
+
+        /** @var SalesEventInterface $salesEvent */
+        $salesEvent = $this->salesEventFactory->create([
+            'type' => $type,
+            'objectType' => SalesEventInterface::OBJECT_TYPE_ORDER,
+            'objectId' => (string)$order->getEntityId()
+        ]);
+        $salesEvent->setExtensionAttributes($salesEventExtension);
+        $salesChannel = $this->salesChannelFactory->create([
+            'data' => [
+                'type' => SalesChannelInterface::TYPE_WEBSITE,
+                'code' => $websiteCode
+            ]
+        ]);
+
+        $this->placeReservationsForSalesEvent->execute($itemsToSell, $salesChannel, $salesEvent);
         return $order;
     }
 
@@ -365,6 +405,17 @@ class OrderService
              * @var OrderInterface $order
              */
             $order = $this->orderRepository->get($orderId);
+            try{
+                $quote = $this->quoteRepository->get($order->getQuoteId());
+                $shippingMethod = $quote->getShippingAddress()->getShippingDescription();
+                $taxAmount = $quote->getShippingAddress()->getTaxAmount();
+                $extOrderId = $quote->getId();
+            }catch (\Magento\Framework\Exception\NoSuchEntityException $e){
+                $shippingMethod = 'No info rate';
+                $taxAmount = 0;
+                $extOrderId = '';
+            }
+
             $billingAddress = $order->getBillingAddress();
             $products = [];
             foreach ($order->getItems() as $item) {
@@ -393,20 +444,21 @@ class OrderService
                 "cartUrl" => $this->aplazoHelper->getUrl('checkout/cart'),
                 "discount" => [
                     "price" => abs($order->getBaseDiscountAmount()),
-                    "title" => "discount"
+                    "title" => $order->getShippingAddress()->getDiscountDescription()
                 ],
                 "errorUrl" => $this->aplazoHelper->getUrl('aplazo/order/operations', ['operation' => 'redirect_to_onepage', 'onepage' => 'failure', 'orderid' => $orderId]),
                 "products" => $products,
                 "shipping" => [
                     "price" => abs($order->getBaseShippingAmount()),
-                    "title" => 'DHL'
+                    "title" => $shippingMethod
                 ],
                 "shopId" => $order->getIncrementId(),
                 "successUrl" => $this->aplazoHelper->getUrl('aplazo/order/operations', ['operation' => 'redirect_to_onepage', 'onepage' => 'success', 'orderid' => $orderId]),
                 "taxes" => [
-                    "price" => 0,//$order->getTaxAmount()
-                    "title" => "VAT"
+                    "price" => $taxAmount,
+                    "title" => __('Tax'),
                 ],
+                "extOrderId" => $extOrderId,
                 "totalPrice" => $order->getBaseGrandTotal(),
                 "webHookUrl" => $this->aplazoHelper->getUrl('rest/V1/aplazo') . 'callback'
             ];
@@ -439,7 +491,7 @@ class OrderService
     public function approveOrder($orderId)
     {
         $order = $this->orderRepository->get($orderId);
-        $order = $this->decreasingStockAfterPaymentSuccess($order);
+        $order = $this->decreasingStockAfterPaymentSuccess($order, 'order_placed_aplazo');
         if ($this->invoiceOrder($order)) {
             $order->setStatus($this->aplazoHelper->getApprovedOrderStatus());
             $order->setState(Order::STATE_PROCESSING);
@@ -455,7 +507,7 @@ class OrderService
     public function invoiceOrder($order)
     {
         if ($order->canInvoice()) {
-            try{
+            try {
                 $invoice = $this->invoiceService->prepareInvoice($order);
                 $invoice->setRequestedCaptureCase(\Magento\Sales\Model\Order\Invoice::CAPTURE_ONLINE);
                 $invoice->register();
@@ -463,7 +515,7 @@ class OrderService
                     ->addObject($invoice)
                     ->addObject($invoice->getOrder());
                 $transaction->save();
-            } catch (\Exception $e){
+            } catch (\Exception $e) {
                 $this->aplazoHelper->log('Error al crear el invoice de la orden ' . $order->getIncrementId() . ' mensaje de error > ' . $e->getMessage());
                 return false;
             }
@@ -485,7 +537,6 @@ class OrderService
             $order = $this->orderRepository->get($orderId);
             if ($this->aplazoHelper->canCancelOnFailure()) {
                 if ($order->canCancel()) {
-                    $order = $this->decreasingStockAfterPaymentSuccess($order);
                     $order->cancel();
                     $result['success'] = true;
                     $result['message'] = __("Order successfully canceled");
@@ -510,16 +561,16 @@ class OrderService
     }
 
     /**
-     * @param $storeId
      * @return \Magento\Sales\Model\ResourceModel\Order\Collection
      */
-    public function getOrderToCancelCollection($storeId)
+    public function getOrderToCancelCollection($minutes)
     {
+        $limitTime = date('Y-m-d H:i:s', strtotime("-$minutes minutes"));
         $paymentMethod = ConfigProvider::CODE;
         $collection = $this->orderCollectionFactory->create();
         $collection
-            ->addFieldToFilter('main_table.store_id', ['eq' => $storeId])
             ->addFieldToFilter('main_table.status', ['eq' => $this->aplazoHelper->getNewOrderStatus()])
+            ->addFieldToFilter('main_table.created_at', ['lt' => $limitTime])
             ->getSelect()->join(
                 ["sop" => "sales_order_payment"],
                 'main_table.entity_id = sop.parent_id',
