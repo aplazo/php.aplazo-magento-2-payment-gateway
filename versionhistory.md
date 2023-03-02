@@ -84,3 +84,5 @@
 * Refund added
 ## 3.0.3
 * Orders Canceled by Cron with system configuration. Fix with multisource inventory reservation
+## 3.0.4
+* Console command removed. No needed more, it was replaced by the cron
