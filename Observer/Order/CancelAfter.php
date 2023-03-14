@@ -49,7 +49,7 @@ class CancelAfter implements \Magento\Framework\Event\ObserverInterface
         if($order->getPayment()->getMethod() === ConfigProvider::CODE){
             $order = $this->orderService->decreasingStockAfterPaymentSuccess($order, 'order_canceled_aplazo');
             try{
-                $this->aplazoService->createRefund([
+                $this->aplazoService->cancelLoan([
                     "cartId" => $order->getEntityId(),
                     "totalAmount" => 0,
                     "reason" => 'No payment'

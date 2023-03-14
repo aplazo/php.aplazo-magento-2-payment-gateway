@@ -78,6 +78,25 @@ class ApiService
     }
 
     /**
+     * @param $orderData
+     * @return array
+     * @throws LocalizedException
+     */
+    public function cancelLoan($orderData){
+        $response = $this->requestRefund(
+            $this->getCancelLoanUrl(),
+            json_encode($orderData),
+            [
+                'merchant_id' => $this->aplazoHelper->getMerchantId(),
+                'api_token' => $this->aplazoHelper->getApiToken(),
+                'Content-Type: application/json'
+            ]
+        );
+
+        return $response;
+    }
+
+    /**
      * @return string
      * @throws LocalizedException
      */
@@ -131,6 +150,14 @@ class ApiService
     }
 
     /**
+     * @return string
+     */
+    private function getCancelLoanUrl(): string
+    {
+        return $this->aplazoHelper->getServiceUrl() . '/api/pos/loan/cancel';
+    }
+
+    /**
      * @param $url
      * @param $body
      * @param array $headers
@@ -173,7 +200,7 @@ class ApiService
         $this->curl->setHeaders( [
             'merchant_id' => $this->aplazoHelper->getMerchantId(),
             'api_token' => $this->aplazoHelper->getApiToken(),
-            'Content-Type: application/json'
+            'Content-Type' => 'application/json'
         ]);
         $this->curl->post($url, $body);
 
