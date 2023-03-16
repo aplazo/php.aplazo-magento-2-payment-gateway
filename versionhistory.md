@@ -86,3 +86,5 @@
 * Orders Canceled by Cron with system configuration. Fix with multisource inventory reservation
 ## 3.0.4
 * Console command removed. No needed more, it was replaced by the cron
+## 3.0.5
+* Cancel Endpoint used instead of refund endpoint when an order is cancelled
