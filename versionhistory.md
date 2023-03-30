@@ -88,3 +88,5 @@
 * Console command removed. No needed more, it was replaced by the cron
 ## 3.0.5
 * Cancel Endpoint used instead of refund endpoint when an order is cancelled
+## 3.0.6
+* Cancel Order Controller Removed
