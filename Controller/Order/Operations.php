@@ -98,24 +98,4 @@ class Operations extends \Magento\Framework\App\Action\Action
         }
         return $this->resultRedirectFactory->create()->setPath($url);
     }
-
-    /**
-     * @return array
-     */
-    public function cancelOrder()
-    {
-        $response = ['success' => false, 'url' => '', 'message' => ''];
-        $orderid = $this->getRequest()->getParam('orderid');
-        if($orderid){
-            $response = $this->orderService->cancelOrder($orderid);
-            if(isset($response['quote_id'])) {
-                $this->checkoutSession->setLastQuoteId($response['quote_id']);
-                $this->checkoutSession->setLastOrderId($orderid);
-            }
-            if($response['success']){
-                $response['url'] = 'checkout/onepage/failure/';
-            }
-        }
-        return $response;
-    }
 }

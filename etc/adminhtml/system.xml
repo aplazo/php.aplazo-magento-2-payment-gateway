@@ -67,7 +67,7 @@
                         <comment>Reserva stock hasta que se confirme el pago a través del webhook.</comment>
                     </field>
                     <field id="cancel_time" translate="label" type="select" sortOrder="60" showInDefault="1" showInWebsite="1" showInStore="0">
-                        <label>Mostrar widget en página de producto</label>
+                        <label>Tiempo en que se cancelan las órdenes.</label>
                         <config_path>payment/aplazo_gateway/cancel_time</config_path>
                         <source_model>Aplazo\AplazoPayment\Model\Config\Source\CancelTime</source_model>
                         <comment>Tiempo en el que se cancelarán las órdenes no pagadas.</comment>
