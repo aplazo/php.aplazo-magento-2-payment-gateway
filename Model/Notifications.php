@@ -11,6 +11,7 @@ class Notifications implements NotificationsInterface
 
     const HEADER_PAYLOAD_SIGNATURE = 'HTTP_PAYLOADSIGNATURE';
     const APLAZO_PAYLOAD_MERCHANT_ID_INDEX = 'sub';
+    const APLAZO_PAYLOAD_EXPIRATION_INDEX = 'exp';
     const APLAZO_PAYLOAD_LOAN_ID_INDEX = 'loanId';
     const APLAZO_PAYLOAD_STATUS_INDEX = 'status';
     const APLAZO_PAYLOAD_ORDER_ID_INDEX = 'cartId';
@@ -119,6 +120,12 @@ class Notifications implements NotificationsInterface
         }
         if ($payload[self::APLAZO_PAYLOAD_MERCHANT_ID_INDEX] != $this->aplazoHelper->getMerchantId()) {
             $this->validationMessageError = 'Incorrect Merchant ID';
+            return false;
+        }
+        $current_timestamp = time();
+
+        if ($current_timestamp > $payload[self::APLAZO_PAYLOAD_EXPIRATION_INDEX]) {
+            $this->validationMessageError = 'Tiempo expirado';
             return false;
         }
 
