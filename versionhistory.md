@@ -92,3 +92,5 @@
 * Cancel Order Controller Removed
 ## 3.1.0
 * Webhook security improved
+## 3.1.1
+* Webhook security expiration added
