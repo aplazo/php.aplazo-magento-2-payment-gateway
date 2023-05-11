@@ -2,15 +2,21 @@
 
 namespace Aplazo\AplazoPayment\Model;
 
-
-use Magento\Sales\Api\Data\OrderInterface;
-use Magento\Sales\Api\OrderRepositoryInterface;
 use Magento\Sales\Model\Order;
 use Aplazo\AplazoPayment\Api\NotificationsInterface;
 use Aplazo\AplazoPayment\Model\Service\OrderService;
 
 class Notifications implements NotificationsInterface
 {
+
+    const HEADER_BEARER = 'HTTP_AUTHORIZATION';
+    const BEARER_STRING = 'Bearer ';
+    const APLAZO_PAYLOAD_MERCHANT_ID_INDEX = 'sub';
+    const APLAZO_PAYLOAD_EXPIRATION_INDEX = 'exp';
+    const APLAZO_PAYLOAD_LOAN_ID_INDEX = 'loanId';
+    const APLAZO_PAYLOAD_STATUS_INDEX = 'status';
+    const APLAZO_PAYLOAD_ORDER_ID_INDEX = 'cartId';
+
 
     /**
      * @var \Aplazo\AplazoPayment\Helper\Data
@@ -27,9 +33,11 @@ class Notifications implements NotificationsInterface
      */
     private $orderService;
 
+    private $validationMessageError;
+
     public function __construct
     (
-        OrderService $orderService,
+        OrderService                      $orderService,
         \Aplazo\AplazoPayment\Helper\Data $aplazoHelper
     )
     {
@@ -41,33 +49,39 @@ class Notifications implements NotificationsInterface
     public function notify($loanId, $status, $cartId)
     {
         $response = ['status' => true, 'message' => 'OK'];
-        try {
-            $orderResult = $this->orderService->getOrderById($cartId);
-            if ($orderResult['success']) {
-                /**
-                 * @var Order $order
-                 */
-                $order = $orderResult['order'];
-                if ($status == 'Activo') {
-                    $order = $this->orderService->approveOrder($order->getId());
-                }
-                $orderPayment = $order->getPayment();
-                $orderPayment->setAdditionalInformation('aplazo_payment_id', $loanId);
-                $orderPayment->setAdditionalInformation('aplazo_status', $status);
-                $this->addOperationCommentToStatusHistory($order, $status, $loanId);
-                $this->orderService->saveOrder($order);
-            } else {
-                $response['status'] = false;
-                $response['message'] = $orderResult['message'];
-            }
-        } catch (\Exception $e) {
-            $response['status'] = false;
-            $response['message'] = $e->getMessage();
-        }
 
-        $request = json_encode(['loanid' => $loanId, 'status' => $status, 'cartid' => $cartId]);
-        $response = json_encode($response);
-        $this->aplazoHelper->log("From: \Aplazo\AplazoPayment\Model\Notifications::notify\nREQUEST: $request\nRESPONSE:$response");
+        if ($aplazoData = $this->webhookValidator()) {
+            try {
+                $orderResult = $this->orderService->getOrderById($aplazoData[self::APLAZO_PAYLOAD_ORDER_ID_INDEX]);
+                if ($orderResult['success']) {
+                    /**
+                     * @var Order $order
+                     */
+                    $order = $orderResult['order'];
+                    if ($status == 'Activo') {
+                        $order = $this->orderService->approveOrder($order->getId());
+                    }
+                    $orderPayment = $order->getPayment();
+                    $orderPayment->setAdditionalInformation('aplazo_payment_id', $aplazoData[self::APLAZO_PAYLOAD_LOAN_ID_INDEX]);
+                    $orderPayment->setAdditionalInformation('aplazo_status', $aplazoData[self::APLAZO_PAYLOAD_STATUS_INDEX]);
+                    $this->addOperationCommentToStatusHistory($order, $aplazoData[self::APLAZO_PAYLOAD_STATUS_INDEX], $aplazoData[self::APLAZO_PAYLOAD_LOAN_ID_INDEX],);
+                    $this->orderService->saveOrder($order);
+                } else {
+                    $response['status'] = false;
+                    $response['message'] = $orderResult['message'];
+                }
+            } catch (\Exception $e) {
+                $response['status'] = false;
+                $response['message'] = $e->getMessage();
+            }
+
+            $request = json_encode(['loanid' => $aplazoData[self::APLAZO_PAYLOAD_LOAN_ID_INDEX], 'status' => $aplazoData[self::APLAZO_PAYLOAD_STATUS_INDEX], 'cartid' => $aplazoData[self::APLAZO_PAYLOAD_ORDER_ID_INDEX]]);
+            $response = json_encode($response);
+            $this->aplazoHelper->log("From: \Aplazo\AplazoPayment\Model\Notifications::notify\nREQUEST: $request\nRESPONSE:$response");
+        } else {
+            $response['status'] = false;
+            $response['message'] = $this->validationMessageError;
+        }
 
         return $response;
     }
@@ -91,5 +105,38 @@ class Notifications implements NotificationsInterface
         }
         $order->addCommentToStatusHistory(sprintf($orderMessage, $operationResult, $id, $status));
         return $order;
+    }
+
+    private function webhookValidator()
+    {
+        $key = str_replace(self::BEARER_STRING, "", $_SERVER[self::HEADER_BEARER]);
+
+        if (strpos($key, self::BEARER_STRING) === false) {
+            $parts = explode('.', $key);
+
+            try {
+                $decoded_hmac = base64_decode($parts[1]);
+                $payload = json_decode($decoded_hmac, true);
+            } catch (\Exception $e) {
+                $this->validationMessageError = 'Malformed token: ' . $e->getMessage();
+                return false;
+            }
+            if ($payload[self::APLAZO_PAYLOAD_MERCHANT_ID_INDEX] != $this->aplazoHelper->getMerchantId()) {
+                $this->validationMessageError = 'Incorrect Merchant ID';
+                return false;
+            }
+            $current_timestamp = time();
+
+            if ($current_timestamp > $payload[self::APLAZO_PAYLOAD_EXPIRATION_INDEX]) {
+                $this->validationMessageError = 'Tiempo expirado';
+                return false;
+            }
+        } else {
+            $this->validationMessageError = 'Malformed Bearer Token.';
+            return false;
+        }
+
+
+        return $payload;
     }
 }

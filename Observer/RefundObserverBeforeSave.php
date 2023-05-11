@@ -106,7 +106,9 @@ class RefundObserverBeforeSave implements ObserverInterface
                 $this->throwRefundException('Credit memo is not available due to the Loan status');
             } else {
                 if($response['refundStatus'] === "REQUESTED") {
-                    $this->messageManager->addSuccessMessage('Aplazo refund was processed successfully. The status is Requested');
+                    $this->messageManager->addSuccessMessage('Aplazo refund was processed successfully. The Aplazo status is Requested');
+                    $order->addCommentToStatusHistory('Aplazo refund was processed successfully. The Aplazo status is Requested');
+                    $order->save();
                 }
             }
         } else {

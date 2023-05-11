@@ -90,3 +90,9 @@
 * Cancel Endpoint used instead of refund endpoint when an order is cancelled
 ## 3.0.6
 * Cancel Order Controller Removed
+## 3.1.0
+* Webhook security improved
+## 3.1.1
+* Webhook security expiration added
+## 3.1.2
+* Webhook security token changed to Bearer
