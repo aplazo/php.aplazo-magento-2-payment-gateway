@@ -94,3 +94,5 @@
 * Webhook security improved
 ## 3.1.1
 * Webhook security expiration added
+## 3.1.2
+* Webhook security token changed to Bearer

@@ -9,7 +9,8 @@ use Aplazo\AplazoPayment\Model\Service\OrderService;
 class Notifications implements NotificationsInterface
 {
 
-    const HEADER_PAYLOAD_SIGNATURE = 'HTTP_PAYLOADSIGNATURE';
+    const HEADER_BEARER = 'HTTP_AUTHORIZATION';
+    const BEARER_STRING = 'Bearer ';
     const APLAZO_PAYLOAD_MERCHANT_ID_INDEX = 'sub';
     const APLAZO_PAYLOAD_EXPIRATION_INDEX = 'exp';
     const APLAZO_PAYLOAD_LOAN_ID_INDEX = 'loanId';
@@ -108,26 +109,33 @@ class Notifications implements NotificationsInterface
 
     private function webhookValidator()
     {
-        $key = $_SERVER[self::HEADER_PAYLOAD_SIGNATURE];
-        $parts = explode('.', $key);
+        $key = str_replace(self::BEARER_STRING, "", $_SERVER[self::HEADER_BEARER]);
 
-        try {
-            $decoded_hmac = base64_decode($parts[1]);
-            $payload = json_decode($decoded_hmac, true);
-        } catch (\Exception $e) {
-            $this->validationMessageError = 'Malformed token: ' . $e->getMessage();
-            return false;
-        }
-        if ($payload[self::APLAZO_PAYLOAD_MERCHANT_ID_INDEX] != $this->aplazoHelper->getMerchantId()) {
-            $this->validationMessageError = 'Incorrect Merchant ID';
-            return false;
-        }
-        $current_timestamp = time();
+        if (strpos($key, self::BEARER_STRING) === false) {
+            $parts = explode('.', $key);
 
-        if ($current_timestamp > $payload[self::APLAZO_PAYLOAD_EXPIRATION_INDEX]) {
-            $this->validationMessageError = 'Tiempo expirado';
+            try {
+                $decoded_hmac = base64_decode($parts[1]);
+                $payload = json_decode($decoded_hmac, true);
+            } catch (\Exception $e) {
+                $this->validationMessageError = 'Malformed token: ' . $e->getMessage();
+                return false;
+            }
+            if ($payload[self::APLAZO_PAYLOAD_MERCHANT_ID_INDEX] != $this->aplazoHelper->getMerchantId()) {
+                $this->validationMessageError = 'Incorrect Merchant ID';
+                return false;
+            }
+            $current_timestamp = time();
+
+            if ($current_timestamp > $payload[self::APLAZO_PAYLOAD_EXPIRATION_INDEX]) {
+                $this->validationMessageError = 'Tiempo expirado';
+                return false;
+            }
+        } else {
+            $this->validationMessageError = 'Malformed Bearer Token.';
             return false;
         }
+
 
         return $payload;
     }
