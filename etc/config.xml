@@ -24,6 +24,9 @@
                 <cancel_order>1</cancel_order>
                 <debug_mode>1</debug_mode>
                 <sort_order>1</sort_order>
+                <checkout>
+                    <send_email>0</send_email>
+                </checkout>
             </aplazo_gateway>
         </payment>
     </default>

@@ -92,6 +92,10 @@ class Data extends \Magento\Payment\Helper\Data
         return $this->getConfigData(self::GENERAL_SECTION . 'refund');
     }
 
+    public function getSendEmail(){
+        return $this->getConfigData(self::GENERAL_SECTION . 'send_email');
+    }
+
     public function canCancelOnFailure(){
         return $this->getConfigFlag(self::GENERAL_SECTION . 'cancel_order');
     }

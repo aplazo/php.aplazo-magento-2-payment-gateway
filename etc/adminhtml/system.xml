@@ -84,6 +84,11 @@
                         <label>Habilitar reembolsos</label>
                         <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
                     </field>
+                    <field id="send_email" translate="label" type="select" sortOrder="90" showInDefault="1" showInWebsite="1" showInStore="0">
+                        <label>Enviar correo de confirmación en la validación del webhook </label>
+                        <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+                        <comment>Cuando aplazo confirme de pagado a través del Webhook, se enviará un correo de confirmación de pago al comprador.</comment>
+                    </field>
                 </group>
 
                 <group id="credentials" translate="label" type="text" sortOrder="20" showInDefault="1" showInWebsite="1" showInStore="0">
