@@ -96,3 +96,5 @@
 * Webhook security expiration added
 ## 3.1.2
 * Webhook security token changed to Bearer
+## 3.1.3
+* Added Configuration to send email order after webhook

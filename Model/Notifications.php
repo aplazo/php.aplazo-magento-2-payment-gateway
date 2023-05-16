@@ -32,17 +32,20 @@ class Notifications implements NotificationsInterface
      * @var OrderService
      */
     private $orderService;
+    private $orderSender;
 
     private $validationMessageError;
 
     public function __construct
     (
         OrderService                      $orderService,
-        \Aplazo\AplazoPayment\Helper\Data $aplazoHelper
+        \Aplazo\AplazoPayment\Helper\Data $aplazoHelper,
+        \Magento\Sales\Model\Order\Email\Sender\OrderSender $orderSender
     )
     {
         $this->orderService = $orderService;
         $this->aplazoHelper = $aplazoHelper;
+        $this->orderSender = $orderSender;
         $this->debugEnable = $this->aplazoHelper->isDebugEnabled();
     }
 
@@ -64,8 +67,11 @@ class Notifications implements NotificationsInterface
                     $orderPayment = $order->getPayment();
                     $orderPayment->setAdditionalInformation('aplazo_payment_id', $aplazoData[self::APLAZO_PAYLOAD_LOAN_ID_INDEX]);
                     $orderPayment->setAdditionalInformation('aplazo_status', $aplazoData[self::APLAZO_PAYLOAD_STATUS_INDEX]);
-                    $this->addOperationCommentToStatusHistory($order, $aplazoData[self::APLAZO_PAYLOAD_STATUS_INDEX], $aplazoData[self::APLAZO_PAYLOAD_LOAN_ID_INDEX],);
+                    $this->addOperationCommentToStatusHistory($order, $aplazoData[self::APLAZO_PAYLOAD_STATUS_INDEX], $aplazoData[self::APLAZO_PAYLOAD_LOAN_ID_INDEX]);
                     $this->orderService->saveOrder($order);
+                    if($this->aplazoHelper->getSendEmail()){
+                        $this->orderSender->send($order, true);
+                    }
                 } else {
                     $response['status'] = false;
                     $response['message'] = $orderResult['message'];
