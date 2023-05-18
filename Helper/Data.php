@@ -93,7 +93,7 @@ class Data extends \Magento\Payment\Helper\Data
     }
 
     public function getSendEmail(){
-        return $this->getConfigData(self::GENERAL_SECTION . 'send_email');
+        return $this->getConfigData(self::GENERAL_SECTION . 'checkout/send_email');
     }
 
     public function canCancelOnFailure(){
