@@ -63,15 +63,15 @@ class Notifications implements NotificationsInterface
                     $order = $orderResult['order'];
                     if ($status == 'Activo') {
                         $order = $this->orderService->approveOrder($order->getId());
+                        if($this->aplazoHelper->getSendEmail()){
+                            $this->orderSender->send($order, true);
+                        }
                     }
                     $orderPayment = $order->getPayment();
                     $orderPayment->setAdditionalInformation('aplazo_payment_id', $aplazoData[self::APLAZO_PAYLOAD_LOAN_ID_INDEX]);
                     $orderPayment->setAdditionalInformation('aplazo_status', $aplazoData[self::APLAZO_PAYLOAD_STATUS_INDEX]);
                     $this->addOperationCommentToStatusHistory($order, $aplazoData[self::APLAZO_PAYLOAD_STATUS_INDEX], $aplazoData[self::APLAZO_PAYLOAD_LOAN_ID_INDEX]);
                     $this->orderService->saveOrder($order);
-                    if($this->aplazoHelper->getSendEmail()){
-                        $this->orderSender->send($order, true);
-                    }
                 } else {
                     $response['status'] = false;
                     $response['message'] = $orderResult['message'];

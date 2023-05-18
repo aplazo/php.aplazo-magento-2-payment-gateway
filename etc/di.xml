@@ -70,4 +70,7 @@
             </argument>
         </arguments>
     </type>
+    <type name="Magento\Quote\Observer\SubmitObserver">
+        <plugin name="aplazo_payment_new_order_email" type="Aplazo\AplazoPayment\Plugin\Order\NewOrderEmail" />
+    </type>
 </config>

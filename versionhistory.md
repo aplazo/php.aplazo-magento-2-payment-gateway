@@ -98,3 +98,5 @@
 * Webhook security token changed to Bearer
 ## 3.1.3
 * Added Configuration to send email order after webhook
+## 3.1.4
+* If email on webhook config is active, stop sending de new_order email when the order is created
