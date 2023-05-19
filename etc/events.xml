@@ -3,4 +3,7 @@
     <event name="order_cancel_after">
         <observer name="stock_compensation_order_cancel_after" instance="Aplazo\AplazoPayment\Observer\Order\CancelAfter"/>
     </event>
+    <event name="sales_order_place_after">
+        <observer name="aplazo_sales_order_place_after_create_loan" instance="Aplazo\AplazoPayment\Observer\SalesOrderPlaceAfterCreateLoan" />
+    </event>
 </config>

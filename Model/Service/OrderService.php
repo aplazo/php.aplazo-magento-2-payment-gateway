@@ -171,26 +171,6 @@ class OrderService
     }
 
     /**
-     * @param $quoteId
-     * @return array
-     */
-    public function purchaseAction($quoteId)
-    {
-        if (!is_numeric($quoteId)) {
-            $quoteId = $this->maskedQuoteIdToQuoteId->execute($quoteId);
-        }
-        $result = $this->getOrderByAttribute(OrderInterface::QUOTE_ID, $quoteId, false);
-        if ($result['success']) {
-            $order = $result['order'];
-            $this->reservingStockUntilPayment($order, 'aplazo_item_reserved');
-            $order->setStatus($this->aplazoHelper->getNewOrderStatus());
-            $this->saveOrder($order);
-            $result = $this->createLoan($order->getEntityId());
-        }
-        return $result;
-    }
-
-    /**
      * @param Order $order
      * @return void
      */
@@ -394,17 +374,13 @@ class OrderService
     }
 
     /**
-     * @param string $orderId
+     * @param OrderInterface $order
      * @return array
      */
-    public function createLoan($orderId)
+    public function createLoan($order)
     {
         $result = ['success' => false, 'data' => '', 'message' => ''];
         try {
-            /**
-             * @var OrderInterface $order
-             */
-            $order = $this->orderRepository->get($orderId);
             try{
                 $quote = $this->quoteRepository->get($order->getQuoteId());
                 $shippingMethod = $quote->getShippingAddress()->getShippingDescription();
@@ -440,20 +416,20 @@ class OrderService
                     "phone" => $billingAddress->getTelephone(),
                     "postalCode" => $billingAddress->getPostcode()
                 ],
-                "cartId" => $orderId,
+                "cartId" => $order->getIncrementId(),
                 "cartUrl" => $this->aplazoHelper->getUrl('checkout/cart'),
                 "discount" => [
                     "price" => abs($order->getBaseDiscountAmount()),
                     "title" => $order->getShippingAddress()->getDiscountDescription()
                 ],
-                "errorUrl" => $this->aplazoHelper->getUrl('aplazo/order/operations', ['operation' => 'redirect_to_onepage', 'onepage' => 'failure', 'orderid' => $orderId]),
+                "errorUrl" => $this->aplazoHelper->getUrl('aplazo/order/operations', ['operation' => 'redirect_to_onepage', 'onepage' => 'failure', 'orderid' => $order->getIncrementId()]),
                 "products" => $products,
                 "shipping" => [
                     "price" => abs($order->getBaseShippingAmount()),
                     "title" => $shippingMethod
                 ],
                 "shopId" => $order->getIncrementId(),
-                "successUrl" => $this->aplazoHelper->getUrl('aplazo/order/operations', ['operation' => 'redirect_to_onepage', 'onepage' => 'success', 'orderid' => $orderId]),
+                "successUrl" => $this->aplazoHelper->getUrl('aplazo/order/operations', ['operation' => 'redirect_to_onepage', 'onepage' => 'success', 'orderid' => $order->getIncrementId()]),
                 "taxes" => [
                     "price" => $taxAmount,
                     "title" => __('Tax'),
