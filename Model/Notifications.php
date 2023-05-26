@@ -93,7 +93,6 @@ class Notifications implements NotificationsInterface
         $orderMessage = "Notificación automática de Aplazo: La operación fue %s.<br>";
         $orderMessage .= "Referencia de Pago: %s<br>";
         $orderMessage .= "Estado: %s<br>";
-        $operationResult = '';
         switch ($status) {
             case 'New':
                 $operationResult = 'Creada';
@@ -113,7 +112,7 @@ class Notifications implements NotificationsInterface
     {
         $jwt = str_replace($_SERVER[self::BEARER_STRING], '', $_SERVER[self::HEADER_BEARER]);
         try{
-            return (array) JWT::decode($jwt, new Key('6e083093-6aad-4984-b8d7-768512568834', 'HS512'));
+            return (array) JWT::decode($jwt, new Key($this->aplazoHelper->getApiToken(), 'HS512'));
         } catch (\Exception $e) {
             $this->aplazoHelper->log("JWT Validation error: " . $e->getMessage());
             $this->validationMessageError = 'Something went wrong';
