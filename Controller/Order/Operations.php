@@ -62,19 +62,13 @@ class Operations extends \Magento\Framework\App\Action\Action
      * @return array
      */
     public function purchase(){
-        $response = ['success' => false, 'url' => '', 'message' => ''];
-        $quoteId = $this->getRequest()->getParam('quoteid');
-        if($quoteId){
-            $result = $this->orderService->purchaseAction($quoteId);
-            if($result['success']){
-                $response = $this->resultFactory->create(ResultFactory::TYPE_REDIRECT)->setUrl($result['data']['url']);
-            }
-            else{
-                if(array_key_exists('message',$result)){
-                    $this->messageManager->addErrorMessage($result['message']);
-                }
-                $response = $this->resultRedirectFactory->create()->setPath('checkout/cart');
-            }
+        $order = $this->checkoutSession->getLastRealOrder();
+        $this->orderService->reservingStockUntilPayment($order, 'aplazo_item_reserved');
+        if(!empty($order->getAplazoCheckoutUrl())){
+            $response = $this->resultFactory->create(ResultFactory::TYPE_REDIRECT)->setUrl($order->getAplazoCheckoutUrl());
+        } else {
+            $this->messageManager->addErrorMessage(__('Aplazo payment gateway is unavailable. Try again later.'));
+            $response = $this->resultRedirectFactory->create()->setPath('checkout/cart');
         }
         return $response;
     }

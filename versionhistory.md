@@ -100,3 +100,7 @@
 * Added Configuration to send email order after webhook
 ## 3.1.4
 * If email on webhook config is active, stop sending de new_order email when the order is created
+## 3.2.0
+* Added aplazo_checkout_url to db. Changed the way to create the aplazo loan. JWT Firebase used to validate the token.
+## 3.2.1
+* Bug Fixed.

@@ -5,6 +5,8 @@ namespace Aplazo\AplazoPayment\Model;
 use Magento\Sales\Model\Order;
 use Aplazo\AplazoPayment\Api\NotificationsInterface;
 use Aplazo\AplazoPayment\Model\Service\OrderService;
+use Firebase\JWT\JWT;
+use Firebase\JWT\Key;
 
 class Notifications implements NotificationsInterface
 {
@@ -22,11 +24,6 @@ class Notifications implements NotificationsInterface
      * @var \Aplazo\AplazoPayment\Helper\Data
      */
     private $aplazoHelper;
-
-    /**
-     * @var bool
-     */
-    private $debugEnable;
 
     /**
      * @var OrderService
@@ -52,10 +49,9 @@ class Notifications implements NotificationsInterface
     public function notify($loanId, $status, $cartId)
     {
         $response = ['status' => true, 'message' => 'OK'];
-
-        if ($aplazoData = $this->webhookValidator()) {
+        if ($aplazoData = $this->validateJWT()) {
             try {
-                $orderResult = $this->orderService->getOrderById($aplazoData[self::APLAZO_PAYLOAD_ORDER_ID_INDEX]);
+                $orderResult = $this->orderService->getOrderByIncrementId($aplazoData[self::APLAZO_PAYLOAD_ORDER_ID_INDEX]);
                 if ($orderResult['success']) {
                     /**
                      * @var Order $order
@@ -97,7 +93,6 @@ class Notifications implements NotificationsInterface
         $orderMessage = "Notificación automática de Aplazo: La operación fue %s.<br>";
         $orderMessage .= "Referencia de Pago: %s<br>";
         $orderMessage .= "Estado: %s<br>";
-        $operationResult = '';
         switch ($status) {
             case 'New':
                 $operationResult = 'Creada';
@@ -113,36 +108,15 @@ class Notifications implements NotificationsInterface
         return $order;
     }
 
-    private function webhookValidator()
+    private function validateJWT()
     {
-        $key = str_replace(self::BEARER_STRING, "", $_SERVER[self::HEADER_BEARER]);
-
-        if (strpos($key, self::BEARER_STRING) === false) {
-            $parts = explode('.', $key);
-
-            try {
-                $decoded_hmac = base64_decode($parts[1]);
-                $payload = json_decode($decoded_hmac, true);
-            } catch (\Exception $e) {
-                $this->validationMessageError = 'Malformed token: ' . $e->getMessage();
-                return false;
-            }
-            if ($payload[self::APLAZO_PAYLOAD_MERCHANT_ID_INDEX] != $this->aplazoHelper->getMerchantId()) {
-                $this->validationMessageError = 'Incorrect Merchant ID';
-                return false;
-            }
-            $current_timestamp = time();
-
-            if ($current_timestamp > $payload[self::APLAZO_PAYLOAD_EXPIRATION_INDEX]) {
-                $this->validationMessageError = 'Tiempo expirado';
-                return false;
-            }
-        } else {
-            $this->validationMessageError = 'Malformed Bearer Token.';
+        $jwt = str_replace($_SERVER[self::BEARER_STRING], '', $_SERVER[self::HEADER_BEARER]);
+        try{
+            return (array) JWT::decode($jwt, new Key($this->aplazoHelper->getApiToken(), 'HS512'));
+        } catch (\Exception $e) {
+            $this->aplazoHelper->log("JWT Validation error: " . $e->getMessage());
+            $this->validationMessageError = 'Something went wrong';
             return false;
         }
-
-
-        return $payload;
     }
 }
