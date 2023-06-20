@@ -45,10 +45,9 @@ class CancelOrders
     {
         if($minutes = $this->aplazoHelper->getCancelTime()){
             $orderCollection = $this->orderService->getOrderToCancelCollection($minutes);
+            $counter = $ordersCanceledCount = 0;
+            $ordersWithErrors = [];
             if(($orderCollectionCount = $orderCollection->getTotalCount()) > 0) {
-
-                $counter = $ordersCanceledCount = 0;
-                $ordersWithErrors = [];
                 /**
                  * @var Order $order
                  */

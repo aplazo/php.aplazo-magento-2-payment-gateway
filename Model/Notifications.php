@@ -110,7 +110,7 @@ class Notifications implements NotificationsInterface
 
     private function validateJWT()
     {
-        $jwt = str_replace($_SERVER[self::BEARER_STRING], '', $_SERVER[self::HEADER_BEARER]);
+        $jwt = trim(str_replace(self::BEARER_STRING, '', $_SERVER[self::HEADER_BEARER]));
         try{
             return (array) JWT::decode($jwt, new Key($this->aplazoHelper->getApiToken(), 'HS512'));
         } catch (\Exception $e) {
