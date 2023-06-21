@@ -104,3 +104,5 @@
 * Added aplazo_checkout_url to db. Changed the way to create the aplazo loan. JWT Firebase used to validate the token.
 ## 3.2.1
 * Bug Fixed.
+## 3.2.2
+* Webhook and cron errors solved.
