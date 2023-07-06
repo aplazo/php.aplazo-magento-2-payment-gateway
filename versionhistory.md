@@ -106,3 +106,5 @@
 * Bug Fixed.
 ## 3.2.2
 * Webhook and cron errors solved.
+## 3.2.3
+* Object manager removed in product and cart page.

@@ -1,12 +1,13 @@
 <?php
-    $show = $this->helper('Aplazo\AplazoPayment\Helper\Data')->getShowOnProductPage();
+/**
+ * @var \Aplazo\AplazoPayment\Block\AplazoPayment $block
+ */
+
+    $show = $block->isWidgetVisible($block::IS_PRODUCT_PAGE);
     if($show == 1){
-        $myBlock = \Magento\Framework\App\ObjectManager::getInstance()->get('Aplazo\AplazoPayment\Block\AplazoPayment');
-        if ($currentProduct = $myBlock->getCurrentProduct()) {
+        if ($currentProduct = $block->getCurrentProduct()) {
             $price = $currentProduct->getFinalPrice() * 100;
+            ?> <aplazo-placement product-price = <?= $price; ?>></aplazo-placement> <?php
         }
-?>
-        <aplazo-placement product-price = <?php echo $price; ?>></aplazo-placement>
-<?php
     }
 ?>
