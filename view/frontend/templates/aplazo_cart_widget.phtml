@@ -1,12 +1,11 @@
 <?php
-    $show = $this->helper('Aplazo\AplazoPayment\Helper\Data')->getShowOnCart();
-    $objectManager = \Magento\Framework\App\ObjectManager::getInstance();
-    $cart = $objectManager->get('\Magento\Checkout\Model\Cart');
-    $price = $cart->getQuote()->getGrandTotal() * 100;
+/**
+ * @var \Aplazo\AplazoPayment\Block\AplazoPayment $block
+ */
 
+    $show = $block->isWidgetVisible($block::IS_CART_PAGE);
     if($show == 1){
-?>
-        <aplazo-placement product-price = <?php echo $price; ?>></aplazo-placement>
-<?php
+        $price = $block->getCartTotal();
+        ?> <aplazo-placement product-price = <?php echo $price; ?>></aplazo-placement> <?php
     }
 ?>

@@ -81,19 +81,19 @@ class Data extends \Magento\Payment\Helper\Data
     }
 
     public function getShowOnProductPage(){
-        return $this->getConfigData(self::GENERAL_SECTION . 'show_on_product_page');
+        return $this->getConfigData(self::CHECKOUT_SECTION . 'show_on_product_page');
     }
 
     public function getShowOnCart(){
-        return $this->getConfigData(self::GENERAL_SECTION . 'show_on_cart');
+        return $this->getConfigData(self::CHECKOUT_SECTION . 'show_on_cart');
     }
 
     public function getRefund(){
-        return $this->getConfigData(self::GENERAL_SECTION . 'refund');
+        return $this->getConfigData(self::CHECKOUT_SECTION . 'refund');
     }
 
     public function getSendEmail(){
-        return $this->getConfigData(self::GENERAL_SECTION . 'checkout/send_email');
+        return $this->getConfigData(self::CHECKOUT_SECTION . 'send_email');
     }
 
     public function canCancelOnFailure(){

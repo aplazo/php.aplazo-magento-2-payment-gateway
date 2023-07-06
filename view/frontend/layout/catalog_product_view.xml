@@ -6,7 +6,7 @@
     <body>
         <referenceContainer name="product.info.main">
             <block
-                class="Magento\Framework\View\Element\Template"
+                class="Aplazo\AplazoPayment\Block\AplazoPayment"
                 name="catalog.product.view.widget.aplazo.gateway"
                 after="product.info.price"
                 template="Aplazo_AplazoPayment::aplazo_product_widget.phtml"

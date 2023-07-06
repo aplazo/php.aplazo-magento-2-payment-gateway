@@ -6,7 +6,7 @@
     <body>
         <referenceContainer name="content">
             <block
-                class="Magento\Framework\View\Element\Template"
+                class="Aplazo\AplazoPayment\Block\AplazoPayment"
                 name="aplazogateway.cart.block"
                 template="Aplazo_AplazoPayment::aplazo_cart_widget.phtml"
                 after="-"

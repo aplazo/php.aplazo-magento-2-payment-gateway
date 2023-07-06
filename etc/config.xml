@@ -18,13 +18,13 @@
                 <failure_order_status>canceled</failure_order_status>
                 <reserve_stock>1</reserve_stock>
                 <cancel_time>720</cancel_time>
-                <show_on_product_page>1</show_on_product_page>
-                <refund>1</refund>
-                <show_on_cart>1</show_on_cart>
                 <cancel_order>1</cancel_order>
                 <debug_mode>1</debug_mode>
                 <sort_order>1</sort_order>
                 <checkout>
+                    <show_on_cart>1</show_on_cart>
+                    <show_on_product_page>1</show_on_product_page>
+                    <refund>1</refund>
                     <send_email>0</send_email>
                 </checkout>
             </aplazo_gateway>
