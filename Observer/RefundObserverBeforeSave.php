@@ -90,7 +90,7 @@ class RefundObserverBeforeSave implements ObserverInterface
         }
 
         $response = $this->_aplazoService->createRefund([
-            "cartId"        => $order->getEntityId(),
+            "cartId"        => $order->getIncrementId(),
             "totalAmount"   => $amountRefund,
             "reason"        => $reason
         ]);
