@@ -108,3 +108,5 @@
 * Webhook and cron errors solved.
 ## 3.2.3
 * Object manager removed in product and cart page.
+## 3.2.4
+* Aplazo cartId changed by magento increment_id.
