@@ -10,6 +10,7 @@ use Magento\Framework\HTTP\Client\Curl;
 class ApiService
 {
     const TOKEN_CACHE_KEY = 'aplazo_api_token';
+    const LOAN_SUCCESS_STATUS = 'OUTSTANDING';
 
     /**
      * @var AplazoHelper
@@ -100,7 +101,7 @@ class ApiService
      * @return string
      * @throws LocalizedException
      */
-    public function getAuthorizationToken(): string
+    public function getAuthorizationToken()
     {
         $authToken = $this->createToken();
         return $authToken;
@@ -124,11 +125,37 @@ class ApiService
         return $authToken;
     }
 
+    /**
+     * @return bool
+     */
+    public function getLoanStatus($cartId)
+    {
+        try {
+            $response = $this->requestRefund($this->getLoanStatusUrl($cartId), '', [], 'GET');
+        } catch (LocalizedException $e) {
+            $this->aplazoHelper->log("Aplazo communication failed in cartId loan status $cartId " . $e->getMessage());
+            return false;
+        }
+        // An Aplazo response could have more than one loan with the same increment_id. With at least one in OUTSTANDING status, the order means that is paid.
+        foreach($response as $index => $loan){
+            if (isset($loan['status'])) {
+                if($loan['status'] === self::LOAN_SUCCESS_STATUS){
+                    $this->aplazoHelper->log("Loan status for index [$index] is OUTSTANDING. Cart ID $cartId must not be cancelled.");
+                    return true;
+                }
+                $this->aplazoHelper->log("Loan status is for index [$index] " . $loan['status'] . ". Cart ID $cartId must be cancelled.");
+            } else {
+                $this->aplazoHelper->log("Loan not found. Cart ID $cartId must be cancelled.");
+            }
+        }
+        return false;
+    }
+
 
     /**
      * @return string
      */
-    private function getAuthorizationUrl(): string
+    private function getAuthorizationUrl()
     {
         return $this->aplazoHelper->getServiceUrl() . '/api/auth';
     }
@@ -136,7 +163,7 @@ class ApiService
     /**
      * @return string
      */
-    private function getCreateLoanUrl(): string
+    private function getCreateLoanUrl()
     {
         return $this->aplazoHelper->getServiceUrl() . '/api/loan';
     }
@@ -144,7 +171,7 @@ class ApiService
     /**
      * @return string
      */
-    private function getRefundLoanUrl(): string
+    private function getRefundLoanUrl()
     {
         return $this->aplazoHelper->getServiceUrl() . '/api/pos/loan/refund';
     }
@@ -152,9 +179,17 @@ class ApiService
     /**
      * @return string
      */
-    private function getCancelLoanUrl(): string
+    private function getCancelLoanUrl()
     {
         return $this->aplazoHelper->getServiceUrl() . '/api/pos/loan/cancel';
+    }
+
+    /**
+     * @return string
+     */
+    private function getLoanStatusUrl($cartId)
+    {
+        return $this->aplazoHelper->getServiceUrl() . "/api/pos/loan/$cartId";
     }
 
     /**
@@ -202,7 +237,11 @@ class ApiService
             'api_token' => $this->aplazoHelper->getApiToken(),
             'Content-Type' => 'application/json'
         ]);
-        $this->curl->post($url, $body);
+        if($method === 'POST'){
+            $this->curl->post($url, $body);
+        } else {
+            $this->curl->get($url);
+        }
 
         $response = $this->curl->getBody();
 
