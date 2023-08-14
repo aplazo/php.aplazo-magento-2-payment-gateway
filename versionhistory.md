@@ -112,3 +112,5 @@
 * Aplazo cartId changed by magento increment_id.
 ## 3.2.5
 * Check order status in Aplazo before cancel in cron. Logs added in webhook.
+## 3.2.6
+* Not MSI stock.
