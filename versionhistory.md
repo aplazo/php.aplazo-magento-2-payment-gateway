@@ -114,3 +114,5 @@
 * Check order status in Aplazo before cancel in cron. Logs added in webhook.
 ## 3.2.6
 * Not MSI stock.
+## 3.2.7
+* Success controller fix failure redirect.

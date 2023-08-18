@@ -155,7 +155,7 @@ class OrderService
      */
     public function getQuoteIdByOrderId($orderId)
     {
-        $result = $this->getOrderByAttribute(OrderInterface::ENTITY_ID, $orderId, false);
+        $result = $this->getOrderByAttribute(OrderInterface::INCREMENT_ID, $orderId, false);
         if ($result['success']) {
             $order = $result['order'];
             unset($result['order']);
