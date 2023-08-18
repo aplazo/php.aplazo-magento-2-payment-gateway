@@ -116,3 +116,5 @@
 * Not MSI stock.
 ## 3.2.7
 * Success controller fix failure redirect.
+## 3.2.7
+* Success controller fix order id in session.

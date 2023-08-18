@@ -86,7 +86,7 @@ class Operations extends \Magento\Framework\App\Action\Action
                         $url = 'checkout/onepage/success/';
                     }
                     $this->checkoutSession->setLastQuoteId($response['quote_id']);
-                    $this->checkoutSession->setLastOrderId($orderid);
+                    $this->checkoutSession->setLastOrderId($response['order_id']);
                 }
             }
         }
