@@ -48,14 +48,13 @@ class Notifications implements NotificationsInterface
 
     public function notify($loanId, $status, $cartId)
     {
+        $this->aplazoHelper->log("Webhook triggered.");
         $response = ['status' => true, 'message' => 'OK'];
         if ($aplazoData = $this->validateJWT()) {
             try {
                 $orderResult = $this->orderService->getOrderByIncrementId($aplazoData[self::APLAZO_PAYLOAD_ORDER_ID_INDEX]);
                 if ($orderResult['success']) {
-                    /**
-                     * @var Order $order
-                     */
+                    /** @var Order $order */
                     $order = $orderResult['order'];
                     if ($status == 'Activo') {
                         $order = $this->orderService->approveOrder($order->getId());
@@ -110,12 +109,12 @@ class Notifications implements NotificationsInterface
 
     private function validateJWT()
     {
-        $jwt = trim(str_replace(self::BEARER_STRING, '', $_SERVER[self::HEADER_BEARER]));
         try{
+            $jwt = trim(str_replace(self::BEARER_STRING, '', $_SERVER[self::HEADER_BEARER]));
             return (array) JWT::decode($jwt, new Key($this->aplazoHelper->getApiToken(), 'HS512'));
         } catch (\Exception $e) {
             $this->aplazoHelper->log("JWT Validation error: " . $e->getMessage());
-            $this->validationMessageError = 'Something went wrong';
+            $this->validationMessageError = 'Something went wrong '. $e->getTrace()[0]['line'] . $e->getLine();
             return false;
         }
     }

@@ -2,42 +2,27 @@
 
 namespace Aplazo\AplazoPayment\Model\Service;
 
-use Magento\CatalogInventory\Api\StockRegistryInterface;
-use Magento\Framework\Api\SearchCriteriaBuilder;
 use Magento\Framework\DB\TransactionFactory;
 use Magento\Framework\Exception\CouldNotSaveException;
 use Magento\Framework\Exception\InputException;
 use Magento\Framework\Exception\LocalizedException;
 use Magento\Framework\Exception\NoSuchEntityException;
-use Magento\InventoryApi\Api\Data\SourceItemInterface;
-use Magento\InventoryApi\Api\SourceItemRepositoryInterface;
-use Magento\InventoryCatalogApi\Model\GetProductTypesBySkusInterface;
-use Magento\InventoryCatalogApi\Model\GetSkusByProductIdsInterface;
-use Magento\InventoryConfigurationApi\Model\IsSourceItemManagementAllowedForProductTypeInterface;
-use Magento\InventorySales\Model\CheckItemsQuantity;
+use Magento\Framework\Module\Manager;
 use Magento\InventorySalesApi\Api\Data\ItemToSellInterfaceFactory;
-use Magento\InventorySalesApi\Api\Data\SalesChannelInterface;
-use Magento\InventorySalesApi\Api\Data\SalesChannelInterfaceFactory;
 use Magento\InventorySalesApi\Api\Data\SalesEventExtensionFactory;
 use Magento\InventorySalesApi\Api\Data\SalesEventInterface;
 use Magento\InventorySalesApi\Api\Data\SalesEventInterfaceFactory;
-use Magento\InventorySalesApi\Api\PlaceReservationsForSalesEventInterface;
-use Magento\InventorySalesApi\Model\StockByWebsiteIdResolverInterface;
 use Magento\Quote\Api\CartRepositoryInterface;
 use Magento\Quote\Model\MaskedQuoteIdToQuoteIdInterface;
 use Magento\Sales\Api\Data\OrderInterface;
 use Magento\Sales\Api\OrderRepositoryInterface;
 use Magento\Sales\Model\Order;
-use Magento\Sales\Model\Order\Item;
 use \Magento\Sales\Model\ResourceModel\Order\CollectionFactory as OrderCollectionFactory;
 use Aplazo\AplazoPayment\Helper\Data as AplazoHelper;
 use Aplazo\AplazoPayment\Model\Ui\ConfigProvider;
 use Aplazo\AplazoPayment\Observer\DataAssignObserver;
 use Aplazo\AplazoPayment\Service\ApiService as AplazoService;
 use Magento\Sales\Model\Service\InvoiceService;
-use Magento\CatalogInventory\Api\StockConfigurationInterface;
-use Magento\CatalogInventory\Api\StockManagementInterface;
-use Magento\Store\Api\WebsiteRepositoryInterface;
 
 class OrderService
 {
@@ -70,81 +55,36 @@ class OrderService
      */
     private $transactionFactory;
     /**
-     * @var StockConfigurationInterface
-     */
-    private $stockConfiguration;
-    /**
-     * @var PlaceReservationsForSalesEventInterface
-     */
-    private $placeReservationsForSalesEvent;
-    /**
-     * @var GetSkusByProductIdsInterface
-     */
-    private $getSkusByProductIds;
-    /**
-     * @var WebsiteRepositoryInterface
-     */
-    private $websiteRepository;
-    /**
-     * @var SalesChannelInterfaceFactory
-     */
-    private $salesChannelFactory;
-    /**
-     * @var SalesEventInterfaceFactory
-     */
-    private $salesEventFactory;
-    /**
-     * @var CheckItemsQuantity
-     */
-    private $checkItemsQuantity;
-    /**
-     * @var ItemToSellInterfaceFactory
-     */
-    private $itemsToSellFactory;
-    /**
-     * @var StockByWebsiteIdResolverInterface
-     */
-    private $stockByWebsiteIdResolver;
-    /**
-     * @var GetProductTypesBySkusInterface
-     */
-    private $getProductTypesBySkus;
-    /**
-     * @var IsSourceItemManagementAllowedForProductTypeInterface
-     */
-    private $isSourceItemManagementAllowedForProductType;
-    /**
-     * @var SalesEventExtensionFactory
-     */
-    private $salesEventExtensionFactory;
-    /**
      * @var CartRepositoryInterface
      */
     private $quoteRepository;
+    /**
+     * @var Manager
+     */
+    private $manager;
 
+    /**
+     * @param OrderCollectionFactory $orderCollectionFactory
+     * @param OrderRepositoryInterface $orderRepository
+     * @param AplazoService $aplazoService
+     * @param AplazoHelper $aplazoHelper
+     * @param MaskedQuoteIdToQuoteIdInterface $maskedQuoteIdToQuoteId
+     * @param InvoiceService $invoiceService
+     * @param TransactionFactory $transactionFactory
+     * @param CartRepositoryInterface $quoteRepository
+     * @param Manager $manager
+     */
     public function __construct
     (
-        OrderCollectionFactory                               $orderCollectionFactory,
-        OrderRepositoryInterface                             $orderRepository,
-        AplazoService                                        $aplazoService,
-        AplazoHelper                                         $aplazoHelper,
-        MaskedQuoteIdToQuoteIdInterface                      $maskedQuoteIdToQuoteId,
-        InvoiceService                                       $invoiceService,
-        TransactionFactory                                   $transactionFactory,
-        \Magento\Framework\UrlInterface                      $url,
-        StockConfigurationInterface                          $stockConfiguration,
-        PlaceReservationsForSalesEventInterface              $placeReservationsForSalesEvent,
-        GetSkusByProductIdsInterface                         $getSkusByProductIds,
-        WebsiteRepositoryInterface                           $websiteRepository,
-        SalesChannelInterfaceFactory                         $salesChannelFactory,
-        SalesEventInterfaceFactory                           $salesEventFactory,
-        ItemToSellInterfaceFactory                           $itemsToSellFactory,
-        CheckItemsQuantity                                   $checkItemsQuantity,
-        StockByWebsiteIdResolverInterface                    $stockByWebsiteIdResolver,
-        GetProductTypesBySkusInterface                       $getProductTypesBySkus,
-        IsSourceItemManagementAllowedForProductTypeInterface $isSourceItemManagementAllowedForProductType,
-        SalesEventExtensionFactory                           $salesEventExtensionFactory,
-        CartRepositoryInterface           $quoteRepository
+        OrderCollectionFactory              $orderCollectionFactory,
+        OrderRepositoryInterface            $orderRepository,
+        AplazoService                       $aplazoService,
+        AplazoHelper                        $aplazoHelper,
+        MaskedQuoteIdToQuoteIdInterface     $maskedQuoteIdToQuoteId,
+        InvoiceService                      $invoiceService,
+        TransactionFactory                  $transactionFactory,
+        CartRepositoryInterface             $quoteRepository,
+        Manager                             $manager
     )
     {
         $this->orderCollectionFactory = $orderCollectionFactory;
@@ -152,22 +92,10 @@ class OrderService
         $this->aplazoService = $aplazoService;
         $this->aplazoHelper = $aplazoHelper;
         $this->maskedQuoteIdToQuoteId = $maskedQuoteIdToQuoteId;
-        $this->url = $url;
         $this->invoiceService = $invoiceService;
         $this->transactionFactory = $transactionFactory;
-        $this->stockConfiguration = $stockConfiguration;
-        $this->placeReservationsForSalesEvent = $placeReservationsForSalesEvent;
-        $this->getSkusByProductIds = $getSkusByProductIds;
-        $this->websiteRepository = $websiteRepository;
-        $this->salesChannelFactory = $salesChannelFactory;
-        $this->salesEventFactory = $salesEventFactory;
-        $this->itemsToSellFactory = $itemsToSellFactory;
-        $this->checkItemsQuantity = $checkItemsQuantity;
-        $this->stockByWebsiteIdResolver = $stockByWebsiteIdResolver;
-        $this->getProductTypesBySkus = $getProductTypesBySkus;
-        $this->isSourceItemManagementAllowedForProductType = $isSourceItemManagementAllowedForProductType;
-        $this->salesEventExtensionFactory = $salesEventExtensionFactory;
         $this->quoteRepository = $quoteRepository;
+        $this->manager = $manager;
     }
 
     /**
@@ -178,8 +106,8 @@ class OrderService
     {
         if ($this->aplazoHelper->getReserveStock()) {
             try {
-                $this->updateQty($order, true, $type);
-            } catch (CouldNotSaveException|InputException|NoSuchEntityException|LocalizedException $e) {
+                $this->isMsiOrInventory($order, true, 'aplazo_item_reserved');
+            } catch (\Exception $e) {
                 $this->aplazoHelper->log('Webhook error inventory: Al crear pedido no se recupero la reserva de stock. Increment_id ' . $order->getIncrementId());
                 $this->aplazoHelper->log($e->getMessage());
             }
@@ -194,8 +122,8 @@ class OrderService
     {
         if ($this->aplazoHelper->getReserveStock()) {
             try {
-                $this->updateQty($order, false, $type);
-            } catch (CouldNotSaveException|InputException|NoSuchEntityException|LocalizedException $e) {
+                $this->isMsiOrInventory($order, false, $type);
+            } catch (\Exception $e) {
                 $this->aplazoHelper->log('Webhook error inventory: Al crear invoice no se pudo reservar stock. Increment_id ' . $order->getIncrementId());
                 $this->aplazoHelper->log($e->getMessage());
             }
@@ -203,85 +131,22 @@ class OrderService
         return $order;
     }
 
-    /**
-     * @param Order $order
-     * @param $plus
-     * @param $type
-     * @return mixed
-     * @throws CouldNotSaveException
-     * @throws InputException
-     * @throws LocalizedException
-     * @throws NoSuchEntityException
-     */
-    public function updateQty($order, $plus, $type)
-    {
-        $itemsById = $itemsBySku = $itemsToSell = [];
-        foreach ($order->getItems() as $item) {
-            if (!isset($itemsById[$item->getProductId()])) {
-                $itemsById[$item->getProductId()] = 0;
+    public function isMsiOrInventory($order, $plus, $type = ''){
+        if($this->manager->isEnabled("Magento_Inventory") && $this->manager->isEnabled("Magento_InventoryCatalogApi")){
+            try{
+                /** @var \Aplazo\AplazoPayment\Model\Product\MSIStock $msiStock */
+                $msiStock = \Magento\Framework\App\ObjectManager::getInstance()->get(\Aplazo\AplazoPayment\Model\Product\MSIStock::class);
+                $msiStock->updateQty($order, $plus, $type);
+            } catch (\Exception $e){
+                /** @var \Aplazo\AplazoPayment\Model\Product\MSIStock $msiStock */
+                $inventoryStock = \Magento\Framework\App\ObjectManager::getInstance()->get(\Aplazo\AplazoPayment\Model\Product\InventoryStock::class);
+                $inventoryStock->updateQtyNotMSI($order, $plus);
             }
-            $itemsById[$item->getProductId()] += $item->getQtyOrdered();
+        } else {
+            /** @var \Aplazo\AplazoPayment\Model\Product\MSIStock $msiStock */
+            $inventoryStock = \Magento\Framework\App\ObjectManager::getInstance()->get(\Aplazo\AplazoPayment\Model\Product\InventoryStock::class);
+            $inventoryStock->updateQtyNotMSI($order, $plus);
         }
-        $productSkus = $this->getSkusByProductIds->execute(array_keys($itemsById));
-        $productTypes = $this->getProductTypesBySkus->execute($productSkus);
-
-        foreach ($productSkus as $productId => $sku) {
-            if (false === $this->isSourceItemManagementAllowedForProductType->execute($productTypes[$sku])) {
-                continue;
-            }
-
-            $itemsBySku[$sku] = (float)$itemsById[$productId];
-            if ($plus) {
-                $itemsToSell[] = $this->itemsToSellFactory->create([
-                    'sku' => $sku,
-                    'qty' => (float)$itemsById[$productId]
-                ]);
-            } else {
-                $itemsToSell[] = $this->itemsToSellFactory->create([
-                    'sku' => $sku,
-                    'qty' => -(float)$itemsById[$productId]
-                ]);
-            }
-        }
-
-        $websiteId = (int)$order->getStore()->getWebsiteId();
-        $websiteCode = $this->websiteRepository->getById($websiteId)->getCode();
-        $stockId = (int)$this->stockByWebsiteIdResolver->execute((int)$websiteId)->getStockId();
-
-        $this->checkItemsQuantity->execute($itemsBySku, $stockId);
-
-        $salesEventExtension = $this->salesEventExtensionFactory->create([
-            'data' => ['objectIncrementId' => (string)$order->getIncrementId()]
-        ]);
-
-        /** @var SalesEventInterface $salesEvent */
-        $salesEvent = $this->salesEventFactory->create([
-            'type' => $type,
-            'objectType' => SalesEventInterface::OBJECT_TYPE_ORDER,
-            'objectId' => (string)$order->getEntityId()
-        ]);
-        $salesEvent->setExtensionAttributes($salesEventExtension);
-        $salesChannel = $this->salesChannelFactory->create([
-            'data' => [
-                'type' => SalesChannelInterface::TYPE_WEBSITE,
-                'code' => $websiteCode
-            ]
-        ]);
-
-        $this->placeReservationsForSalesEvent->execute($itemsToSell, $salesChannel, $salesEvent);
-        return $order;
-    }
-
-    /**
-     * @param $quoteId
-     * @return array
-     */
-    public function getOrderIdByQuoteId($quoteId)
-    {
-        if (!is_numeric($quoteId)) {
-            $quoteId = $this->maskedQuoteIdToQuoteId->execute($quoteId);
-        }
-        return $this->getOrderByAttribute(OrderInterface::QUOTE_ID, $quoteId, true);
     }
 
     /**
@@ -290,7 +155,7 @@ class OrderService
      */
     public function getQuoteIdByOrderId($orderId)
     {
-        $result = $this->getOrderByAttribute(OrderInterface::ENTITY_ID, $orderId, false);
+        $result = $this->getOrderByAttribute(OrderInterface::INCREMENT_ID, $orderId, false);
         if ($result['success']) {
             $order = $result['order'];
             unset($result['order']);
@@ -300,38 +165,12 @@ class OrderService
     }
 
     /**
-     * @param $entityId
-     * @return array
-     */
-    public function getOrderById($entityId)
-    {
-        return $this->getOrderByAttribute(OrderInterface::ENTITY_ID, $entityId, false);
-    }
-
-    /**
      * @param $incrementId
      * @return array
      */
     public function getOrderByIncrementId($incrementId)
     {
         return $this->getOrderByAttribute(OrderInterface::INCREMENT_ID, $incrementId, false);
-    }
-
-    public function isOrderKeyValid($orderId, $orderKeyUnverified)
-    {
-        $orderKeyValid = false;
-        try {
-            $order = $this->orderRepository->get($orderId);
-            $orderKey = (string)$order->getPayment()->getAdditionalInformation(\Aplazo\AplazoPayment\Observer\DataAssignObserver::APLAZO_ORDER_KEY);
-            if (isset($orderKey)) {
-                $orderKeyDecoded = explode(':', base64_decode($orderKey));
-                //\Aplazo\AplazoPayment\Helper\Data::log("OrderKey: $orderKeyDecoded[0] vs $orderKeyUnverified - QuooteId: $orderKeyDecoded[1] vs {$order->getQuoteId()}",'aplazo_pay_verification.log');
-
-                $orderKeyValid = $orderKeyDecoded[0] == $orderKeyUnverified && $orderKeyDecoded[1] == $order->getQuoteId();
-            }
-        } catch (\Exception $e) {
-        }
-        return $orderKeyValid;
     }
 
     /**
@@ -412,7 +251,6 @@ class OrderService
                     "email" => $billingAddress->getEmail(),
                     "firstName" => $billingAddress->getFirstname(),
                     "lastName" => $billingAddress->getLastname(),
-                    //"loan_id"=> 0,
                     "phone" => $billingAddress->getTelephone(),
                     "postalCode" => $billingAddress->getPostcode()
                 ],
@@ -497,6 +335,8 @@ class OrderService
             }
             return true;
         }
+        $this->aplazoHelper->log('Orden no se puede hacer invoice ' . $order->getIncrementId());
+        return false;
     }
 
     /**
