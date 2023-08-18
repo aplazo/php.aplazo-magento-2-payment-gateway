@@ -160,6 +160,7 @@ class OrderService
             $order = $result['order'];
             unset($result['order']);
             $result['quote_id'] = $order->getQuoteId();
+            $result['order_id'] = $order->getEntityId();
         }
         return $result;
     }
