@@ -116,7 +116,6 @@ class OrderService
 
     /**
      * @param Order $order
-     * @return Order
      */
     public function decreasingStockAfterPaymentSuccess($order, $type = SalesEventInterface::EVENT_ORDER_CANCELED)
     {
@@ -128,7 +127,6 @@ class OrderService
                 $this->aplazoHelper->log($e->getMessage());
             }
         }
-        return $order;
     }
 
     public function isMsiOrInventory($order, $plus, $type = ''){
@@ -160,6 +158,7 @@ class OrderService
             $order = $result['order'];
             unset($result['order']);
             $result['quote_id'] = $order->getQuoteId();
+            $result['order_id'] = $order->getEntityId();
         }
         return $result;
     }
@@ -300,18 +299,24 @@ class OrderService
 
     /**
      * @param string $orderId
-     * @return OrderInterface
+     * @return OrderInterface[]
      */
     public function approveOrder($orderId)
     {
         $order = $this->orderRepository->get($orderId);
-        $order = $this->decreasingStockAfterPaymentSuccess($order, 'order_placed_aplazo');
-        if ($this->invoiceOrder($order)) {
-            $order->setStatus($this->aplazoHelper->getApprovedOrderStatus());
-            $order->setState(Order::STATE_PROCESSING);
-            return $this->saveOrder($order);
+        $message = '';
+        $this->decreasingStockAfterPaymentSuccess($order, 'order_placed_aplazo');
+        if (!$this->invoiceOrder($order)) {
+            $this->aplazoHelper->log('Orden no se puede hacer invoice ' . $order->getIncrementId());
+            $message = 'Orden no se puede hacer invoice ' . $order->getIncrementId();
         }
-        return $order;
+        $order->setStatus($this->aplazoHelper->getApprovedOrderStatus());
+        $order->setState(Order::STATE_PROCESSING);
+
+        return [
+            'order' => $this->saveOrder($order),
+            'message' => $message
+        ];
     }
 
     /**
@@ -335,7 +340,6 @@ class OrderService
             }
             return true;
         }
-        $this->aplazoHelper->log('Orden no se puede hacer invoice ' . $order->getIncrementId());
         return false;
     }
 
