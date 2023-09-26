@@ -52,17 +52,17 @@ class CancelOrders
     public function execute()
     {
         if($minutes = $this->aplazoHelper->getCancelTime()){
+            $this->aplazoHelper->log('------ Cancelando ordenes ------');
             $orderCollection = $this->orderService->getOrderToCancelCollection($minutes);
             $counter = $ordersCanceledCount = 0;
             $ordersWithErrors = [];
             if(($orderCollectionCount = $orderCollection->getTotalCount()) > 0) {
+                $this->aplazoHelper->log('Total de ordenes encontradas: ' . $orderCollectionCount);
                 /**
                  * @var Order $order
                  */
                 foreach ($orderCollection as $order) {
                     $store_id = $order->getStoreId();
-                    $this->aplazoHelper->log('------ Cancelando ordenes ------');
-                    $this->aplazoHelper->log('Total de ordenes encontradas: ' . $orderCollectionCount);
 
                     $incrementId = $order->getIncrementId();
                     if($this->apiService->getLoanStatus($incrementId)){
@@ -71,7 +71,8 @@ class CancelOrders
                             if ($orderResult['success']) {
                                 /** @var Order $order */
                                 $order = $orderResult['order'];
-                                $order = $this->orderService->approveOrder($order->getId());
+                                $orderService = $this->orderService->approveOrder($order->getId());
+                                $order = $orderService['order'];
                                 $orderPayment = $order->getPayment();
                                 $orderPayment->setAdditionalInformation('aplazo_status', $this->apiService::LOAN_SUCCESS_STATUS);
                                 $order->addCommentToStatusHistory('Orden en Aplazo pagada correctamente. Notificación realizada a través de cron.');

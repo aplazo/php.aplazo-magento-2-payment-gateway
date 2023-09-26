@@ -120,3 +120,5 @@
 * Success controller fix order id in session.
 ## 3.2.9
 * Uploaded file.
+## 3.2.10
+* Webhook advance the order to processing regardless the invoice creation

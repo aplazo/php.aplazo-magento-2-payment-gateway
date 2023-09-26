@@ -57,7 +57,11 @@ class Notifications implements NotificationsInterface
                     /** @var Order $order */
                     $order = $orderResult['order'];
                     if ($status == 'Activo') {
-                        $order = $this->orderService->approveOrder($order->getId());
+                        $orderService = $this->orderService->approveOrder($order->getId());
+                        $order = $orderService['order'];
+                        if(!empty($orderService['message'])){
+                            $response['message'] = $orderService['message'];
+                        }
                         if($this->aplazoHelper->getSendEmail()){
                             $this->orderSender->send($order, true);
                         }
@@ -65,7 +69,7 @@ class Notifications implements NotificationsInterface
                     $orderPayment = $order->getPayment();
                     $orderPayment->setAdditionalInformation('aplazo_payment_id', $aplazoData[self::APLAZO_PAYLOAD_LOAN_ID_INDEX]);
                     $orderPayment->setAdditionalInformation('aplazo_status', $aplazoData[self::APLAZO_PAYLOAD_STATUS_INDEX]);
-                    $this->addOperationCommentToStatusHistory($order, $aplazoData[self::APLAZO_PAYLOAD_STATUS_INDEX], $aplazoData[self::APLAZO_PAYLOAD_LOAN_ID_INDEX]);
+                    $this->addOperationCommentToStatusHistory($order, $aplazoData[self::APLAZO_PAYLOAD_STATUS_INDEX], $aplazoData[self::APLAZO_PAYLOAD_LOAN_ID_INDEX], $orderService['message']);
                     $this->orderService->saveOrder($order);
                 } else {
                     $response['status'] = false;
@@ -87,11 +91,14 @@ class Notifications implements NotificationsInterface
         return $response;
     }
 
-    private function addOperationCommentToStatusHistory($order, $status, $id)
+    private function addOperationCommentToStatusHistory($order, $status, $id, $message = false)
     {
         $orderMessage = "Notificación automática de Aplazo: La operación fue %s.<br>";
         $orderMessage .= "Referencia de Pago: %s<br>";
         $orderMessage .= "Estado: %s<br>";
+        if($message){
+            $orderMessage .= "Mensaje: No se pudo generar el invoice de la orden.";
+        }
         switch ($status) {
             case 'New':
                 $operationResult = 'Creada';
