@@ -122,3 +122,5 @@
 * Uploaded file.
 ## 3.2.10
 * Webhook advance the order to processing regardless the invoice creation
+## 3.3.0
+* PHP 8.2 fixes. Checkout agreements added. 
