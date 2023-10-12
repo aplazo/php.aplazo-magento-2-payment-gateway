@@ -13,8 +13,6 @@ class Notifications implements NotificationsInterface
 
     const HEADER_BEARER = 'HTTP_AUTHORIZATION';
     const BEARER_STRING = 'Bearer ';
-    const APLAZO_PAYLOAD_MERCHANT_ID_INDEX = 'sub';
-    const APLAZO_PAYLOAD_EXPIRATION_INDEX = 'exp';
     const APLAZO_PAYLOAD_LOAN_ID_INDEX = 'loanId';
     const APLAZO_PAYLOAD_STATUS_INDEX = 'status';
     const APLAZO_PAYLOAD_ORDER_ID_INDEX = 'cartId';
@@ -32,6 +30,7 @@ class Notifications implements NotificationsInterface
     private $orderSender;
 
     private $validationMessageError;
+    private $debugEnable;
 
     public function __construct
     (

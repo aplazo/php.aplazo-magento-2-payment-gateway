@@ -18,15 +18,6 @@ class ApiService
     private $aplazoHelper;
 
     /**
-     * @var string
-     */
-    private $accessToken;
-
-    /**
-     * @var array
-     */
-    private $merchant;
-    /**
      * @var Curl
      */
     private $curl;
