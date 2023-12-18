@@ -12,11 +12,18 @@ class Data extends \Magento\Payment\Helper\Data
     const CHECKOUT_SECTION = 'payment/aplazo_gateway/checkout/';
     const CREDENTIAL_SECTION = 'payment/aplazo_gateway/credentials/';
     const DEBUG_SECTION = 'payment/aplazo_gateway/debug/';
+    const APLAZO_WEBHOOK_RECEIVED = 'aplazo_webhook_received';
 
     const USER_AUTHENTICATED = 1;
     const INCOMPLETE_CREDENTIALS = 0;
     const USER_NOT_AUTHENTICATED = -1;
     const CALLBACK_NOT_EQUALS = 2;
+
+    const LOGS_SUBCATEGORY_AUTH = 'auth';
+    const LOGS_SUBCATEGORY_LOAN = 'loan';
+    const LOGS_SUBCATEGORY_REQUEST = 'request';
+    const LOGS_SUBCATEGORY_ORDER = 'order';
+    const LOGS_SUBCATEGORY_WEBHOOK = 'webhook';
 
     /**
      * @var StoreManagerInterface
@@ -119,6 +126,10 @@ class Data extends \Magento\Payment\Helper\Data
 
     public function getServiceUrl(){
         return $this->getConfigFlag(self::GENERAL_SECTION . 'sanbox_mode') ? 'https://api.aplazo.net' : 'https://api.aplazo.mx';
+    }
+
+    public function getServiceLogUrl(){
+        return $this->getConfigFlag(self::GENERAL_SECTION . 'sanbox_mode') ? 'https://posbifrost.aplazo.net/api/v1/merchant/tagging' : 'https://posbifrost.aplazo.mx/api/v1/merchant/tagging';
     }
 
     public function getUrl($route, $params = []){
