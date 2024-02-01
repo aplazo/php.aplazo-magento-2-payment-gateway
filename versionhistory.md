@@ -126,3 +126,7 @@
 * PHP 8.2 fixes. Checkout agreements added. 
 ## 3.3.1
 * Aplazo js script updated 
+## 3.3.2
+* Invoice managed in cronCancelOrders. Logs to Aplazo 
+## 3.3.3
+* Url Logs changed 

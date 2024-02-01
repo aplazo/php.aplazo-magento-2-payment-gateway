@@ -129,7 +129,7 @@ class Data extends \Magento\Payment\Helper\Data
     }
 
     public function getServiceLogUrl(){
-        return $this->getConfigFlag(self::GENERAL_SECTION . 'sanbox_mode') ? 'https://posbifrost.aplazo.net/api/v1/merchant/tagging' : 'https://posbifrost.aplazo.mx/api/v1/merchant/tagging';
+        return $this->getConfigFlag(self::GENERAL_SECTION . 'sanbox_mode') ? 'https://api.aplazo.net/api/v1/merchant/tagging' : 'https://api.aplazo.mx/api/v1/merchant/tagging';
     }
 
     public function getUrl($route, $params = []){
