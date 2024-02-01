@@ -7,6 +7,7 @@ declare(strict_types=1);
 
 namespace Aplazo\AplazoPayment\Cron;
 
+use Aplazo\AplazoPayment\Helper\Data;
 use Aplazo\AplazoPayment\Model\Service\OrderService;
 use Aplazo\AplazoPayment\Service\ApiService;
 use Magento\Sales\Model\Order;
@@ -71,11 +72,23 @@ class CancelOrders
                             if ($orderResult['success']) {
                                 /** @var Order $order */
                                 $order = $orderResult['order'];
-                                $orderService = $this->orderService->approveOrder($order->getId());
-                                $order = $orderService['order'];
-                                $orderPayment = $order->getPayment();
-                                $orderPayment->setAdditionalInformation('aplazo_status', $this->apiService::LOAN_SUCCESS_STATUS);
-                                $order->addCommentToStatusHistory('Orden en Aplazo pagada correctamente. Notificación realizada a través de cron.');
+                                if($order->getStatus() === Data::APLAZO_WEBHOOK_RECEIVED){
+                                    if (!$this->orderService->invoiceOrder($order)) {
+                                        $this->aplazoHelper->log('Orden no se puede hacer invoice ' . $order->getIncrementId());
+                                        $message = 'Error al crear invoice a través de cron.';
+                                    } else {
+                                        $order->setStatus($this->aplazoHelper->getApprovedOrderStatus());
+                                        $message = 'Orden creo el invoice correctamente a través de cron.';
+                                    }
+                                } else {
+                                    $orderService = $this->orderService->approveOrder($order->getId());
+                                    $order = $orderService['order'];
+                                    $orderPayment = $order->getPayment();
+                                    $orderPayment->setAdditionalInformation('aplazo_status', $this->apiService::LOAN_SUCCESS_STATUS);
+                                    $message = 'Orden en Aplazo pagada correctamente. Notificación realizada a través de cron.';
+                                }
+
+                                $order->addCommentToStatusHistory($message);
                                 $this->orderService->saveOrder($order);
                                 $this->aplazoHelper->log("Order $incrementId is OUTSTANDING in Aplazo.");
                             } else {
