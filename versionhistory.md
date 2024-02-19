@@ -130,3 +130,5 @@
 * Invoice managed in cronCancelOrders. Logs to Aplazo 
 ## 3.3.3
 * Url Logs changed 
+## 3.3.4
+* Refund to Aplazo available via API 

@@ -2,7 +2,6 @@
 
 namespace Aplazo\AplazoPayment\Observer;
 
-use Aplazo\AplazoPayment\Client\Client;
 use Aplazo\AplazoPayment\Helper\Data;
 use Aplazo\AplazoPayment\Logger\Logger as AplazoLogger;
 use Aplazo\AplazoPayment\Model\Ui\ConfigProvider;
@@ -39,7 +38,6 @@ class RefundObserverBeforeSave implements ObserverInterface
     /**
      * @param Context $context
      * @param AplazoLogger $aplazoLogger
-     * @param Client $client
      */
     public function __construct(
         Context $context,
