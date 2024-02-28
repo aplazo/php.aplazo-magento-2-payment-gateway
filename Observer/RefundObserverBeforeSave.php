@@ -3,7 +3,6 @@
 namespace Aplazo\AplazoPayment\Observer;
 
 use Aplazo\AplazoPayment\Helper\Data;
-use Aplazo\AplazoPayment\Logger\Logger as AplazoLogger;
 use Aplazo\AplazoPayment\Model\Ui\ConfigProvider;
 use Aplazo\AplazoPayment\Service\ApiService as AplazoService;
 use Magento\Framework\App\Action\Context;
@@ -21,9 +20,6 @@ class RefundObserverBeforeSave implements ObserverInterface
      */
     protected $messageManager;
 
-    private $_config;
-    private $_logger;
-
     /**
      * @var Data
      */
@@ -37,17 +33,16 @@ class RefundObserverBeforeSave implements ObserverInterface
 
     /**
      * @param Context $context
-     * @param AplazoLogger $aplazoLogger
+     * @param AplazoService $aplazoService
+     * @param Data $data
      */
     public function __construct(
         Context $context,
-        AplazoLogger $aplazoLogger,
         AplazoService $aplazoService,
         Data $data
     )
     {
         $this->messageManager = $context->getMessageManager();
-        $this->_logger = $aplazoLogger;
         $this->_aplazoService = $aplazoService;
         $this->_data = $data;
 
@@ -95,17 +90,22 @@ class RefundObserverBeforeSave implements ObserverInterface
 
         if (isset($response['status'])){
             if($response['status'] === 0) {
+                $this->_aplazoService->sendLog("Refund error " . $response['message'], Data::LOGS_CATEGORY_ERROR, Data::LOGS_SUBCATEGORY_ORDER, $this->_aplazoService->getOrderImportantDataToLog($order));
                 $this->throwRefundException($response['message']);
             }
         }
 
         if (!(empty($response['refundId']))) {
             if($response['refundStatus'] === "REJECTED") {
-                $this->throwRefundException('Credit memo is not available due to the Loan status');
+                $message = 'Credit memo is not available due to the Loan status';
+                $this->_aplazoService->sendLog("Refund error " . $message, Data::LOGS_CATEGORY_ERROR, Data::LOGS_SUBCATEGORY_ORDER, $this->_aplazoService->getOrderImportantDataToLog($order));
+                $this->throwRefundException($message);
             } else {
                 if($response['refundStatus'] === "REQUESTED") {
-                    $this->messageManager->addSuccessMessage('Aplazo refund was processed successfully. The Aplazo status is Requested');
-                    $order->addCommentToStatusHistory('Aplazo refund was processed successfully. The Aplazo status is Requested');
+                    $message = 'Aplazo refund was processed successfully. The Aplazo status is Requested';
+                    $this->messageManager->addSuccessMessage($message);
+                    $this->_aplazoService->sendLog("Refund success: " . $message, Data::LOGS_CATEGORY_INFO, Data::LOGS_SUBCATEGORY_ORDER, $this->_aplazoService->getOrderImportantDataToLog($order));
+                    $order->addCommentToStatusHistory($message);
                     $order->save();
                 }
             }

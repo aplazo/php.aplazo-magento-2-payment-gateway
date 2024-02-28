@@ -13,6 +13,7 @@ class Data extends \Magento\Payment\Helper\Data
     const CREDENTIAL_SECTION = 'payment/aplazo_gateway/credentials/';
     const DEBUG_SECTION = 'payment/aplazo_gateway/debug/';
     const APLAZO_WEBHOOK_RECEIVED = 'aplazo_webhook_received';
+    const APLAZO_ORDER_CANCELLED = 'aplazo_order_cancelled';
 
     const USER_AUTHENTICATED = 1;
     const INCOMPLETE_CREDENTIALS = 0;
@@ -24,6 +25,9 @@ class Data extends \Magento\Payment\Helper\Data
     const LOGS_SUBCATEGORY_REQUEST = 'request';
     const LOGS_SUBCATEGORY_ORDER = 'order';
     const LOGS_SUBCATEGORY_WEBHOOK = 'webhook';
+    const LOGS_CATEGORY_ERROR = 'error';
+    const LOGS_CATEGORY_WARNING = 'warning';
+    const LOGS_CATEGORY_INFO = 'info';
 
     /**
      * @var StoreManagerInterface
@@ -129,7 +133,7 @@ class Data extends \Magento\Payment\Helper\Data
     }
 
     public function getServiceLogUrl(){
-        return $this->getConfigFlag(self::GENERAL_SECTION . 'sanbox_mode') ? 'https://api.aplazo.net/api/v1/merchant/tagging' : 'https://api.aplazo.mx/api/v1/merchant/tagging';
+        return $this->getConfigFlag(self::GENERAL_SECTION . 'sanbox_mode') ? 'https://posbifrost.aplazo.net/api/v1/merchant/tagging' : 'https://posbifrost.aplazo.mx/api/v1/merchant/tagging';
     }
 
     public function getUrl($route, $params = []){
