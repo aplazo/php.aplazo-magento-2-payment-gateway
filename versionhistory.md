@@ -132,3 +132,9 @@
 * Url Logs changed 
 ## 3.3.4
 * Refund to Aplazo available via API 
+## 3.3.5
+* Code Refactor
+* Url to Aplazo logs Fixed
+* Added more logs to Aplazo
+* In the cancel order process, the orders are sorted by newest. Try catch modified in order to get more scenarios with errors
+* Added aplazo_order_canceled status in orders. Sometimes orders can't be canceled, and this orders are always iterating in the cron process.
