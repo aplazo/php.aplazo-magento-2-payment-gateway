@@ -247,6 +247,8 @@ class OrderService
                     ];
                 }
             }
+            $cartUrl = $this->aplazoHelper->getCancelActive() ? $this->aplazoHelper->getUrl('aplazo/order/operations',
+                ['operation' => 'cancel', 'incrementid' => $order->getIncrementId()]) : $this->aplazoHelper->getUrl('checkout/cart');
             $orderData = [
                 "buyer" => [
                     "addressLine" => trim($billingAddress->getStreetLine(1) . ' ' . $billingAddress->getStreetLine(2)),
@@ -257,7 +259,7 @@ class OrderService
                     "postalCode" => $billingAddress->getPostcode()
                 ],
                 "cartId" => $order->getIncrementId(),
-                "cartUrl" => $this->aplazoHelper->getUrl('checkout/cart'),
+                "cartUrl" => $cartUrl,
                 "discount" => [
                     "price" => abs($order->getBaseDiscountAmount()),
                     "title" => $order->getShippingAddress()->getDiscountDescription()
@@ -361,21 +363,17 @@ class OrderService
         $result = ['success' => false, 'message' => ''];
         try {
             $order = $this->orderRepository->get($orderId);
-            if ($this->aplazoHelper->canCancelOnFailure()) {
-                if ($order->canCancel()) {
-                    $order->cancel();
-                    $result['success'] = true;
-                    $result['message'] = __("Order successfully canceled");
-                } else {
-                    if ($order->isCanceled()) {
-                        $result['success'] = true;
-                        $result['message'] = __("Order already canceled");
-                    } else {
-                        $result['message'] = __("Can not cancel this orden");
-                    }
-                }
+            if ($order->canCancel()) {
+                $order->cancel();
+                $result['success'] = true;
+                $result['message'] = __("Order successfully canceled");
             } else {
-                $result['message'] = __('Order not canceled due to module configurations.');
+                if ($order->isCanceled()) {
+                    $result['success'] = true;
+                    $result['message'] = __("Order already canceled");
+                } else {
+                    $result['message'] = __("Can not cancel this orden");
+                }
             }
             $order->addCommentToStatusHistory(__('Aplazo info: ') . $result['message']);
             $this->saveOrder($order);

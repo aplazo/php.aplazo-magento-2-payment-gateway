@@ -9,21 +9,13 @@ use Aplazo\AplazoPayment\Service\ApiService as AplazoService;
 class Data extends \Magento\Payment\Helper\Data
 {
     const GENERAL_SECTION = 'payment/aplazo_gateway/';
-    const CHECKOUT_SECTION = 'payment/aplazo_gateway/checkout/';
-    const CREDENTIAL_SECTION = 'payment/aplazo_gateway/credentials/';
-    const DEBUG_SECTION = 'payment/aplazo_gateway/debug/';
     const APLAZO_WEBHOOK_RECEIVED = 'aplazo_webhook_received';
     const APLAZO_ORDER_CANCELLED = 'aplazo_order_cancelled';
-
-    const USER_AUTHENTICATED = 1;
-    const INCOMPLETE_CREDENTIALS = 0;
-    const USER_NOT_AUTHENTICATED = -1;
-    const CALLBACK_NOT_EQUALS = 2;
-
     const LOGS_SUBCATEGORY_AUTH = 'auth';
     const LOGS_SUBCATEGORY_LOAN = 'loan';
     const LOGS_SUBCATEGORY_REQUEST = 'request';
     const LOGS_SUBCATEGORY_ORDER = 'order';
+    const LOGS_SUBCATEGORY_REFUND = 'refund';
     const LOGS_SUBCATEGORY_WEBHOOK = 'webhook';
     const LOGS_CATEGORY_ERROR = 'error';
     const LOGS_CATEGORY_WARNING = 'warning';
@@ -92,19 +84,23 @@ class Data extends \Magento\Payment\Helper\Data
     }
 
     public function getShowOnProductPage(){
-        return $this->getConfigData(self::CHECKOUT_SECTION . 'show_on_product_page');
+        return $this->getConfigData(self::GENERAL_SECTION . 'show_on_product_page');
     }
 
     public function getShowOnCart(){
-        return $this->getConfigData(self::CHECKOUT_SECTION . 'show_on_cart');
+        return $this->getConfigData(self::GENERAL_SECTION . 'show_on_cart');
     }
 
     public function getRefund(){
-        return $this->getConfigData(self::CHECKOUT_SECTION . 'refund');
+        return $this->getConfigData(self::GENERAL_SECTION . 'refund');
+    }
+
+    public function getRmaRefund(){
+        return $this->getConfigData(self::GENERAL_SECTION . 'rma_refund');
     }
 
     public function getSendEmail(){
-        return $this->getConfigData(self::CHECKOUT_SECTION . 'send_email');
+        return $this->getConfigData(self::GENERAL_SECTION . 'send_email');
     }
 
     public function canCancelOnFailure(){
@@ -117,6 +113,18 @@ class Data extends \Magento\Payment\Helper\Data
 
     public function getApiToken(){
         return $this->encryptor->decrypt($this->getConfigData(self::GENERAL_SECTION . 'apitoken'));
+    }
+
+    public function getCancelActive(){
+        return $this->getConfigData(self::GENERAL_SECTION . 'cancel_active');
+    }
+
+    public function getCancelMessage(){
+        return $this->getConfigData(self::GENERAL_SECTION . 'cancel_message');
+    }
+
+    public function getEnableRecoverCart(){
+        return $this->getConfigData(self::GENERAL_SECTION . 'enable_recover_cart');
     }
 
     public function getCallbackUrl(): string

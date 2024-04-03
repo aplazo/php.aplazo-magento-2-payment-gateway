@@ -9,4 +9,7 @@
     <event name="sales_order_creditmemo_save_before">
         <observer name="aplazo_creditmemo_before_save_observer" instance="Aplazo\AplazoPayment\Observer\RefundObserverBeforeSave"/>
     </event>
+    <event name="rma_save_before">
+        <observer name="aplazo_rma_before_save_observer" instance="Aplazo\AplazoPayment\Observer\RmaObserverBeforeSave"/>
+    </event>
 </config>

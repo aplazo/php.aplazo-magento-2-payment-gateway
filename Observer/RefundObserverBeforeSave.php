@@ -90,7 +90,7 @@ class RefundObserverBeforeSave implements ObserverInterface
 
         if (isset($response['status'])){
             if($response['status'] === 0) {
-                $this->_aplazoService->sendLog("Refund error " . $response['message'], Data::LOGS_CATEGORY_ERROR, Data::LOGS_SUBCATEGORY_ORDER, $this->_aplazoService->getOrderImportantDataToLog($order));
+                $this->_aplazoService->sendLog("Refund error " . $response['message'], Data::LOGS_CATEGORY_ERROR, Data::LOGS_SUBCATEGORY_REFUND, $this->_aplazoService->getOrderImportantDataToLog($order));
                 $this->throwRefundException($response['message']);
             }
         }
@@ -98,13 +98,13 @@ class RefundObserverBeforeSave implements ObserverInterface
         if (!(empty($response['refundId']))) {
             if($response['refundStatus'] === "REJECTED") {
                 $message = 'Credit memo is not available due to the Loan status';
-                $this->_aplazoService->sendLog("Refund error " . $message, Data::LOGS_CATEGORY_ERROR, Data::LOGS_SUBCATEGORY_ORDER, $this->_aplazoService->getOrderImportantDataToLog($order));
+                $this->_aplazoService->sendLog("Refund error " . $message, Data::LOGS_CATEGORY_ERROR, Data::LOGS_SUBCATEGORY_REFUND, $this->_aplazoService->getOrderImportantDataToLog($order));
                 $this->throwRefundException($message);
             } else {
                 if($response['refundStatus'] === "REQUESTED") {
                     $message = 'Aplazo refund was processed successfully. The Aplazo status is Requested';
                     $this->messageManager->addSuccessMessage($message);
-                    $this->_aplazoService->sendLog("Refund success: " . $message, Data::LOGS_CATEGORY_INFO, Data::LOGS_SUBCATEGORY_ORDER, $this->_aplazoService->getOrderImportantDataToLog($order));
+                    $this->_aplazoService->sendLog("Refund success: " . $message, Data::LOGS_CATEGORY_INFO, Data::LOGS_SUBCATEGORY_REFUND, $this->_aplazoService->getOrderImportantDataToLog($order));
                     $order->addCommentToStatusHistory($message);
                     $order->save();
                 }

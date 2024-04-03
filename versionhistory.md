@@ -134,6 +134,8 @@
 * Refund to Aplazo available via API 
 ## 3.3.5
 * Code Refactor
+## 3.3.6
+* Magento commerce RMA support with Aplazo. Order can be canceled if customer exits in aplazo checkout 
 * Url to Aplazo logs Fixed
 * Added more logs to Aplazo
 * In the cancel order process, the orders are sorted by newest. Try catch modified in order to get more scenarios with errors
