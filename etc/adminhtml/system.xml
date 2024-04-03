@@ -24,96 +24,133 @@
                 </field>-->
                 <group id="checkout" translate="label" type="text" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="0">
                     <label>APLAZO checkout</label>
-                    <field id="active" translate="label" type="select" sortOrder="1" showInDefault="1" showInWebsite="1" showInStore="0">
-                        <label>Activar</label>
-                        <config_path>payment/aplazo_gateway/active</config_path>
-                        <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
-                        <comment>Habilitar APLAZO en tu E-commerce.</comment>
-                    </field>
-                    <field id="sanbox_mode" translate="label" type="select" sortOrder="2" showInDefault="1" showInWebsite="1" showInStore="0">
-                        <label>Modo de pruebas</label>
-                        <config_path>payment/aplazo_gateway/sanbox_mode</config_path>
-                        <source_model>Magento\Config\Model\Config\Source\Enabledisable</source_model>
-                        <comment>Habilitar o desactivar el modo de pruebas.</comment>
-                    </field>
-                    <field id="sort_order" translate="label" type="text" sortOrder="6" showInDefault="1" showInWebsite="1" showInStore="0">
-                        <label>Posición en el checkout</label>
-                        <config_path>payment/aplazo_gateway/sort_order</config_path>
-                        <frontend_class>validate-number</frontend_class>
-                        <comment>Asigna un orden de prioridad para la visualización en el checkout respecto a otros medios de pagos.</comment>
-                    </field>
-                    <field id="order_status" translate="label" type="select" sortOrder="25" showInDefault="1" showInWebsite="1" showInStore="0">
-                        <label>Estado de orden nueva</label>
-                        <config_path>payment/aplazo_gateway/order_status</config_path>
-                        <source_model>Magento\Sales\Model\Config\Source\Order\Status</source_model>
-                        <comment>Este es el estado que las ordenes tendrán cuando se creen en el E-commerce.</comment>
-                    </field>
-                    <field id="approved_order_status" translate="label" type="select" sortOrder="30" showInDefault="1" showInWebsite="1" showInStore="0">
-                        <label>Estado de orden aprobada</label>
-                        <config_path>payment/aplazo_gateway/approved_order_status</config_path>
-                        <source_model>Magento\Sales\Model\Config\Source\Order\Status</source_model>
-                        <comment>Este es el estado que las ordenes tendrán cuando se el pago sea aprobado.</comment>
-                    </field>
-                    <field id="failure_order_status" translate="label" type="select" sortOrder="40" showInDefault="1" showInWebsite="1" showInStore="0">
-                        <label>Estado de orden rechazada</label>
-                        <config_path>payment/aplazo_gateway/failure_order_status</config_path>
-                        <source_model>Magento\Sales\Model\Config\Source\Order\Status</source_model>
-                        <comment>Este es el estado que las ordenes tendrán cuando se el pago sea rechazado.</comment>
-                    </field>
-                    <field id="reserve_stock" translate="label" type="select" sortOrder="50" showInDefault="1" showInWebsite="1" showInStore="0">
-                        <label>Reservar stock</label>
-                        <config_path>payment/aplazo_gateway/reserve_stock</config_path>
-                        <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
-                        <comment>Reserva stock hasta que se confirme el pago a través del webhook.</comment>
-                    </field>
-                    <field id="cancel_time" translate="label" type="select" sortOrder="60" showInDefault="1" showInWebsite="1" showInStore="0">
-                        <label>Tiempo en que se cancelan las órdenes.</label>
-                        <config_path>payment/aplazo_gateway/cancel_time</config_path>
-                        <source_model>Aplazo\AplazoPayment\Model\Config\Source\CancelTime</source_model>
-                        <comment>Tiempo en el que se cancelarán las órdenes no pagadas.</comment>
-                    </field>
-                    <field id="show_on_product_page" translate="label" type="select" sortOrder="60" showInDefault="1" showInWebsite="1" showInStore="0">
-                        <label>Mostrar widget en página de producto</label>
-                        <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
-                    </field>
-                    <field id="show_on_cart" translate="label" type="select" sortOrder="70" showInDefault="1" showInWebsite="1" showInStore="0">
-                        <label>Mostrar widget en página de carrito</label>
-                        <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
-                    </field>
-                    <field id="refund" translate="label" type="select" sortOrder="80" showInDefault="1" showInWebsite="1" showInStore="0">
-                        <label>Habilitar reembolsos</label>
-                        <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
-                    </field>
-                    <field id="send_email" translate="label" type="select" sortOrder="90" showInDefault="1" showInWebsite="1" showInStore="0">
-                        <label>Enviar correo de confirmación en la validación del webhook </label>
-                        <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
-                        <comment>Cuando aplazo confirme de pagado a través del Webhook, se enviará un correo de confirmación de pago al comprador.</comment>
-                    </field>
-                </group>
-
-                <group id="credentials" translate="label" type="text" sortOrder="20" showInDefault="1" showInWebsite="1" showInStore="0">
-                    <label>Credenciales</label>
-                    <comment>
-                        <![CDATA[<div class="aplazo-gateway-credentials-section"><span style="display:inline">¿Te gustaría tener Aplazo como método de pago? Da clic en el siguiente <a href="https://web.aplazo.mx/merchant-registration/become-merchant/company-info" target="_blank">link</a> para ponernos en contacto en menos de 24hrs.</span></div>]]>
-                    </comment>
-                    <field id="merchantid" translate="label" type="text" sortOrder="2" showInDefault="1" showInWebsite="1" showInStore="0">
-                        <config_path>payment/aplazo_gateway/merchantid</config_path>
-                        <label>Merchant ID</label>
-                        <backend_model>Aplazo\AplazoPayment\Model\Adminhtml\System\Config\InvalidateCacheOnChange</backend_model>
-                    </field>
-                    <field id="apitoken" translate="label" type="obscure" sortOrder="3" showInDefault="1" showInWebsite="1" showInStore="0">
-                        <config_path>payment/aplazo_gateway/apitoken</config_path>
-                        <label>API token</label>
-                        <backend_model>Aplazo\AplazoPayment\Model\Adminhtml\System\Config\Encrypted</backend_model>
-                    </field>
-                </group>
-                <group id="debug" translate="label" type="text" sortOrder="40" showInDefault="1" showInWebsite="1" showInStore="1">
-                    <label>Test &amp; Debug</label>
-                    <field id="debug_mode" translate="label" type="select" sortOrder="100" showInDefault="1" showInWebsite="1" showInStore="0">
-                        <label>Activar logs</label>
-                        <config_path>payment/aplazo_gateway/debug_mode</config_path>
-                        <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
-                    </field>
+                    <group id="credentials" translate="label" type="text" sortOrder="1" showInDefault="1" showInWebsite="1" showInStore="0">
+                        <label>Credenciales</label>
+                        <comment>
+                            <![CDATA[<div class="aplazo-gateway-credentials-section"><span style="display:inline">¿Te gustaría tener Aplazo como método de pago? Da clic en el siguiente <a href="https://web.aplazo.mx/merchant-registration/become-merchant/company-info" target="_blank">link</a> para ponernos en contacto en menos de 24hrs.</span></div>]]>
+                        </comment>
+                        <field id="merchantid" translate="label" type="text" sortOrder="2" showInDefault="1" showInWebsite="1" showInStore="0">
+                            <config_path>payment/aplazo_gateway/merchantid</config_path>
+                            <label>Merchant ID</label>
+                            <backend_model>Aplazo\AplazoPayment\Model\Adminhtml\System\Config\InvalidateCacheOnChange</backend_model>
+                        </field>
+                        <field id="apitoken" translate="label" type="obscure" sortOrder="3" showInDefault="1" showInWebsite="1" showInStore="0">
+                            <config_path>payment/aplazo_gateway/apitoken</config_path>
+                            <label>API token</label>
+                            <backend_model>Aplazo\AplazoPayment\Model\Adminhtml\System\Config\Encrypted</backend_model>
+                        </field>
+                        <field id="sanbox_mode" translate="label" type="select" sortOrder="20" showInDefault="1" showInWebsite="1" showInStore="0">
+                            <label>Modo de pruebas</label>
+                            <config_path>payment/aplazo_gateway/sanbox_mode</config_path>
+                            <source_model>Magento\Config\Model\Config\Source\Enabledisable</source_model>
+                            <comment>Habilitar o desactivar el modo de pruebas.</comment>
+                        </field>
+                    </group>
+                    <group id="general" translate="label" type="text" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="0">
+                        <label>General</label>
+                        <field id="active" translate="label" type="select" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="0">
+                            <label>Activar</label>
+                            <config_path>payment/aplazo_gateway/active</config_path>
+                            <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+                            <comment>Habilitar APLAZO en tu E-commerce.</comment>
+                        </field>
+                        <field id="sort_order" translate="label" type="text" sortOrder="20" showInDefault="1" showInWebsite="1" showInStore="0">
+                            <label>Posición en el checkout</label>
+                            <config_path>payment/aplazo_gateway/sort_order</config_path>
+                            <frontend_class>validate-number</frontend_class>
+                            <comment>Asigna un orden de prioridad para la visualización en el checkout respecto a otros medios de pagos.</comment>
+                        </field>
+                        <field id="order_status" translate="label" type="select" sortOrder="25" showInDefault="1" showInWebsite="1" showInStore="0">
+                            <label>Estado de orden nueva</label>
+                            <config_path>payment/aplazo_gateway/order_status</config_path>
+                            <source_model>Magento\Sales\Model\Config\Source\Order\Status</source_model>
+                            <comment>Este es el estado que las ordenes tendrán cuando se creen en el E-commerce.</comment>
+                        </field>
+                        <field id="approved_order_status" translate="label" type="select" sortOrder="30" showInDefault="1" showInWebsite="1" showInStore="0">
+                            <label>Estado de orden aprobada</label>
+                            <config_path>payment/aplazo_gateway/approved_order_status</config_path>
+                            <source_model>Magento\Sales\Model\Config\Source\Order\Status</source_model>
+                            <comment>Este es el estado que las ordenes tendrán cuando se el pago sea aprobado.</comment>
+                        </field>
+                        <field id="failure_order_status" translate="label" type="select" sortOrder="40" showInDefault="1" showInWebsite="1" showInStore="0">
+                            <label>Estado de orden rechazada</label>
+                            <config_path>payment/aplazo_gateway/failure_order_status</config_path>
+                            <source_model>Magento\Sales\Model\Config\Source\Order\Status</source_model>
+                            <comment>Este es el estado que las ordenes tendrán cuando se el pago sea rechazado.</comment>
+                        </field>
+                        <field id="reserve_stock" translate="label" type="select" sortOrder="50" showInDefault="1" showInWebsite="1" showInStore="0">
+                            <label>Reservar stock</label>
+                            <config_path>payment/aplazo_gateway/reserve_stock</config_path>
+                            <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+                            <comment>Reserva stock hasta que se confirme el pago a través del webhook.</comment>
+                        </field>
+                        <field id="cancel_time" translate="label" type="select" sortOrder="60" showInDefault="1" showInWebsite="1" showInStore="0">
+                            <label>Tiempo en que se cancelan las órdenes.</label>
+                            <config_path>payment/aplazo_gateway/cancel_time</config_path>
+                            <source_model>Aplazo\AplazoPayment\Model\Config\Source\CancelTime</source_model>
+                            <comment>Tiempo en el que se cancelarán las órdenes no pagadas.</comment>
+                        </field>
+                        <field id="show_on_product_page" translate="label" type="select" sortOrder="60" showInDefault="1" showInWebsite="1" showInStore="0">
+                            <label>Mostrar widget en página de producto</label>
+                            <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+                            <config_path>payment/aplazo_gateway/show_on_product_page</config_path>
+                        </field>
+                        <field id="show_on_cart" translate="label" type="select" sortOrder="70" showInDefault="1" showInWebsite="1" showInStore="0">
+                            <label>Mostrar widget en página de carrito</label>
+                            <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+                            <config_path>payment/aplazo_gateway/show_on_cart</config_path>
+                        </field>
+                        <field id="refund" translate="label" type="select" sortOrder="80" showInDefault="1" showInWebsite="1" showInStore="0">
+                            <label>Habilitar reembolsos</label>
+                            <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+                            <config_path>payment/aplazo_gateway/refund</config_path>
+                        </field>
+                        <field id="rma_refund" translate="label" type="select" sortOrder="90" showInDefault="1" showInWebsite="1" showInStore="0">
+                            <label>Habilitar reembolsos por RMA</label>
+                            <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+                            <config_path>payment/aplazo_gateway/rma_refund</config_path>
+                        </field>
+                        <field id="send_email" translate="label" type="select" sortOrder="100" showInDefault="1" showInWebsite="1" showInStore="0">
+                            <label>Enviar correo de confirmación en la validación del webhook </label>
+                            <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+                            <config_path>payment/aplazo_gateway/send_email</config_path>
+                            <comment>Cuando aplazo confirme de pagado a través del Webhook, se enviará un correo de confirmación de pago al comprador.</comment>
+                        </field>
+                    </group>
+                    <group id="abandoned_checkout" translate="label" type="text" sortOrder="20" showInDefault="1" showInWebsite="1" showInStore="0">
+                        <label>Abandono de Checkout de Aplazo</label>
+                        <field id="enable_cancel_on_abandoned_checkout" translate="label" type="select" sortOrder="34" showInDefault="1" showInWebsite="1" showInStore="0">
+                            <label>Cancelar orden si el usuario abandona checkout de Aplazo</label>
+                            <config_path>payment/aplazo_gateway/cancel_active</config_path>
+                            <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+                            <comment>En caso de no activarlo, la orden quedará pendiente</comment>
+                        </field>
+                        <field id="message_on_abandoned_cart" translate="label" type="text" sortOrder="36" showInDefault="1" showInWebsite="1" showInStore="0">
+                            <label>Mensaje a mostrar</label>
+                            <config_path>payment/aplazo_gateway/cancel_message</config_path>
+                            <comment>Al redireccionar al carrito, este mensaje se mostrará al cliente</comment>
+                            <depends>
+                                <field id="enable_cancel_on_abandoned_checkout">1</field>
+                            </depends>
+                        </field>
+                        <field id="enable_recover_cart" translate="label" type="select" sortOrder="38" showInDefault="1" showInWebsite="1" showInStore="0">
+                            <label>Recuperar carrito al regresar de checkout de Aplazo</label>
+                            <config_path>payment/aplazo_gateway/recover_active</config_path>
+                            <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+                            <comment>Se intentará crear un nuevo carrito con los productos que se tenían antes de ir al checkout de Aplazo</comment>
+                            <depends>
+                                <field id="enable_cancel_on_abandoned_checkout">1</field>
+                            </depends>
+                        </field>
+                    </group>
+                    <group id="debug" translate="label" type="text" sortOrder="30" showInDefault="1" showInWebsite="1" showInStore="1">
+                        <label>Test &amp; Debug</label>
+                        <field id="debug_mode" translate="label" type="select" sortOrder="100" showInDefault="1" showInWebsite="1" showInStore="0">
+                            <label>Activar logs</label>
+                            <config_path>payment/aplazo_gateway/debug_mode</config_path>
+                            <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+                        </field>
+                    </group>
                 </group>
             </group>
         </section>

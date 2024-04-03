@@ -53,6 +53,8 @@ class Notifications implements NotificationsInterface
     public function notify($loanId, $status, $cartId)
     {
         $this->aplazoHelper->log("Webhook triggered.");
+        $this->aplazoService->sendLog("Webhook triggered", AplazoHelper::LOGS_CATEGORY_INFO, AplazoHelper::LOGS_SUBCATEGORY_WEBHOOK,
+            ['cartId' => $cartId, 'loanId' => $loanId, 'status' => $status]);
         $response = ['status' => true, 'message' => 'OK'];
         if ($aplazoData = $this->validateJWT()) {
             try {
@@ -75,6 +77,8 @@ class Notifications implements NotificationsInterface
                     $orderPayment->setAdditionalInformation('aplazo_status', $aplazoData[self::APLAZO_PAYLOAD_STATUS_INDEX]);
                     $this->addOperationCommentToStatusHistory($order, $aplazoData[self::APLAZO_PAYLOAD_STATUS_INDEX], $aplazoData[self::APLAZO_PAYLOAD_LOAN_ID_INDEX], $orderService['message']);
                     $this->orderService->saveOrder($order);
+                    $this->aplazoService->sendLog("Se avanza la orden a través del webhook", AplazoHelper::LOGS_CATEGORY_INFO, AplazoHelper::LOGS_SUBCATEGORY_WEBHOOK,
+                        ['cartId' => $cartId, 'loanId' => $loanId]);
                 } else {
                     $response['status'] = false;
                     $response['message'] = $orderResult['message'];
@@ -82,8 +86,7 @@ class Notifications implements NotificationsInterface
             } catch (\Exception $e) {
                 $response['status'] = false;
                 $response['message'] = $e->getMessage();
-                $this->aplazoService->sendLog('Webhook error: : ' . $e->getMessage(), AplazoHelper::LOGS_SUBCATEGORY_WEBHOOK, ['trace' => $e->getTrace()[0]['line'] . $e->getLine()]);
-
+                $this->aplazoService->sendLog('Webhook error: : ' . $e->getMessage(), AplazoHelper::LOGS_CATEGORY_ERROR, AplazoHelper::LOGS_SUBCATEGORY_WEBHOOK, ['trace' => $e->getTrace()[0]['line'] . $e->getLine()]);
             }
 
             $request = json_encode(['loanid' => $aplazoData[self::APLAZO_PAYLOAD_LOAN_ID_INDEX], 'status' => $aplazoData[self::APLAZO_PAYLOAD_STATUS_INDEX], 'cartid' => $aplazoData[self::APLAZO_PAYLOAD_ORDER_ID_INDEX]]);
@@ -128,7 +131,7 @@ class Notifications implements NotificationsInterface
         } catch (\Exception $e) {
             $this->aplazoHelper->log("JWT Validation error: " . $e->getMessage());
             $this->validationMessageError = 'Something went wrong '. $e->getTrace()[0]['line'] . $e->getLine();
-            $this->aplazoService->sendLog('JWT Validation error: : ' . $e->getMessage(), AplazoHelper::LOGS_SUBCATEGORY_WEBHOOK, ['trace' => $this->validationMessageError]);
+            $this->aplazoService->sendLog('JWT Validation error: : ' . $e->getMessage(), AplazoHelper::LOGS_CATEGORY_ERROR, AplazoHelper::LOGS_SUBCATEGORY_WEBHOOK, ['trace' => $this->validationMessageError]);
             return false;
         }
     }

@@ -6,4 +6,10 @@
     <event name="sales_order_place_after">
         <observer name="aplazo_sales_order_place_after_create_loan" instance="Aplazo\AplazoPayment\Observer\SalesOrderPlaceAfterCreateLoan" />
     </event>
+    <event name="sales_order_creditmemo_save_before">
+        <observer name="aplazo_creditmemo_before_save_observer" instance="Aplazo\AplazoPayment\Observer\RefundObserverBeforeSave"/>
+    </event>
+    <event name="rma_save_before">
+        <observer name="aplazo_rma_before_save_observer" instance="Aplazo\AplazoPayment\Observer\RmaObserverBeforeSave"/>
+    </event>
 </config>

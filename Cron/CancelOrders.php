@@ -15,7 +15,7 @@ use Magento\Sales\Model\Order;
 class CancelOrders
 {
     /**
-     * @var \Aplazo\AplazoPayment\Helper\Data
+     * @var Data
      */
     private $aplazoHelper;
 
@@ -32,12 +32,12 @@ class CancelOrders
     /**
      * @param OrderService $orderService
      * @param ApiService $apiService
-     * @param \Aplazo\AplazoPayment\Helper\Data $aplazoHelper
+     * @param Data $aplazoHelper
      */
     public function __construct(
         OrderService $orderService,
         ApiService $apiService,
-        \Aplazo\AplazoPayment\Helper\Data $aplazoHelper
+        Data $aplazoHelper
     )
     {
         $this->orderService = $orderService;
@@ -58,13 +58,17 @@ class CancelOrders
             $counter = $ordersCanceledCount = 0;
             $ordersWithErrors = [];
             if(($orderCollectionCount = $orderCollection->getTotalCount()) > 0) {
-                $this->aplazoHelper->log('Total de ordenes encontradas: ' . $orderCollectionCount);
-                /**
-                 * @var Order $order
-                 */
+                $orders = [];
+                /** @var Order $order */
+                foreach ($orderCollection as $order) {
+                    $orders[] = $this->apiService->getOrderImportantDataToLog($order);
+                 }
+                $message = 'Total de ordenes encontradas: ' . $orderCollectionCount;
+                $this->aplazoHelper->log($message);
+                $this->apiService->sendLog('Cron de cancelación de órdenes. ' . $message, Data::LOGS_CATEGORY_INFO, Data::LOGS_SUBCATEGORY_ORDER, ['orders' => $orders]);
+
                 foreach ($orderCollection as $order) {
                     $store_id = $order->getStoreId();
-
                     $incrementId = $order->getIncrementId();
                     if($this->apiService->getLoanStatus($incrementId)){
                         try {
@@ -74,8 +78,8 @@ class CancelOrders
                                 $order = $orderResult['order'];
                                 if($order->getStatus() === Data::APLAZO_WEBHOOK_RECEIVED){
                                     if (!$this->orderService->invoiceOrder($order)) {
-                                        $this->aplazoHelper->log('Orden no se puede hacer invoice ' . $order->getIncrementId());
-                                        $message = 'Error al crear invoice a través de cron.';
+                                        $message = 'No se pudo crear el invoice de la orden ' . $order->getIncrementId() . ' a través del cron.';
+                                        $this->aplazoHelper->log( $message );
                                     } else {
                                         $order->setStatus($this->aplazoHelper->getApprovedOrderStatus());
                                         $message = 'Orden creo el invoice correctamente a través de cron.';
@@ -89,26 +93,35 @@ class CancelOrders
                                 }
 
                                 $order->addCommentToStatusHistory($message);
-                                $this->orderService->saveOrder($order);
-                                $this->aplazoHelper->log("Order $incrementId is OUTSTANDING in Aplazo.");
+                                $order = $this->orderService->saveOrder($order);
+                                $this->aplazoHelper->log("Order $incrementId is OUTSTANDING in Aplazo. Message > " . $message );
+                                $this->apiService->sendLog($message, Data::LOGS_CATEGORY_INFO, Data::LOGS_SUBCATEGORY_ORDER,
+                                    $this->apiService->getOrderImportantDataToLog($order)
+                                );
                             } else {
-                                $this->aplazoHelper->log('Order incrementId not found ' . $incrementId);
+                                $message = 'Order incrementId not found ' . $incrementId;
+                                $this->aplazoHelper->log($message);
+                                $this->apiService->sendLog($message, Data::LOGS_CATEGORY_ERROR, Data::LOGS_SUBCATEGORY_ORDER);
                             }
                         } catch (\Exception $e) {
-                            $this->aplazoHelper->log('Order could not advance to paid status: ' . $incrementId) .'. '. $e->getMessage();
+                            $message = 'Order could not advance to paid status: ' . $incrementId .'. '. $e->getMessage();
+                            $this->aplazoHelper->log($message);
+                            $this->apiService->sendLog($message, Data::LOGS_CATEGORY_ERROR, Data::LOGS_SUBCATEGORY_ORDER);
                         }
                     } else {
                         $cancelResponse = $this->orderService->cancelOrder($order->getId());
                         if($cancelResponse['success']){
-                            $this->aplazoHelper->log("Aplazo Cancel Orders: StoreId $store_id - $counter/$orderCollectionCount - #$incrementId - Cancelada exitosamente");
+                            $message = "Aplazo Cancel Orders: StoreId $store_id - $counter/$orderCollectionCount - #$incrementId - Cancelada exitosamente";
+                            $this->aplazoHelper->log($message);
+                            $this->apiService->sendLog($message, Data::LOGS_CATEGORY_INFO, Data::LOGS_SUBCATEGORY_ORDER, $this->apiService->getOrderImportantDataToLog($order));
                             $ordersCanceledCount++;
-                        }
-                        else{
-                            $this->aplazoHelper->log("<comment>Aplazo Cancel Orders: StoreId $store_id - $counter/$orderCollectionCount - #$incrementId - Con detalles</comment>");
+                        } else {
+                            $message = "Aplazo Cancel Orders: StoreId $store_id - $counter/$orderCollectionCount - #$incrementId - No se pudo cancelar. Mensaje de error: " . $cancelResponse['message'];
+                            $this->aplazoHelper->log($message);
+                            $this->apiService->sendLog($message, Data::LOGS_CATEGORY_ERROR, Data::LOGS_SUBCATEGORY_ORDER, $this->apiService->getOrderImportantDataToLog($order));
                             $ordersWithErrors[] = $incrementId . ' ' . $cancelResponse['message'];
                         }
                     }
-
                     $counter++;
                 }
             }

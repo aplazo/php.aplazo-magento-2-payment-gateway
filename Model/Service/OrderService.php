@@ -2,10 +2,8 @@
 
 namespace Aplazo\AplazoPayment\Model\Service;
 
+use Aplazo\AplazoPayment\Helper\Data;
 use Magento\Framework\DB\TransactionFactory;
-use Magento\Framework\Exception\CouldNotSaveException;
-use Magento\Framework\Exception\InputException;
-use Magento\Framework\Exception\LocalizedException;
 use Magento\Framework\Exception\NoSuchEntityException;
 use Magento\Framework\Module\Manager;
 use Magento\InventorySalesApi\Api\Data\ItemToSellInterfaceFactory;
@@ -111,7 +109,7 @@ class OrderService
                 $message = 'Webhook error inventory: Al crear pedido no se recupero la reserva de stock. Increment_id ' . $order->getIncrementId();
                 $this->aplazoHelper->log($message);
                 $this->aplazoHelper->log($e->getMessage());
-                $this->aplazoService->sendLog($message, AplazoHelper::LOGS_SUBCATEGORY_ORDER, ['error' => $e->getMessage()]);
+                $this->aplazoService->sendLog($message, AplazoHelper::LOGS_CATEGORY_ERROR, AplazoHelper::LOGS_SUBCATEGORY_ORDER, ['error' => $e->getMessage()]);
             }
         }
     }
@@ -128,7 +126,7 @@ class OrderService
                 $message = 'Webhook error inventory: Al crear invoice no se pudo reservar stock. Increment_id ' . $order->getIncrementId();
                 $this->aplazoHelper->log($message);
                 $this->aplazoHelper->log($e->getMessage());
-                $this->aplazoService->sendLog($message, AplazoHelper::LOGS_SUBCATEGORY_ORDER, ['error' => $e->getMessage()]);
+                $this->aplazoService->sendLog($message, AplazoHelper::LOGS_CATEGORY_ERROR,AplazoHelper::LOGS_SUBCATEGORY_ORDER, ['error' => $e->getMessage()]);
             }
         }
     }
@@ -211,7 +209,7 @@ class OrderService
             }
         } catch (\Exception $exception) {
             $result['message'] = $exception->getMessage();
-            $this->aplazoService->sendLog('getOrderByAttribute failed: ' . $exception->getMessage(), AplazoHelper::LOGS_SUBCATEGORY_ORDER);
+            $this->aplazoService->sendLog('getOrderByAttribute failed: ' . $exception->getMessage(), AplazoHelper::LOGS_CATEGORY_ERROR, AplazoHelper::LOGS_SUBCATEGORY_ORDER);
         }
         return $result;
     }
@@ -249,6 +247,8 @@ class OrderService
                     ];
                 }
             }
+            $cartUrl = $this->aplazoHelper->getCancelActive() ? $this->aplazoHelper->getUrl('aplazo/order/operations',
+                ['operation' => 'cancel', 'incrementid' => $order->getIncrementId()]) : $this->aplazoHelper->getUrl('checkout/cart');
             $orderData = [
                 "buyer" => [
                     "addressLine" => trim($billingAddress->getStreetLine(1) . ' ' . $billingAddress->getStreetLine(2)),
@@ -259,7 +259,7 @@ class OrderService
                     "postalCode" => $billingAddress->getPostcode()
                 ],
                 "cartId" => $order->getIncrementId(),
-                "cartUrl" => $this->aplazoHelper->getUrl('checkout/cart'),
+                "cartUrl" => $cartUrl,
                 "discount" => [
                     "price" => abs($order->getBaseDiscountAmount()),
                     "title" => $order->getShippingAddress()->getDiscountDescription()
@@ -296,9 +296,9 @@ class OrderService
             } else {
                 $result['message'] = $response;
             }
-        } catch (NoSuchEntityException $noSuchEntityException) {
-            $result['message'] = $noSuchEntityException->getMessage();
-            $this->aplazoService->sendLog('createLoan error ' . $noSuchEntityException->getMessage(), AplazoHelper::LOGS_SUBCATEGORY_LOAN);
+        } catch (\Exception $exception) {
+            $result['message'] = $exception->getMessage();
+            $this->aplazoService->sendLog('createLoan error ' . $exception->getMessage(), AplazoHelper::LOGS_CATEGORY_ERROR, AplazoHelper::LOGS_SUBCATEGORY_LOAN);
         }
         return $result;
     }
@@ -313,8 +313,9 @@ class OrderService
         $message = '';
         $this->decreasingStockAfterPaymentSuccess($order, 'order_placed_aplazo');
         if (!$this->invoiceOrder($order)) {
-            $this->aplazoHelper->log('Orden no se puede hacer invoice ' . $order->getIncrementId());
             $message = 'Orden no se puede hacer invoice ' . $order->getIncrementId();
+            $this->aplazoHelper->log($message);
+            $this->aplazoService->sendLog($message, Data::LOGS_CATEGORY_ERROR, Data::LOGS_SUBCATEGORY_ORDER, $this->aplazoService->getOrderImportantDataToLog($order));
             $order->setStatus(AplazoHelper::APLAZO_WEBHOOK_RECEIVED);
         } else {
             $order->setStatus($this->aplazoHelper->getApprovedOrderStatus());
@@ -345,7 +346,7 @@ class OrderService
             } catch (\Exception $e) {
                 $message = 'Error al crear el invoice de la orden ' . $order->getIncrementId() . ' mensaje de error > ' . $e->getMessage();
                 $this->aplazoHelper->log($message);
-                $this->aplazoService->sendLog($message, AplazoHelper::LOGS_SUBCATEGORY_ORDER);
+                $this->aplazoService->sendLog($message, AplazoHelper::LOGS_CATEGORY_ERROR, AplazoHelper::LOGS_SUBCATEGORY_ORDER);
                 return false;
             }
             return true;
@@ -361,32 +362,29 @@ class OrderService
     {
         $result = ['success' => false, 'message' => ''];
         try {
-            /**
-             * @var OrderInterface $order
-             */
             $order = $this->orderRepository->get($orderId);
-            if ($this->aplazoHelper->canCancelOnFailure()) {
-                if ($order->canCancel()) {
-                    $order->cancel();
-                    $result['success'] = true;
-                    $result['message'] = __("Order successfully canceled");
-                } else {
-                    if ($order->isCanceled()) {
-                        $result['success'] = true;
-                        $result['message'] = __("Order already canceled");
-                    } else {
-                        $result['message'] = __("Can not cancel this orden");
-                    }
-                }
+            if ($order->canCancel()) {
+                $order->cancel();
+                $result['success'] = true;
+                $result['message'] = __("Order successfully canceled");
             } else {
-                $result['message'] = __('Order not canceled due to module configurations.');
+                if ($order->isCanceled()) {
+                    $result['success'] = true;
+                    $result['message'] = __("Order already canceled");
+                } else {
+                    $result['message'] = __("Can not cancel this orden");
+                }
             }
             $order->addCommentToStatusHistory(__('Aplazo info: ') . $result['message']);
             $this->saveOrder($order);
             $result['quote_id'] = $order->getQuoteId();
-        } catch (NoSuchEntityException $noSuchEntityException) {
-            $result['message'] = $noSuchEntityException->getMessage();
-            $this->aplazoService->sendLog('getOrderByAttribute failed: ' . $noSuchEntityException->getMessage(), AplazoHelper::LOGS_SUBCATEGORY_ORDER);
+        } catch (NoSuchEntityException $entityException) {
+            $result['message'] = $entityException->getMessage();
+            $this->aplazoService->sendLog("Order id not found $orderId: " . $entityException->getMessage(), AplazoHelper::LOGS_CATEGORY_ERROR, AplazoHelper::LOGS_SUBCATEGORY_ORDER);
+        } catch (\Exception $exception) {
+            $result['message'] = $exception->getMessage();
+            $order->setStatus(AplazoHelper::APLAZO_ORDER_CANCELLED);
+            $this->saveOrder($order);
         }
         return $result;
     }
@@ -400,13 +398,14 @@ class OrderService
         $paymentMethod = ConfigProvider::CODE;
         $collection = $this->orderCollectionFactory->create();
         $collection
-            ->addFieldToFilter(['main_table.status','main_table.status'],[['eq'=>$this->aplazoHelper->getNewOrderStatus()],['eq'=>'aplazo_webhook_received']])
+            ->addFieldToFilter(['main_table.status','main_table.status'],[['eq'=>$this->aplazoHelper->getNewOrderStatus()],['eq'=>AplazoHelper::APLAZO_WEBHOOK_RECEIVED]])
             ->addFieldToFilter('main_table.created_at', ['lt' => $limitTime])
             ->getSelect()->join(
                 ["sop" => "sales_order_payment"],
                 'main_table.entity_id = sop.parent_id',
                 array('method')
             )->where("sop.method = \"$paymentMethod\"");
+        $collection->setOrder('entity_id', 'DESC');
         return $collection;
     }
 }

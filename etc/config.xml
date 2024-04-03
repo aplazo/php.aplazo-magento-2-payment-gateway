@@ -9,7 +9,6 @@
                 <can_void>0</can_void>
                 <is_gateway>0</is_gateway>
                 <title>Paga con Aplazo (en quincenas)</title>
-                <sanbox_mode>1</sanbox_mode>
                 <allowspecific>1</allowspecific>
                 <can_use_checkout>1</can_use_checkout>
                 <active>1</active>
@@ -19,14 +18,18 @@
                 <reserve_stock>1</reserve_stock>
                 <cancel_time>720</cancel_time>
                 <cancel_order>1</cancel_order>
+                <cancel_active>1</cancel_active>
+                <cancel_message>No terminaste la orden con Aplazo. La orden se canceló. Por favor, intenta nuevamente.</cancel_message>
+                <enable_recover_cart>1</enable_recover_cart>
+                <recover_active>1</recover_active>
                 <debug_mode>1</debug_mode>
                 <sort_order>1</sort_order>
-                <checkout>
-                    <show_on_cart>1</show_on_cart>
-                    <show_on_product_page>1</show_on_product_page>
-                    <refund>1</refund>
-                    <send_email>0</send_email>
-                </checkout>
+                <sanbox_mode>0</sanbox_mode>
+                <show_on_cart>1</show_on_cart>
+                <show_on_product_page>1</show_on_product_page>
+                <refund>1</refund>
+                <rma_refund>1</rma_refund>
+                <send_email>0</send_email>
             </aplazo_gateway>
         </payment>
     </default>
