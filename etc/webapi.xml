@@ -1,9 +1,15 @@
 <?xml version="1.0"?>
-<routes xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../../../app/code/Magento/Webapi/etc/webapi.xsd">
+<routes xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:module:Magento_Webapi:etc/webapi.xsd">
     <route url="/V1/aplazo/callback/" method="POST">
         <service class="Aplazo\AplazoPayment\Api\NotificationsInterface" method="notify"/>
         <resources>
             <resource ref="anonymous"/>
+        </resources>
+    </route>
+    <route url="/V1/aplazo/checkout-not-paid" method="POST">
+        <service class="Aplazo\AplazoPayment\Api\CheckoutNotPaidManagementInterface" method="postCheckoutNotPaid"/>
+        <resources>
+            <resource ref="Magento_Sales::cancel"/>
         </resources>
     </route>
 </routes>

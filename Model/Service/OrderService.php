@@ -218,7 +218,7 @@ class OrderService
      * @param OrderInterface $order
      * @return array
      */
-    public function createLoan($order)
+    public function createLoan($order, $token)
     {
         $result = ['success' => false, 'data' => '', 'message' => ''];
         try {
@@ -248,7 +248,7 @@ class OrderService
                 }
             }
             $cartUrl = $this->aplazoHelper->getCancelActive() ? $this->aplazoHelper->getUrl('aplazo/order/operations',
-                ['operation' => 'cancel', 'incrementid' => $order->getIncrementId()]) : $this->aplazoHelper->getUrl('checkout/cart');
+                ['operation' => 'cancel', 'incrementid' => $order->getIncrementId(), 'token' => $token]) : $this->aplazoHelper->getUrl('checkout/cart');
             $orderData = [
                 "buyer" => [
                     "addressLine" => trim($billingAddress->getStreetLine(1) . ' ' . $billingAddress->getStreetLine(2)),
