@@ -1,6 +1,8 @@
 <?php
+
 namespace Aplazo\AplazoPayment\Controller\Order;
 
+use Aplazo\AplazoPayment\Api\CheckoutNotPaidManagementInterface;
 use Aplazo\AplazoPayment\Helper\Data;
 use Aplazo\AplazoPayment\Helper\Data as AplazoHelper;
 use Aplazo\AplazoPayment\Service\ApiService as AplazoService;
@@ -47,19 +49,21 @@ class Operations extends \Magento\Framework\App\Action\Action
     private $quoteFactory;
     private $itemFactory;
     private $itemOptionFactory;
+    private $checkoutNotPaidManagement;
 
 
     public function __construct(
-        Context $context,
-        OrderService $orderService,
-        Session $checkoutSession,
-        AplazoService $aplazoService,
-        Data $aplazoHelper,
-        CartRepositoryInterface $cartRepository,
-        QuoteFactory $quoteFactory,
-        ItemFactory $itemFactory,
-        OptionFactory $itemOptionFactory,
-        ResultFactory $resultFactory
+        Context                            $context,
+        OrderService                       $orderService,
+        Session                            $checkoutSession,
+        AplazoService                      $aplazoService,
+        Data                               $aplazoHelper,
+        CartRepositoryInterface            $cartRepository,
+        QuoteFactory                       $quoteFactory,
+        ItemFactory                        $itemFactory,
+        OptionFactory                      $itemOptionFactory,
+        ResultFactory                      $resultFactory,
+        CheckoutNotPaidManagementInterface $checkoutNotPaidManagement
     )
     {
         parent::__construct($context);
@@ -72,6 +76,7 @@ class Operations extends \Magento\Framework\App\Action\Action
         $this->itemFactory = $itemFactory;
         $this->itemOptionFactory = $itemOptionFactory;
         $this->cartRepository = $cartRepository;
+        $this->checkoutNotPaidManagement = $checkoutNotPaidManagement;
     }
 
 
@@ -81,13 +86,12 @@ class Operations extends \Magento\Framework\App\Action\Action
     public function execute()
     {
         $operation = $this->getRequest()->getParam('operation');
-        $functionName = lcfirst(str_replace('_', '', ucwords($operation,'_')));
-        if(method_exists(\Aplazo\AplazoPayment\Controller\Order\Operations::class,$functionName)) {
+        $functionName = lcfirst(str_replace('_', '', ucwords($operation, '_')));
+        if (method_exists(\Aplazo\AplazoPayment\Controller\Order\Operations::class, $functionName)) {
             $response = $this->{$functionName}();
             if (is_array($response)) {
                 return $this->resultFactory->create(ResultFactory::TYPE_JSON)->setData($response);
-            }
-            else{
+            } else {
                 return $response;
             }
         }
@@ -101,8 +105,12 @@ class Operations extends \Magento\Framework\App\Action\Action
     {
         $order = $this->checkoutSession->getLastRealOrder();
         $this->orderService->reservingStockUntilPayment($order, 'aplazo_item_reserved');
-        if(!empty($order->getAplazoCheckoutUrl())){
-            $response = $this->resultFactory->create(ResultFactory::TYPE_REDIRECT)->setUrl($order->getAplazoCheckoutUrl());
+        if (!empty($aplazoCheckout = $order->getAplazoCheckoutUrl())) {
+            // Exploding cancel token and checkout Url
+            if (strpos($aplazoCheckout, "||") !== false) {
+                $aplazoCheckout = explode("||", $aplazoCheckout)[0];
+            }
+            $response = $this->resultFactory->create(ResultFactory::TYPE_REDIRECT)->setUrl($aplazoCheckout);
         } else {
             $this->messageManager->addErrorMessage(__('Aplazo payment gateway is unavailable. Try again later.'));
             $response = $this->resultRedirectFactory->create()->setPath('checkout/cart');
@@ -113,51 +121,20 @@ class Operations extends \Magento\Framework\App\Action\Action
     public function cancel()
     {
         $incrementId = $this->getRequest()->getParam('incrementid');
-        $orderArray = $this->orderService->getOrderByIncrementId($incrementId);
-        if($order = $orderArray['order']){
-            $this->orderService->cancelOrder($order->getId());
-            $this->messageManager->addWarningMessage($this->aplazoHelper->getCancelMessage());
-//            if($this->aplazoHelper->getEnableRecoverCart()){
-                // Todo: Enable cart
-//                $quoteId = $order->getQuoteId();
-//                try {
-//                    $quote = $this->cartRepository->get($quoteId);
-//                    /** @var \Magento\Quote\Model\Quote $newQuote */
-//                    $newQuote = $this->quoteFactory->create();
-//                    $newQuote->setData($quote->getData());
-//                    $newQuote->setId(null)->setIsActive(true)->save();
-//                    foreach ($quote->getAllItems() as $item) {
-//                        $request = $cart->getQtyRequest($product, $requestInfo);
-//                        $newQuote->addProduct($product, $request);
-//                        /** @var \Magento\Quote\Model\Quote\Item $itemModel */
-//                        $itemModel = $this->itemFactory->create();
-//                        $itemModel->setData($item->getData())->setId(null);
-//                        $itemModel->setQuoteId($newQuote->getId());
-//                        $itemModel->save();
-//                        $newQuote->addItem($itemModel);
-//                    }
-//                    $newQuote->collectTotals()->save();
-//                    $this->cartRepository->save($newQuote);
-//
-//                    // sacado de this cart save
-//                    $this->getQuote()->getBillingAddress();
-//                    $this->getQuote()->getShippingAddress()->setCollectShippingRates(true);
-//                    $this->getQuote()->collectTotals();
-//                    $this->quoteRepository->save($this->getQuote());
-//                    $this->_checkoutSession->setQuoteId($this->getQuote()->getId());
-//
-//                    $this->checkoutSession->setQuoteId($newQuote->getId());
-//                    $this->checkoutSession->setLastQuoteId($newQuote->getId());
-//                    $this->checkoutSession->setLastSuccessQuoteId($newQuote->getId());
-//                } catch (\Exception $e) {
-//                    $this->aplazoService->sendLog('No se pudo crear el quote de ' . $incrementId, AplazoHelper::LOGS_CATEGORY_WARNING, AplazoHelper::LOGS_SUBCATEGORY_ORDER,
-//                        ['method' => 'cancel', 'class' => '\Aplazo\AplazoPayment\Controller\Order\Operations', 'error' => $e->getMessage()]);
-//                    $this->messageManager->addWarningMessage(__('We cannot retrieve the products of your order. Please add them again to the cart'));
-//                }
-//            }
-        } else {
-            $this->aplazoService->sendLog('No se pudo obtener la orden id ' . $incrementId . ', se procede ir a carrito', AplazoHelper::LOGS_CATEGORY_WARNING, AplazoHelper::LOGS_SUBCATEGORY_ORDER,
-            ['method' => 'cancel', 'class' => '\Aplazo\AplazoPayment\Controller\Order\Operations']);
+        $token = $this->getRequest()->getParam('token');
+        $result = $this->orderService->getOrderByIncrementId($incrementId);
+        if (!empty($aplazoCheckout = $result['order']->getAplazoCheckoutUrl())) {
+            if (strpos($aplazoCheckout, "||") !== false) {
+                $aplazoCheckout = explode("||", $aplazoCheckout)[1];
+                if ($token == $aplazoCheckout){
+                    // Exploding cancel token and checkout Url
+                    $response = $this->checkoutNotPaidManagement->postCheckoutNotPaid($incrementId);
+                    if (!empty($response['message'])) {
+                        $this->messageManager->addWarningMessage($response['message']);
+                    }
+                }
+            }
+
         }
         return $this->resultRedirectFactory->create()->setPath('checkout/cart');
     }
@@ -167,11 +144,11 @@ class Operations extends \Magento\Framework\App\Action\Action
         $orderid = $this->getRequest()->getParam('orderid');
         $onepage = $this->getRequest()->getParam('onepage');
         $url = 'checkout/onepage/failure/';
-        if($orderid){
+        if ($orderid) {
             $response = $this->orderService->getQuoteIdByOrderId($orderid);
-            if($response['success']){
-                if(isset($response['quote_id'])){
-                    if($onepage == 'success') {
+            if ($response['success']) {
+                if (isset($response['quote_id'])) {
+                    if ($onepage == 'success') {
                         $this->checkoutSession->setLastSuccessQuoteId($response['quote_id']);
                         $url = 'checkout/onepage/success/';
                     }
