@@ -12,7 +12,7 @@ interface CheckoutNotPaidManagementInterface
 
     /**
      * @param string $incrementId
-     * @return mixed
+     * @return \Aplazo\AplazoPayment\Api\CheckoutNotPaidManagementResponseInterface
      */
     public function postCheckoutNotPaid($incrementId);
 }

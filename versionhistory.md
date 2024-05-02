@@ -142,3 +142,5 @@
 * Added aplazo_order_canceled status in orders. Sometimes orders can't be canceled, and this orders are always iterating in the cron process.
 ## 3.3.7
 * Recover Cart after return from Aplazo Checkout
+## 3.3.8
+* API Interface added to webapi response

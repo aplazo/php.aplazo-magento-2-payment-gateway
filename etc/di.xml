@@ -50,6 +50,7 @@
 
     <preference for="Aplazo\AplazoPayment\Api\NotificationsInterface" type="Aplazo\AplazoPayment\Model\Notifications"/>
     <preference for="Aplazo\AplazoPayment\Api\CheckoutNotPaidManagementInterface" type="Aplazo\AplazoPayment\Model\CheckoutNotPaidManagement"/>
+    <preference for="Aplazo\AplazoPayment\Api\CheckoutNotPaidManagementResponseInterface" type="Aplazo\AplazoPayment\Model\CheckoutNotPaidManagementResponse"/>
 
     <virtualType name="AplazoGatewayCustomLogger" type="Magento\Framework\Logger\Monolog">
         <arguments>

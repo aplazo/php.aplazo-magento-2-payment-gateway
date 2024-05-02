@@ -129,8 +129,8 @@ class Operations extends \Magento\Framework\App\Action\Action
                 if ($token == $aplazoCheckout){
                     // Exploding cancel token and checkout Url
                     $response = $this->checkoutNotPaidManagement->postCheckoutNotPaid($incrementId);
-                    if (!empty($response['message'])) {
-                        $this->messageManager->addWarningMessage($response['message']);
+                    if (!empty($response->getMessage())) {
+                        $this->messageManager->addWarningMessage($response->getMessage());
                     }
                 }
             }
