@@ -144,3 +144,5 @@
 * Recover Cart after return from Aplazo Checkout
 ## 3.3.8
 * API Interface added to webapi response
+## 3.3.9
+* Health test added in Admin

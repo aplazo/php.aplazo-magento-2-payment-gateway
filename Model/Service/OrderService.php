@@ -4,6 +4,7 @@ namespace Aplazo\AplazoPayment\Model\Service;
 
 use Aplazo\AplazoPayment\Helper\Data;
 use Magento\Framework\DB\TransactionFactory;
+use Magento\Framework\Exception\LocalizedException;
 use Magento\Framework\Exception\NoSuchEntityException;
 use Magento\Framework\Module\Manager;
 use Magento\InventorySalesApi\Api\Data\ItemToSellInterfaceFactory;
@@ -281,7 +282,8 @@ class OrderService
                 "webHookUrl" => $this->aplazoHelper->getUrl('rest/V1/aplazo') . 'callback'
             ];
 
-            $response = $this->aplazoService->createLoan($orderData);
+            $tokenBearer = $this->aplazoService->getAuthorizationToken();
+            $response = $this->aplazoService->createLoan($orderData, $tokenBearer);
             if (is_array($response)) {
                 if (array_key_exists('status', $response)) {
                     $result['success'] = $response['status'];
@@ -299,6 +301,12 @@ class OrderService
         } catch (\Exception $exception) {
             $result['message'] = $exception->getMessage();
             $this->aplazoService->sendLog('createLoan error ' . $exception->getMessage(), AplazoHelper::LOGS_CATEGORY_ERROR, AplazoHelper::LOGS_SUBCATEGORY_LOAN);
+        }
+        if(!$result['success'] || empty($result['data']['url'])){
+            if(!$result['success'] || empty($result['data']['url'])){
+                $this->aplazoHelper->log($result['message']);
+                throw new LocalizedException(__('Communication with Aplazo Failed. Try again later'));
+            }
         }
         return $result;
     }

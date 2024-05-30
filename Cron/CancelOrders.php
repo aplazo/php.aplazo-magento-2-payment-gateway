@@ -70,7 +70,7 @@ class CancelOrders
                 foreach ($orderCollection as $order) {
                     $store_id = $order->getStoreId();
                     $incrementId = $order->getIncrementId();
-                    if($this->apiService->getLoanStatus($incrementId)){
+                    if($this->apiService->shouldCancelOrder($incrementId)){
                         try {
                             $orderResult = $this->orderService->getOrderByIncrementId($incrementId);
                             if ($orderResult['success']) {

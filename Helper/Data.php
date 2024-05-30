@@ -17,6 +17,7 @@ class Data extends \Magento\Payment\Helper\Data
     const LOGS_SUBCATEGORY_ORDER = 'order';
     const LOGS_SUBCATEGORY_REFUND = 'refund';
     const LOGS_SUBCATEGORY_WEBHOOK = 'webhook';
+    const LOGS_SUBCATEGORY_HEALTH_CHECK = 'health';
     const LOGS_CATEGORY_ERROR = 'error';
     const LOGS_CATEGORY_WARNING = 'warning';
     const LOGS_CATEGORY_INFO = 'info';
@@ -56,6 +57,12 @@ class Data extends \Magento\Payment\Helper\Data
     public function isDebugEnabled(){
         return $this->getConfigFlag(
             self::GENERAL_SECTION . 'debug_mode'
+        );
+    }
+
+    public function isHealthyCheck(){
+        return $this->getConfigFlag(
+            self::GENERAL_SECTION . 'check_healthy_site'
         );
     }
 
@@ -121,6 +128,10 @@ class Data extends \Magento\Payment\Helper\Data
 
     public function getCancelMessage(){
         return $this->getConfigData(self::GENERAL_SECTION . 'cancel_message');
+    }
+
+    public function getMagentoCurl(){
+        return $this->getConfigData(self::GENERAL_SECTION . 'magento_curl');
     }
 
     public function getEnableRecoverCart(){

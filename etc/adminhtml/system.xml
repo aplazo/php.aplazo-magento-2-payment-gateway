@@ -150,6 +150,18 @@
                             <config_path>payment/aplazo_gateway/debug_mode</config_path>
                             <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
                         </field>
+                        <field id="check_healthy_site" translate="label" type="select" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="0">
+                            <label>Check Healthy Site</label>
+                            <config_path>payment/aplazo_gateway/check_healthy_site</config_path>
+                            <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+                            <comment>Al activar y guardar, se ejecutarán peticiones hacia Aplazo para asegurar la comunicación entre sitios. Para mas información revisar los logs en var/log/aplazo_payment/info.log</comment>
+                        </field>
+                        <field id="magento_curl" translate="label" type="select" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="0">
+                            <label>Magento Curl</label>
+                            <config_path>payment/aplazo_gateway/magento_curl</config_path>
+                            <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+                            <comment>Al descativar se utiliza PHP Curl</comment>
+                        </field>
                     </group>
                 </group>
             </group>

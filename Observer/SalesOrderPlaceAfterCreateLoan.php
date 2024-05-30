@@ -28,17 +28,13 @@ class SalesOrderPlaceAfterCreateLoan implements ObserverInterface
         $order = $observer->getEvent()->getOrder();
         if($order->getPayment()->getMethod() === ConfigProvider::CODE){
             try {
-                $token = $this->generateRandomString();
+                $randomToken = $this->generateRandomString();
             } catch (RandomException $e) {
-		$token = "0";
+                $randomToken = "0";
             }
-            $result = $this->orderService->createLoan($order, $token);
-            if(!$result['success'] || empty($result['data']['url'])){
-                $this->aplazoHelper->log($result['message']);
-                throw new LocalizedException(__('Aplazo payment gateway is unavailable. Try again later.'));
-            }
+            $result = $this->orderService->createLoan($order, $randomToken);
             $order->setStatus($this->aplazoHelper->getNewOrderStatus());
-            $aplazoCheckoutUrl = empty($token) ? $result['data']['url'] : $result['data']['url'] . '||' . $token;
+            $aplazoCheckoutUrl = empty($randomToken) ? $result['data']['url'] : $result['data']['url'] . '||' . $randomToken;
             $order->setAplazoCheckoutUrl($aplazoCheckoutUrl);
         }
 

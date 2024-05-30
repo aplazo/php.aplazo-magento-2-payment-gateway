@@ -23,6 +23,8 @@
                 <enable_recover_cart>1</enable_recover_cart>
                 <recover_active>1</recover_active>
                 <debug_mode>1</debug_mode>
+                <check_healthy_site>0</check_healthy_site>
+                <magento_curl>1</magento_curl>
                 <sort_order>1</sort_order>
                 <sanbox_mode>0</sanbox_mode>
                 <show_on_cart>1</show_on_cart>
