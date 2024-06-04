@@ -194,7 +194,7 @@ class ApiService
             throw new LocalizedException($message);
         }
 
-        $this->aplazoHelper->log("From: \Aplazo\AplazoPayment\Service\ApiService::request\nURL: $url\nMETHOD: $method\nREQUEST: $body\nRESPONSE:".json_encode($response));
+        $this->aplazoHelper->log("From: \Aplazo\AplazoPayment\Service\ApiService::request\nURL: $url\nMETHOD: $method\nREQUEST: $body\nRESPONSE:".json_encode($response), AplazoHelper::LOGS_VVV);
         if (strpos($url, "posbifrost") === false && $url !== $this->getAuthorizationUrl()) {
             $this->sendLog("HttpRequest URL:".$url, AplazoHelper::LOGS_CATEGORY_INFO, AplazoHelper::LOGS_SUBCATEGORY_REQUEST,
             ['method' => $method, 'body' => $body, 'response' => $response]);
