@@ -38,7 +38,7 @@ class ApiService
      * @return array
      * @throws LocalizedException
      */
-    public function createLoan($orderData, $tokenBearer, $secondChance = false)
+    public function createLoan($orderData, $tokenBearer)
     {
         $response = [];
         if ($tokenBearer) {
@@ -46,8 +46,7 @@ class ApiService
                 $this->getCreateLoanUrl(),
                 json_encode($orderData),
                 self::API_POST,
-                $tokenBearer,
-                $secondChance
+                $tokenBearer
             );
         }
 
@@ -74,14 +73,11 @@ class ApiService
      * @return array
      * @throws LocalizedException
      */
-    public function cancelLoan($orderData, $secondChance = false)
+    public function cancelLoan($orderData)
     {
         $response = $this->requestService(
             $this->getCancelLoanUrl(),
-            json_encode($orderData),
-            self::API_POST,
-            false,
-            $secondChance
+            json_encode($orderData)
         );
 
         return $response;
@@ -91,13 +87,11 @@ class ApiService
      * @return string
      * @throws LocalizedException
      */
-    public function getAuthorizationToken($secondChance = false)
+    public function getAuthorizationToken()
     {
         try {
             $response = $this->requestService($this->getAuthorizationUrl(),
-                json_encode(['apiToken' => $this->aplazoHelper->getApiToken(), 'merchantId' => $this->aplazoHelper->getMerchantId()]),
-                ApiService::API_POST, false, $secondChance
-            );
+                json_encode(['apiToken' => $this->aplazoHelper->getApiToken(), 'merchantId' => $this->aplazoHelper->getMerchantId()]));
             if (!isset($response['Authorization'])) {
                 $message = __('No token returned from ' . $this->getAuthorizationUrl());
                 $this->aplazoHelper->log($message);
@@ -114,10 +108,10 @@ class ApiService
     /**
      * @return bool
      */
-    public function getLoanStatus($cartId, $secondChance = false)
+    public function getLoanStatus($cartId)
     {
         try {
-            $response = $this->requestService($this->getLoanStatusUrl($cartId), '', 'GET', false, $secondChance);
+            $response = $this->requestService($this->getLoanStatusUrl($cartId), '', 'GET');
         } catch (LocalizedException $e) {
             $message = "Aplazo communication failed in cartId $cartId get loan status from Aplazo " . $e->getMessage();
             $this->aplazoHelper->log($message);
@@ -187,38 +181,26 @@ class ApiService
         return $this->aplazoHelper->getServiceUrl() . "/api/pos/loan/$cartId";
     }
 
-    private function requestService($url, $body, $method = self::API_POST, $bearer = false, $secondChance = false, $getCompleteCurl = false)
+    private function requestService($url, $body, $method = self::API_POST, $bearer = false)
     {
-        $response = $this->requestCurl($url, $body, $method, $bearer, $secondChance, $getCompleteCurl);
+        $response = $this->requestMagentoCurl($url, $body, $method, $bearer);
 
-        $this->aplazoHelper->log("From: \Aplazo\AplazoPayment\Service\ApiService::request\nURL: $url\nMETHOD: $method\nREQUEST: $body\nRESPONSE:$response");
-        if($url !== $this->getAuthorizationUrl()){
+        if (!$response['success']) {
+            $message = __('No response from request to ' . $url);
+            if (strpos($url, "posbifrost") === false) {
+                $this->sendLog($message . ' ' . $response['message'], AplazoHelper::LOGS_CATEGORY_ERROR, AplazoHelper::LOGS_SUBCATEGORY_REQUEST, ['method' => $method, 'body' => $body]);
+            }
+            $this->aplazoHelper->log("ERROR > From: \Aplazo\AplazoPayment\Service\ApiService::request\nURL: $url\nMETHOD: $method\nREQUEST: $body\nRESPONSE:".json_encode($response));
+            throw new LocalizedException($message);
+        }
+
+        $this->aplazoHelper->log("From: \Aplazo\AplazoPayment\Service\ApiService::request\nURL: $url\nMETHOD: $method\nREQUEST: $body\nRESPONSE:".json_encode($response));
+        if (strpos($url, "posbifrost") === false && $url !== $this->getAuthorizationUrl()) {
             $this->sendLog("HttpRequest URL:".$url, AplazoHelper::LOGS_CATEGORY_INFO, AplazoHelper::LOGS_SUBCATEGORY_REQUEST,
             ['method' => $method, 'body' => $body, 'response' => $response]);
         }
 
-        if (!$response) {
-            $message = __('No response from request to ' . $url);
-            $this->sendLog($message, AplazoHelper::LOGS_CATEGORY_ERROR, AplazoHelper::LOGS_SUBCATEGORY_REQUEST, ['method' => $method, 'body' => $body]);
-            throw new LocalizedException($message);
-        }
-
-        if (!empty($error)) {
-            $message = __('Error returned with request to ' . $url . '. Error: ' . $error);
-            $this->sendLog($message, AplazoHelper::LOGS_CATEGORY_ERROR, AplazoHelper::LOGS_SUBCATEGORY_REQUEST, ['method' => $method, 'body' => $body]);
-            throw new LocalizedException($message);
-        }
-        return !$getCompleteCurl ? json_decode($response, true) : $response;
-    }
-
-    public function requestCurl($url, $body, $method, $bearer, $secondChance, $getCompleteCurl)
-    {
-        if(($this->aplazoHelper->getMagentoCurl() && !$secondChance) || (!$this->aplazoHelper->getMagentoCurl() && $secondChance)){
-            $response = $this->requestMagentoCurl($url, $body, $method, $bearer);
-            return !$getCompleteCurl ? $response->getBody() : $response;
-        } else if(!$this->aplazoHelper->getMagentoCurl() && !$secondChance || ($this->aplazoHelper->getMagentoCurl() && $secondChance)){
-            return $this->requestPHPCurl($url, $body, $method, $bearer);
-        }
+        return $response['data'];
     }
 
     public function requestMagentoCurl($url, $body, $method, $bearer)
@@ -231,13 +213,25 @@ class ApiService
         if($bearer){
             $headers['Authorization'] = $bearer;
         }
-        $this->curl->setHeaders($headers);
-        if ($method === self::API_POST) {
-            $this->curl->post($url, $body);
-        } else {
-            $this->curl->get($url);
+        try{
+            $this->curl->setHeaders($headers);
+            if ($method === self::API_POST) {
+                $this->curl->post($url, $body);
+            } else {
+                $this->curl->get($url);
+            }
+            $statusCode = $this->curl->getStatus();
+            switch ($statusCode) {
+                case 200 || 201 || 202:
+                    $response = $this->curl->getBody();
+                    return ['success' => true, 'data' => json_decode($response, true)];
+                default:
+                    return ['success' => false, 'message' => 'Unexpected HTTP status: ' . $statusCode];
+            }
+        }catch (\Exception $e) {
+            $this->aplazoHelper->log('HTTP Request Error: ' . $e->getMessage());
+            return ['success' => false, 'message' => 'HTTP Request Exception: ' . $e->getMessage()];
         }
-        return $this->curl;
     }
 
     public function requestPHPCurl($url, $body, $method, $bearer){
@@ -284,7 +278,11 @@ class ApiService
             "metadata"=> $metadata
         ];
 
-        return $this->requestCurl($this->aplazoHelper->getServiceLogUrl(), json_encode($body), self::API_POST, false, $secondChance, true);
+        try {
+            return $this->requestService($this->aplazoHelper->getServiceLogUrl(), json_encode($body));
+        } catch (LocalizedException $e) {
+            return 'error';
+        }
     }
 
     public function getOrderImportantDataToLog($order)

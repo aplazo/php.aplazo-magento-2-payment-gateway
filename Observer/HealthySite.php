@@ -54,17 +54,11 @@ class HealthySite implements ObserverInterface
                     case self::TEST_LOG:
                         $isLoggedCorrectly = $this->logInBoth('*** Comenzando Healthy Test ***');
                         $finalLog .= "1. Test de logs:\n";
-                        if ($isLoggedCorrectly->getStatus() == 202) {
+                        if ($isLoggedCorrectly != 'error') {
                             $finalLog .= "Logs llegan correctamente a Aplazo\n";
                         } else {
-                            $finalLog .= "Logs no llegan a Aplazo. Status: " . $isLoggedCorrectly->getStatus() ."\n";
+                            $finalLog .= "Logs no llegan a Aplazo. \n";
                         }
-//                        $isLoggedCorrectly2 = $this->logInBoth('*** Comenzando Healthy Test Second Chance ***', true);
-//                        if ($isLoggedCorrectly2->getStatus() == 202) {
-//                            $finalLog .= "Logs llegan correctamente a Aplazo con PHP Curl \n";
-//                        } else {
-//                            $finalLog .= "Logs no llegan a Aplazo con PHP Curl. Status: " . $isLoggedCorrectly2->getStatus() ."\n";
-//                        }
                         break;
                     case self::TEST_AUTH:
                         $finalLog .= "\n2. Test de auth:\n";
@@ -78,16 +72,6 @@ class HealthySite implements ObserverInterface
                         } catch (\Exception $e) {
                             $finalLog .= "Error obteniendo el auth: " . $e->getMessage() . "\n";
                         }
-//                        try {
-//                            $this->authAplazoBearerToken2 = $this->aplazoService->getAuthorizationToken(true);
-//                            if (!empty($this->authAplazoBearerToken2)) {
-//                                $finalLog .= "Auth PHP Curl correcto con token: $this->authAplazoBearerToken \n";
-//                            } else {
-//                                $finalLog .= "Sin token con php curl \n";
-//                            }
-//                        } catch (\Exception $e) {
-//                            $finalLog .= "Error obteniendo el auth con php curl: " . $e->getMessage() . "\n";
-//                        }
                         break;
                     case self::TEST_LOAN:
                         $finalLog .= "\n3. Test de loan:\n";
@@ -101,16 +85,6 @@ class HealthySite implements ObserverInterface
                         } catch (\Exception $e) {
                             $finalLog .=  "Error creando el loan: " . $e->getMessage() . "\n";
                         }
-//                        try {
-//                            $response = $this->aplazoService->createLoan($this->getLoanDummyData("-2"), $this->authAplazoBearerToken2, true);
-//                            if (is_array($response)) {
-//                                $finalLog .= "Loan Con PHP Curl Exitoso " . json_encode($response) . "\n";
-//                            } else {
-//                                $finalLog .= "Error al crear el loan con PHP Curl \n";
-//                            }
-//                        } catch (\Exception $e) {
-//                            $finalLog .=  "Error creando el loan con PHP Curl: " . $e->getMessage() . "\n";
-//                        }
                         break;
                     case self::TEST_LOAN_STATUS:
                         $finalLog .= "\n4. Test de loan status:\n";
@@ -123,16 +97,6 @@ class HealthySite implements ObserverInterface
                         } else {
                             $finalLog .= "Error al obtener loan status\n";
                         }
-
-//                        $response2 = $this->aplazoService->getLoanStatus(self::TEST_INCREMENT_ID, true);
-//                        if(is_array($response2)){
-//                            foreach ($response2 as $loan) {
-//                                $finalLog .= "Loan con PHP Curl obtenido correctamente con status " . $loan['status'] . "y con loanId " . $loan['loanId'] . "\n";
-//                                break;
-//                            }
-//                        } else {
-//                            $finalLog .= "Error al obtener loan status con PHP Curl\n";
-//                        }
                         break;
                     case self::TEST_CANCEL:
                         $finalLog .= "\n5. Test de cancelación:\n";
@@ -150,21 +114,6 @@ class HealthySite implements ObserverInterface
                         } catch (\Exception $e) {
                             $finalLog .=  "Error: " . $e->getMessage()  . "\n";
                         }
-//                        try{
-//                            $response = $this->aplazoService->cancelLoan([
-//                                "cartId" => self::TEST_INCREMENT_ID."-2",
-//                                "totalAmount" => 0,
-//                                "reason" => 'From Magento PHP Curl Healthy test',
-//
-//                            ]);
-//                            if(!empty($response)){
-//                                $finalLog .=  "Orden cancelada con PHP Curl correctamente con status ".$response['status'] . "\n";
-//                            } else {
-//                                $finalLog .=  "Error al cancelar con PHP Curl\n";
-//                            }
-//                        } catch (\Exception $e) {
-//                            $finalLog .=  "Error con PHP Curl: " . $e->getMessage()  . "\n";
-//                        }
                         break;
                 }
             }

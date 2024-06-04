@@ -21,6 +21,7 @@ class Data extends \Magento\Payment\Helper\Data
     const LOGS_CATEGORY_ERROR = 'error';
     const LOGS_CATEGORY_WARNING = 'warning';
     const LOGS_CATEGORY_INFO = 'info';
+    const LOGS_VVV = 2;
 
     /**
      * @var StoreManagerInterface
@@ -54,7 +55,7 @@ class Data extends \Magento\Payment\Helper\Data
         $this->encryptor = $encryptor;
     }
 
-    public function isDebugEnabled(){
+    public function getDebugVerbosity(){
         return $this->getConfigFlag(
             self::GENERAL_SECTION . 'debug_mode'
         );
@@ -130,10 +131,6 @@ class Data extends \Magento\Payment\Helper\Data
         return $this->getConfigData(self::GENERAL_SECTION . 'cancel_message');
     }
 
-    public function getMagentoCurl(){
-        return $this->getConfigData(self::GENERAL_SECTION . 'magento_curl');
-    }
-
     public function getEnableRecoverCart(){
         return $this->getConfigData(self::GENERAL_SECTION . 'enable_recover_cart');
     }
@@ -173,10 +170,12 @@ class Data extends \Magento\Payment\Helper\Data
         );
     }
 
-    public function log($message)
+    public function log($message, $verbosity = 1)
     {
-        if($this->isDebugEnabled()) {
-            $this->aplazoLogger->setName('aplazo_payments.log');
+        $this->aplazoLogger->setName('aplazo_payments.log');
+        if($this->getDebugVerbosity() == self::LOGS_VVV and $verbosity == self::LOGS_VVV) {
+            $this->aplazoLogger->info($message);
+        } elseif($this->getDebugVerbosity() == 1) {
             $this->aplazoLogger->info($message);
         }
         return true;

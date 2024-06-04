@@ -104,14 +104,17 @@ class Operations extends \Magento\Framework\App\Action\Action
     public function purchase()
     {
         $order = $this->checkoutSession->getLastRealOrder();
+        $this->aplazoHelper->log('Operations>purchase: Orden ' . $order->getEntityId() . ' debe redireccionar al checkout de aplazo.', AplazoHelper::LOGS_VVV);
         $this->orderService->reservingStockUntilPayment($order, 'aplazo_item_reserved');
         if (!empty($aplazoCheckout = $order->getAplazoCheckoutUrl())) {
             // Exploding cancel token and checkout Url
             if (strpos($aplazoCheckout, "||") !== false) {
                 $aplazoCheckout = explode("||", $aplazoCheckout)[0];
             }
+            $this->aplazoHelper->log('Operations>purchase: redireccion a ' . $aplazoCheckout , AplazoHelper::LOGS_VVV);
             $response = $this->resultFactory->create(ResultFactory::TYPE_REDIRECT)->setUrl($aplazoCheckout);
         } else {
+            $this->aplazoHelper->log('Operations>purchase: No se encontro url ', AplazoHelper::LOGS_VVV);
             $this->messageManager->addErrorMessage(__('Aplazo payment gateway is unavailable. Try again later.'));
             $response = $this->resultRedirectFactory->create()->setPath('checkout/cart');
         }

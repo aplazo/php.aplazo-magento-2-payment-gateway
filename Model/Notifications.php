@@ -47,7 +47,7 @@ class Notifications implements NotificationsInterface
         $this->aplazoService = $aplazoService;
         $this->aplazoHelper = $aplazoHelper;
         $this->orderSender = $orderSender;
-        $this->debugEnable = $this->aplazoHelper->isDebugEnabled();
+        $this->debugEnable = $this->aplazoHelper->getDebugVerbosity();
     }
 
     public function notify($loanId, $status, $cartId)
