@@ -5,6 +5,7 @@ namespace Aplazo\AplazoPayment\Service;
 use Aplazo\AplazoPayment\Helper\Data as AplazoHelper;
 use Magento\Framework\Exception\LocalizedException;
 use Magento\Framework\Exception\AuthenticationException;
+use Magento\Framework\HTTP\Client\CurlFactory;
 use Magento\Framework\HTTP\Client\Curl;
 
 class ApiService
@@ -25,11 +26,11 @@ class ApiService
 
     public function __construct
     (
-        Curl         $curl,
+        CurlFactory  $curlFactory,
         AplazoHelper $aplazoHelper
     )
     {
-        $this->curl = $curl;
+        $this->curl = $curlFactory->create();
         $this->aplazoHelper = $aplazoHelper;
     }
 
