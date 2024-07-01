@@ -146,3 +146,5 @@
 * API Interface added to webapi response
 ## 3.3.9
 * Health test added in Admin
+## 3.4.0
+* Curl to CurlFactory in DI
