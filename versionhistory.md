@@ -148,3 +148,5 @@
 * Health test added in Admin
 ## 3.4.0
 * Curl to CurlFactory in DI
+## 3.4.1
+* Inventory stock class removed attribute type to fix compatibility oh php version

@@ -10,7 +10,7 @@ use Magento\CatalogInventory\Api\StockManagementInterface;
 class InventoryStock
 {
 
-    private \Magento\CatalogInventory\Api\StockRegistryInterface $stockRegistry;
+    private $stockRegistry;
 
     public function __construct(
         \Magento\CatalogInventory\Api\StockRegistryInterface $stockRegistry
