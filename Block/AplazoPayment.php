@@ -49,5 +49,18 @@ class AplazoPayment extends \Magento\Framework\View\Element\Template
     {
         return $this->_cart->getQuote()->getGrandTotal() * 100;
     }
+
+    public function shouldRenderBlock()
+    {
+        return $this->_aplazoConfigHelper->isActive();
+    }
+
+    protected function _toHtml()
+    {
+        if ($this->shouldRenderBlock()) {
+            return parent::_toHtml();
+        }
+        return '';
+    }
 }
 ?>

@@ -150,3 +150,5 @@
 * Curl to CurlFactory in DI
 ## 3.4.1
 * Inventory stock class removed attribute type to fix compatibility oh php version
+## 3.4.2
+* Script js loaded only when needed. Widget shows only when module activated

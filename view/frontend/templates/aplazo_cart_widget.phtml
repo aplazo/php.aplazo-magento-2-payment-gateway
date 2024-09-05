@@ -7,5 +7,6 @@
     if($show == 1){
         $price = $block->getCartTotal();
         ?> <aplazo-placement product-price = <?php echo $price; ?>></aplazo-placement> <?php
+        ?><script type="text/javascript" src="<?php echo $block->getViewFileUrl('Aplazo_AplazoPayment::js/aplazo.js'); ?>"></script><?php
     }
 ?>
