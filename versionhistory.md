@@ -142,3 +142,13 @@
 * Added aplazo_order_canceled status in orders. Sometimes orders can't be canceled, and this orders are always iterating in the cron process.
 ## 3.3.7
 * Recover Cart after return from Aplazo Checkout
+## 3.3.8
+* API Interface added to webapi response
+## 3.3.9
+* Health test added in Admin
+## 3.4.0
+* Curl to CurlFactory in DI
+## 3.4.1
+* Inventory stock class removed attribute type to fix compatibility oh php version
+## 3.4.2
+* Script js loaded only when needed. Widget shows only when module activated

@@ -47,7 +47,7 @@ class Notifications implements NotificationsInterface
         $this->aplazoService = $aplazoService;
         $this->aplazoHelper = $aplazoHelper;
         $this->orderSender = $orderSender;
-        $this->debugEnable = $this->aplazoHelper->isDebugEnabled();
+        $this->debugEnable = $this->aplazoHelper->getDebugVerbosity();
     }
 
     public function notify($loanId, $status, $cartId)
@@ -71,27 +71,26 @@ class Notifications implements NotificationsInterface
                         if($this->aplazoHelper->getSendEmail()){
                             $this->orderSender->send($order, true);
                         }
+                        $orderPayment = $order->getPayment();
+                        $orderPayment->setAdditionalInformation('aplazo_payment_id', $aplazoData[self::APLAZO_PAYLOAD_LOAN_ID_INDEX]);
+                        $orderPayment->setAdditionalInformation('aplazo_status', $aplazoData[self::APLAZO_PAYLOAD_STATUS_INDEX]);
+                        $this->addOperationCommentToStatusHistory($order, $aplazoData[self::APLAZO_PAYLOAD_STATUS_INDEX], $aplazoData[self::APLAZO_PAYLOAD_LOAN_ID_INDEX], $orderService['message']);
+                        $this->orderService->saveOrder($order);
+                        $this->aplazoService->sendLog("Se avanza la orden a través del webhook", AplazoHelper::LOGS_CATEGORY_INFO, AplazoHelper::LOGS_SUBCATEGORY_WEBHOOK,
+                            ['cartId' => $cartId, 'loanId' => $loanId]);
                     }
-                    $orderPayment = $order->getPayment();
-                    $orderPayment->setAdditionalInformation('aplazo_payment_id', $aplazoData[self::APLAZO_PAYLOAD_LOAN_ID_INDEX]);
-                    $orderPayment->setAdditionalInformation('aplazo_status', $aplazoData[self::APLAZO_PAYLOAD_STATUS_INDEX]);
-                    $this->addOperationCommentToStatusHistory($order, $aplazoData[self::APLAZO_PAYLOAD_STATUS_INDEX], $aplazoData[self::APLAZO_PAYLOAD_LOAN_ID_INDEX], $orderService['message']);
-                    $this->orderService->saveOrder($order);
-                    $this->aplazoService->sendLog("Se avanza la orden a través del webhook", AplazoHelper::LOGS_CATEGORY_INFO, AplazoHelper::LOGS_SUBCATEGORY_WEBHOOK,
-                        ['cartId' => $cartId, 'loanId' => $loanId]);
                 } else {
                     $response['status'] = false;
                     $response['message'] = $orderResult['message'];
+                    $request = json_encode(['loanid' => $aplazoData[self::APLAZO_PAYLOAD_LOAN_ID_INDEX], 'status' => $aplazoData[self::APLAZO_PAYLOAD_STATUS_INDEX], 'cartid' => $aplazoData[self::APLAZO_PAYLOAD_ORDER_ID_INDEX]]);
+                    $response = json_encode($response);
+                    $this->aplazoHelper->log("From: \Aplazo\AplazoPayment\Model\Notifications::notify\nREQUEST: $request\nRESPONSE:$response");
                 }
             } catch (\Exception $e) {
                 $response['status'] = false;
                 $response['message'] = $e->getMessage();
                 $this->aplazoService->sendLog('Webhook error: : ' . $e->getMessage(), AplazoHelper::LOGS_CATEGORY_ERROR, AplazoHelper::LOGS_SUBCATEGORY_WEBHOOK, ['trace' => $e->getTrace()[0]['line'] . $e->getLine()]);
             }
-
-            $request = json_encode(['loanid' => $aplazoData[self::APLAZO_PAYLOAD_LOAN_ID_INDEX], 'status' => $aplazoData[self::APLAZO_PAYLOAD_STATUS_INDEX], 'cartid' => $aplazoData[self::APLAZO_PAYLOAD_ORDER_ID_INDEX]]);
-            $response = json_encode($response);
-            $this->aplazoHelper->log("From: \Aplazo\AplazoPayment\Model\Notifications::notify\nREQUEST: $request\nRESPONSE:$response");
         } else {
             $response['status'] = false;
             $response['message'] = $this->validationMessageError;

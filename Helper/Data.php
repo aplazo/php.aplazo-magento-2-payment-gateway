@@ -17,9 +17,11 @@ class Data extends \Magento\Payment\Helper\Data
     const LOGS_SUBCATEGORY_ORDER = 'order';
     const LOGS_SUBCATEGORY_REFUND = 'refund';
     const LOGS_SUBCATEGORY_WEBHOOK = 'webhook';
+    const LOGS_SUBCATEGORY_HEALTH_CHECK = 'health';
     const LOGS_CATEGORY_ERROR = 'error';
     const LOGS_CATEGORY_WARNING = 'warning';
     const LOGS_CATEGORY_INFO = 'info';
+    const LOGS_VVV = 2;
 
     /**
      * @var StoreManagerInterface
@@ -53,9 +55,15 @@ class Data extends \Magento\Payment\Helper\Data
         $this->encryptor = $encryptor;
     }
 
-    public function isDebugEnabled(){
+    public function getDebugVerbosity(){
         return $this->getConfigFlag(
             self::GENERAL_SECTION . 'debug_mode'
+        );
+    }
+
+    public function isHealthyCheck(){
+        return $this->getConfigFlag(
+            self::GENERAL_SECTION . 'check_healthy_site'
         );
     }
 
@@ -162,10 +170,12 @@ class Data extends \Magento\Payment\Helper\Data
         );
     }
 
-    public function log($message)
+    public function log($message, $verbosity = 1)
     {
-        if($this->isDebugEnabled()) {
-            $this->aplazoLogger->setName('aplazo_payments.log');
+        $this->aplazoLogger->setName('aplazo_payments.log');
+        if($this->getDebugVerbosity() == self::LOGS_VVV and $verbosity == self::LOGS_VVV) {
+            $this->aplazoLogger->info($message);
+        } elseif($this->getDebugVerbosity() == 1) {
             $this->aplazoLogger->info($message);
         }
         return true;

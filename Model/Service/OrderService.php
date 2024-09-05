@@ -3,22 +3,18 @@
 namespace Aplazo\AplazoPayment\Model\Service;
 
 use Aplazo\AplazoPayment\Helper\Data;
+use Aplazo\AplazoPayment\Helper\Data as AplazoHelper;
 use Magento\Framework\DB\TransactionFactory;
+use Magento\Framework\Exception\LocalizedException;
 use Magento\Framework\Exception\NoSuchEntityException;
 use Magento\Framework\Module\Manager;
-use Magento\InventorySalesApi\Api\Data\ItemToSellInterfaceFactory;
-use Magento\InventorySalesApi\Api\Data\SalesEventExtensionFactory;
 use Magento\InventorySalesApi\Api\Data\SalesEventInterface;
-use Magento\InventorySalesApi\Api\Data\SalesEventInterfaceFactory;
 use Magento\Quote\Api\CartRepositoryInterface;
-use Magento\Quote\Model\MaskedQuoteIdToQuoteIdInterface;
 use Magento\Sales\Api\Data\OrderInterface;
 use Magento\Sales\Api\OrderRepositoryInterface;
 use Magento\Sales\Model\Order;
 use \Magento\Sales\Model\ResourceModel\Order\CollectionFactory as OrderCollectionFactory;
-use Aplazo\AplazoPayment\Helper\Data as AplazoHelper;
 use Aplazo\AplazoPayment\Model\Ui\ConfigProvider;
-use Aplazo\AplazoPayment\Observer\DataAssignObserver;
 use Aplazo\AplazoPayment\Service\ApiService as AplazoService;
 use Magento\Sales\Model\Service\InvoiceService;
 
@@ -41,10 +37,6 @@ class OrderService
      */
     private $aplazoHelper;
     /**
-     * @var MaskedQuoteIdToQuoteIdInterface
-     */
-    private $maskedQuoteIdToQuoteId;
-    /**
      * @var InvoiceService
      */
     private $invoiceService;
@@ -66,7 +58,6 @@ class OrderService
      * @param OrderRepositoryInterface $orderRepository
      * @param AplazoService $aplazoService
      * @param AplazoHelper $aplazoHelper
-     * @param MaskedQuoteIdToQuoteIdInterface $maskedQuoteIdToQuoteId
      * @param InvoiceService $invoiceService
      * @param TransactionFactory $transactionFactory
      * @param CartRepositoryInterface $quoteRepository
@@ -78,7 +69,6 @@ class OrderService
         OrderRepositoryInterface            $orderRepository,
         AplazoService                       $aplazoService,
         AplazoHelper                        $aplazoHelper,
-        MaskedQuoteIdToQuoteIdInterface     $maskedQuoteIdToQuoteId,
         InvoiceService                      $invoiceService,
         TransactionFactory                  $transactionFactory,
         CartRepositoryInterface             $quoteRepository,
@@ -89,7 +79,6 @@ class OrderService
         $this->orderRepository = $orderRepository;
         $this->aplazoService = $aplazoService;
         $this->aplazoHelper = $aplazoHelper;
-        $this->maskedQuoteIdToQuoteId = $maskedQuoteIdToQuoteId;
         $this->invoiceService = $invoiceService;
         $this->transactionFactory = $transactionFactory;
         $this->quoteRepository = $quoteRepository;
@@ -280,27 +269,16 @@ class OrderService
                 "totalPrice" => $order->getBaseGrandTotal(),
                 "webHookUrl" => $this->aplazoHelper->getUrl('rest/V1/aplazo') . 'callback'
             ];
+            $this->aplazoHelper->log('OrderService->createLoan: Se manda a llamar el token de autorizacion', AplazoHelper::LOGS_VVV);
+            $tokenBearer = $this->aplazoService->getAuthorizationToken();
+            $this->aplazoHelper->log('OrderService->createLoan: Token de auth - '. $tokenBearer .'. Se creara el loan', AplazoHelper::LOGS_VVV);
+            return $this->aplazoService->createLoan($orderData, $tokenBearer);
 
-            $response = $this->aplazoService->createLoan($orderData);
-            if (is_array($response)) {
-                if (array_key_exists('status', $response)) {
-                    $result['success'] = $response['status'];
-                } else {
-                    $result['success'] = true;
-                }
-
-                if (array_key_exists('message', $response)) {
-                    $result['message'] = $response['message'];
-                }
-                $result['data'] = $response;
-            } else {
-                $result['message'] = $response;
-            }
         } catch (\Exception $exception) {
-            $result['message'] = $exception->getMessage();
+            $this->aplazoHelper->log('createLoan error ' . $exception->getMessage());
             $this->aplazoService->sendLog('createLoan error ' . $exception->getMessage(), AplazoHelper::LOGS_CATEGORY_ERROR, AplazoHelper::LOGS_SUBCATEGORY_LOAN);
+            return [];
         }
-        return $result;
     }
 
     /**

@@ -10,3 +10,5 @@
 "The refund will be made offline since the Aplazo refund option is not activated in the configuration","El rembolso se realizará offline debido a que la configuración de rembolso está desactivada"
 "Aplazo payment gateway is unavailable. Try again later.","El método de pago de Aplazo no está disponible. Intenta de nuevo mas tarde."
 "We cannot retrieve the products of your order. Please add them again to the cart","No pudimos recuperar los productos de tu orden. Por favor agrégalos nuevamente a tu carrito."
+"Communication with Aplazo Failed. Try again later","La comunicación con Aplazo falló. Intenta más tarde."
+"Check Healthy Site","Revisar salud de sitio"

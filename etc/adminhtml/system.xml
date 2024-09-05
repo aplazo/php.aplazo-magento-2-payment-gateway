@@ -148,7 +148,13 @@
                         <field id="debug_mode" translate="label" type="select" sortOrder="100" showInDefault="1" showInWebsite="1" showInStore="0">
                             <label>Activar logs</label>
                             <config_path>payment/aplazo_gateway/debug_mode</config_path>
+                            <source_model>Aplazo\AplazoPayment\Model\Config\Source\DebugVerbosity</source_model>
+                        </field>
+                        <field id="check_healthy_site" translate="label" type="select" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="0">
+                            <label>Check Healthy Site</label>
+                            <config_path>payment/aplazo_gateway/check_healthy_site</config_path>
                             <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+                            <comment>Al activar y guardar, se ejecutarán peticiones hacia Aplazo para asegurar la comunicación entre sitios. Para mas información revisar los logs en var/log/aplazo_payment/info.log</comment>
                         </field>
                     </group>
                 </group>

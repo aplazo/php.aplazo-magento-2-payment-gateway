@@ -8,6 +8,7 @@
         if ($currentProduct = $block->getCurrentProduct()) {
             $price = $currentProduct->getFinalPrice() * 100;
             ?> <aplazo-placement product-price = <?= $price; ?>></aplazo-placement> <?php
+            ?><script type="text/javascript" src="<?php echo $block->getViewFileUrl('Aplazo_AplazoPayment::js/aplazo.js'); ?>"></script><?php
         }
     }
 ?>
