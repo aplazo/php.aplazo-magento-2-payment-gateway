@@ -152,3 +152,5 @@
 * Inventory stock class removed attribute type to fix compatibility oh php version
 ## 3.4.2
 * Script js loaded only when needed. Widget shows only when module activated
+## 4.0.0
+* aplazo.mx to aplazo.com.mx
