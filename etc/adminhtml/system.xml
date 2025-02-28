@@ -27,7 +27,7 @@
                     <group id="credentials" translate="label" type="text" sortOrder="1" showInDefault="1" showInWebsite="1" showInStore="0">
                         <label>Credenciales</label>
                         <comment>
-                            <![CDATA[<div class="aplazo-gateway-credentials-section"><span style="display:inline">¿Te gustaría tener Aplazo como método de pago? Da clic en el siguiente <a href="https://web.aplazo.com.mx/merchant-registration/become-merchant/company-info" target="_blank">link</a> para ponernos en contacto en menos de 24hrs.</span></div>]]>
+                            <![CDATA[<div class="aplazo-gateway-credentials-section"><span style="display:inline">¿Te gustaría tener Aplazo como método de pago? Da clic en el siguiente <a href="https://web.aplazo.mx/merchant-registration/become-merchant/company-info" target="_blank">link</a> para ponernos en contacto en menos de 24hrs.</span></div>]]>
                         </comment>
                         <field id="merchantid" translate="label" type="text" sortOrder="2" showInDefault="1" showInWebsite="1" showInStore="0">
                             <config_path>payment/aplazo_gateway/merchantid</config_path>

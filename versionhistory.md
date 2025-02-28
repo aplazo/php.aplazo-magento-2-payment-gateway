@@ -154,3 +154,5 @@
 * Script js loaded only when needed. Widget shows only when module activated
 ## 4.0.0
 * aplazo.mx to aplazo.com.mx
+## 4.0.1
+* Revert aplazo.com.mx to aplazo.mx
