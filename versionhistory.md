@@ -156,3 +156,5 @@
 * aplazo.mx to aplazo.com.mx
 ## 4.0.1
 * Revert aplazo.com.mx to aplazo.mx
+## 4.0.2
+* Changed widget aplazo.js
