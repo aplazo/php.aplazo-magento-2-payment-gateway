@@ -356,6 +356,7 @@ class OrderService
             $order->addCommentToStatusHistory(__('Aplazo info: ') . $result['message']);
             $this->saveOrder($order);
             $result['quote_id'] = $order->getQuoteId();
+            return $result;
         } catch (NoSuchEntityException $entityException) {
             $result['message'] = $entityException->getMessage();
             $this->aplazoService->sendLog("Order id not found $orderId: " . $entityException->getMessage(), AplazoHelper::LOGS_CATEGORY_ERROR, AplazoHelper::LOGS_SUBCATEGORY_ORDER);
@@ -363,6 +364,14 @@ class OrderService
             $result['message'] = $exception->getMessage();
             $order->setStatus(AplazoHelper::APLAZO_ORDER_CANCELLED);
             $this->saveOrder($order);
+        }
+        try{
+            $this->aplazoService->cancelLoan([
+                "cartId" => $order->getIncrementId(),
+                "totalAmount" => 0,
+                "reason" => 'No payment'
+            ]);
+        } catch (LocalizedException $e) {
         }
         return $result;
     }

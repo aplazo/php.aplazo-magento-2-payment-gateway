@@ -158,3 +158,7 @@
 * Revert aplazo.com.mx to aplazo.mx
 ## 4.0.2
 * Changed widget aplazo.js
+## 4.0.3
+* Changed widget aplazo.js
+## 4.0.4
+* Cancel loan in Aplazo executed even if magento cancel fail
