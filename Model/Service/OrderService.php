@@ -231,7 +231,7 @@ class OrderService
                         "description" => $item->getDescription(),
                         "id" => $item->getProductId(),
                         "imageUrl" => '',
-                        "price" => $item->getRowTotal(),
+                        "price" => $item->getRowTotal() ?? 0,
                         "title" => $item->getName()
                     ];
                 }
