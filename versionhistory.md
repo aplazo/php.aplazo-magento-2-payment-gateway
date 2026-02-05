@@ -162,3 +162,5 @@
 * Changed widget aplazo.js
 ## 4.0.4
 * Cancel loan in Aplazo executed even if magento cancel fail
+## 4.0.7
+* Script aplazo.js changed
