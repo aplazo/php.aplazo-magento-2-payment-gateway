@@ -13,6 +13,8 @@ class ApiService
     const TOKEN_CACHE_KEY = 'aplazo_api_token';
     const API_POST = 'POST';
     const LOAN_SUCCESS_STATUS = 'OUTSTANDING';
+    private const DEFAULT_CONNECT_TIMEOUT_SECONDS = 10;
+    private const DEFAULT_TIMEOUT_SECONDS = 90;
 
     /**
      * @var AplazoHelper
@@ -59,11 +61,14 @@ class ApiService
      * @return array
      * @throws LocalizedException
      */
-    public function createRefund($orderData)
+    public function createRefund($orderData, ?string $idempotencyKey = null)
     {
         $response = $this->requestService(
             $this->getRefundLoanUrl(),
-            json_encode($orderData)
+            json_encode($orderData),
+            self::API_POST,
+            false,
+            $idempotencyKey ? ['X-Idempotency-Key' => $idempotencyKey] : []
         );
 
         return $response;
@@ -182,9 +187,9 @@ class ApiService
         return $this->aplazoHelper->getServiceUrl() . "/api/pos/loan/$cartId";
     }
 
-    private function requestService($url, $body, $method = self::API_POST, $bearer = false)
+    private function requestService($url, $body, $method = self::API_POST, $bearer = false, array $extraHeaders = [])
     {
-        $response = $this->requestMagentoCurl($url, $body, $method, $bearer);
+        $response = $this->requestMagentoCurl($url, $body, $method, $bearer, $extraHeaders);
 
         if (!$response['success']) {
             $message = __('No response from request to ' . $url);
@@ -204,7 +209,7 @@ class ApiService
         return $response['data'];
     }
 
-    public function requestMagentoCurl($url, $body, $method, $bearer)
+    public function requestMagentoCurl($url, $body, $method, $bearer, array $extraHeaders = [])
     {
         $headers = [
             'merchant_id' => $this->aplazoHelper->getMerchantId(),
@@ -214,21 +219,28 @@ class ApiService
         if($bearer){
             $headers['Authorization'] = $bearer;
         }
+        if ($extraHeaders) {
+            $headers = array_merge($headers, $extraHeaders);
+        }
         try{
             $this->curl->setHeaders($headers);
+            $this->curl->setOption(CURLOPT_CONNECTTIMEOUT, self::DEFAULT_CONNECT_TIMEOUT_SECONDS);
+            $this->curl->setOption(CURLOPT_TIMEOUT, self::DEFAULT_TIMEOUT_SECONDS);
             if ($method === self::API_POST) {
                 $this->curl->post($url, $body);
             } else {
                 $this->curl->get($url);
             }
             $statusCode = $this->curl->getStatus();
-            switch ($statusCode) {
-                case 200 || 201 || 202:
-                    $response = $this->curl->getBody();
-                    return ['success' => true, 'data' => json_decode($response, true)];
-                default:
-                    return ['success' => false, 'message' => 'Unexpected HTTP status: ' . $statusCode];
+            $responseBody = $this->curl->getBody();
+            if (in_array((int)$statusCode, [200, 201, 202], true)) {
+                return ['success' => true, 'data' => json_decode($responseBody, true)];
             }
+
+            return [
+                'success' => false,
+                'message' => 'Unexpected HTTP status: ' . $statusCode . ' body: ' . $responseBody
+            ];
         }catch (\Exception $e) {
             $this->aplazoHelper->log('HTTP Request Error: ' . $e->getMessage());
             return ['success' => false, 'message' => 'HTTP Request Exception: ' . $e->getMessage()];

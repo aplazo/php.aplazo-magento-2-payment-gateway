@@ -4,5 +4,8 @@
         <job name="aplazo_aplazopayment_cancel_orders" instance="Aplazo\AplazoPayment\Cron\CancelOrders" method="execute">
             <schedule>*/15 * * * *</schedule>
         </job>
+        <job name="aplazo_aplazopayment_process_refund_queue" instance="Aplazo\AplazoPayment\Cron\ProcessRefundQueue" method="execute">
+            <schedule>*/5 * * * *</schedule>
+        </job>
     </group>
 </config>

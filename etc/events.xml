@@ -6,11 +6,11 @@
     <event name="sales_order_place_after">
         <observer name="aplazo_sales_order_place_after_create_loan" instance="Aplazo\AplazoPayment\Observer\SalesOrderPlaceAfterCreateLoan" />
     </event>
-    <event name="sales_order_creditmemo_save_before">
-        <observer name="aplazo_creditmemo_before_save_observer" instance="Aplazo\AplazoPayment\Observer\RefundObserverBeforeSave"/>
+    <event name="sales_order_creditmemo_save_after">
+        <observer name="aplazo_creditmemo_after_save_enqueue_refund" instance="Aplazo\AplazoPayment\Observer\RefundObserverAfterSave"/>
     </event>
-    <event name="rma_save_before">
-        <observer name="aplazo_rma_before_save_observer" instance="Aplazo\AplazoPayment\Observer\RmaObserverBeforeSave"/>
+    <event name="rma_save_after">
+        <observer name="aplazo_rma_after_save_enqueue_refund" instance="Aplazo\AplazoPayment\Observer\RmaObserverAfterSave"/>
     </event>
     <event name="admin_system_config_changed_section_payment">
         <observer name="aplazo_check_healthy_site" instance="Aplazo\AplazoPayment\Observer\HealthySite"/>

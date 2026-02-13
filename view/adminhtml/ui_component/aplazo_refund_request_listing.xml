@@ -1,0 +1,157 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<listing xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="urn:magento:module:Magento_Ui:etc/ui_configuration.xsd">
+    <argument name="data" xsi:type="array">
+        <item name="js_config" xsi:type="array">
+            <item name="provider" xsi:type="string">aplazo_refund_request_listing.aplazo_refund_request_listing_data_source</item>
+        </item>
+    </argument>
+
+    <settings>
+        <spinner>aplazo_refund_request_columns</spinner>
+        <deps>
+            <dep>aplazo_refund_request_listing.aplazo_refund_request_listing_data_source</dep>
+        </deps>
+    </settings>
+
+    <dataSource name="aplazo_refund_request_listing_data_source" component="Magento_Ui/js/grid/provider">
+        <settings>
+            <updateUrl path="mui/index/render"/>
+        </settings>
+        <aclResource>Aplazo_AplazoPayment::aplazo_refund_queue</aclResource>
+        <dataProvider class="Magento\Framework\View\Element\UiComponent\DataProvider\DataProvider" name="aplazo_refund_request_listing_data_source">
+            <settings>
+                <requestFieldName>entity_id</requestFieldName>
+                <primaryFieldName>main_table.entity_id</primaryFieldName>
+            </settings>
+        </dataProvider>
+    </dataSource>
+
+    <listingToolbar name="listing_top">
+        <filters name="listing_filters"/>
+        <massaction name="listing_massaction">
+            <action name="aplazo_cancel_retries">
+                <settings>
+                    <url path="aplazo/refundrequest/massCancelRetries"/>
+                    <type>aplazo_cancel_retries</type>
+                    <label translate="true">Cancel retries</label>
+                    <confirm>
+                        <title translate="true">Cancel retries</title>
+                        <message translate="true">This will stop any further retries for the selected rows. Continue?</message>
+                    </confirm>
+                </settings>
+            </action>
+        </massaction>
+        <paging name="listing_paging">
+            <settings>
+                <selectProvider>aplazo_refund_request_listing.aplazo_refund_request_listing.aplazo_refund_request_columns.ids</selectProvider>
+            </settings>
+        </paging>
+    </listingToolbar>
+
+    <columns name="aplazo_refund_request_columns">
+        <selectionsColumn name="ids" sortOrder="0">
+            <settings>
+                <indexField>entity_id</indexField>
+            </settings>
+        </selectionsColumn>
+        <column name="entity_id">
+            <settings>
+                <filter>textRange</filter>
+                <label translate="true">ID</label>
+                <sorting>asc</sorting>
+            </settings>
+        </column>
+        <column name="type">
+            <settings>
+                <filter>text</filter>
+                <label translate="true">Type</label>
+            </settings>
+        </column>
+        <column name="status">
+            <settings>
+                <filter>text</filter>
+                <label translate="true">Status</label>
+            </settings>
+        </column>
+        <column name="order_increment_id">
+            <settings>
+                <filter>text</filter>
+                <label translate="true">Order #</label>
+            </settings>
+        </column>
+        <column name="creditmemo_id">
+            <settings>
+                <filter>textRange</filter>
+                <label translate="true">Creditmemo ID</label>
+            </settings>
+        </column>
+        <column name="rma_entity_id">
+            <settings>
+                <filter>textRange</filter>
+                <label translate="true">RMA ID</label>
+            </settings>
+        </column>
+        <column name="rma_item_id">
+            <settings>
+                <filter>textRange</filter>
+                <label translate="true">RMA Item ID</label>
+            </settings>
+        </column>
+        <column name="amount_cents">
+            <settings>
+                <filter>textRange</filter>
+                <label translate="true">Amount (cents)</label>
+            </settings>
+        </column>
+        <column name="currency">
+            <settings>
+                <filter>text</filter>
+                <label translate="true">Currency</label>
+            </settings>
+        </column>
+        <column name="aplazo_refund_id">
+            <settings>
+                <filter>text</filter>
+                <label translate="true">Aplazo refundId</label>
+            </settings>
+        </column>
+        <column name="aplazo_refund_status">
+            <settings>
+                <filter>text</filter>
+                <label translate="true">Aplazo status</label>
+            </settings>
+        </column>
+        <column name="retries">
+            <settings>
+                <filter>textRange</filter>
+                <label translate="true">Retries</label>
+            </settings>
+        </column>
+        <column name="last_error">
+            <settings>
+                <filter>text</filter>
+                <label translate="true">Last error</label>
+            </settings>
+        </column>
+        <column name="next_attempt_at">
+            <settings>
+                <filter>dateRange</filter>
+                <label translate="true">Next attempt</label>
+            </settings>
+        </column>
+        <column name="created_at">
+            <settings>
+                <filter>dateRange</filter>
+                <label translate="true">Created</label>
+            </settings>
+        </column>
+        <column name="updated_at">
+            <settings>
+                <filter>dateRange</filter>
+                <label translate="true">Updated</label>
+            </settings>
+        </column>
+    </columns>
+</listing>
+

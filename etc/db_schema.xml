@@ -2,6 +2,57 @@
 <schema xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
         xsi:noNamespaceSchemaLocation="urn:magento:framework:Setup/Declaration/Schema/etc/schema.xsd">
     <table name="sales_order" resource="default" engine="innodb">
-        <column xsi:type="varchar" name="aplazo_checkout_url" comment="Aplazo Checkout URL"/>
+        <column xsi:type="varchar" name="aplazo_checkout_url" length="255" nullable="true" comment="Aplazo Checkout URL"/>
+    </table>
+
+    <table name="aplazo_refund_request" resource="default" engine="innodb" comment="Aplazo refund request queue">
+        <column xsi:type="int" name="entity_id" unsigned="true" nullable="false" identity="true" comment="Entity ID"/>
+        <column xsi:type="varchar" name="type" length="32" nullable="false" comment="Request type"/>
+        <column xsi:type="varchar" name="status" length="16" nullable="false" default="pending" comment="Request status"/>
+
+        <column xsi:type="varchar" name="order_increment_id" length="32" nullable="false" comment="Order increment id"/>
+        <column xsi:type="int" name="order_id" unsigned="true" nullable="true" comment="Order entity id"/>
+
+        <column xsi:type="int" name="creditmemo_id" unsigned="true" nullable="true" comment="Creditmemo entity id"/>
+
+        <column xsi:type="int" name="rma_entity_id" unsigned="true" nullable="true" comment="RMA entity id"/>
+        <column xsi:type="int" name="rma_item_id" unsigned="true" nullable="true" comment="RMA item entity id"/>
+        <column xsi:type="int" name="order_item_id" unsigned="true" nullable="true" comment="Order item entity id"/>
+        <column xsi:type="decimal" name="qty" precision="12" scale="4" nullable="true" comment="Qty to refund"/>
+
+        <column xsi:type="int" name="amount_cents" nullable="false" comment="Refund amount (cents)"/>
+        <column xsi:type="varchar" name="currency" length="8" nullable="true" comment="Currency"/>
+
+        <column xsi:type="text" name="reason" nullable="true" comment="Refund reason"/>
+        <column xsi:type="varchar" name="reason_hash" length="64" nullable="true" comment="Reason hash"/>
+        <column xsi:type="varchar" name="items_hash" length="64" nullable="true" comment="Items hash"/>
+        <column xsi:type="varchar" name="idempotency_key" length="64" nullable="false" comment="Idempotency key"/>
+
+        <column xsi:type="text" name="payload_json" nullable="false" comment="Refund request payload JSON"/>
+        <column xsi:type="text" name="response_json" nullable="true" comment="Aplazo response JSON"/>
+
+        <column xsi:type="varchar" name="aplazo_refund_id" length="64" nullable="true" comment="Aplazo refund id"/>
+        <column xsi:type="varchar" name="aplazo_refund_status" length="32" nullable="true" comment="Aplazo refund status"/>
+
+        <column xsi:type="int" name="retries" nullable="false" default="0" comment="Retry count"/>
+        <column xsi:type="text" name="last_error" nullable="true" comment="Last error"/>
+        <column xsi:type="timestamp" name="next_attempt_at" nullable="true" default="NULL" comment="Next attempt at"/>
+
+        <column xsi:type="timestamp" name="created_at" nullable="false" default="CURRENT_TIMESTAMP" comment="Created at"/>
+        <column xsi:type="timestamp" name="updated_at" nullable="false" default="CURRENT_TIMESTAMP" on_update="true" comment="Updated at"/>
+
+        <constraint xsi:type="primary" referenceId="PRIMARY">
+            <column name="entity_id"/>
+        </constraint>
+
+        <constraint xsi:type="unique" referenceId="APLAZO_REFUND_REQUEST_TYPE_IDEMPOTENCY_KEY_UNQ">
+            <column name="type"/>
+            <column name="idempotency_key"/>
+        </constraint>
+
+        <index referenceId="APLAZO_REFUND_REQUEST_STATUS_NEXT_ATTEMPT_IDX" indexType="btree">
+            <column name="status"/>
+            <column name="next_attempt_at"/>
+        </index>
     </table>
 </schema>
