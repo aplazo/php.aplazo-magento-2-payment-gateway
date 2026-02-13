@@ -52,6 +52,11 @@
     <preference for="Aplazo\AplazoPayment\Api\CheckoutNotPaidManagementInterface" type="Aplazo\AplazoPayment\Model\CheckoutNotPaidManagement"/>
     <preference for="Aplazo\AplazoPayment\Api\CheckoutNotPaidManagementResponseInterface" type="Aplazo\AplazoPayment\Model\CheckoutNotPaidManagementResponse"/>
 
+    <preference for="Aplazo\AplazoPayment\Api\Data\RefundRequestInterface" type="Aplazo\AplazoPayment\Model\RefundRequest"/>
+    <preference for="Aplazo\AplazoPayment\Api\Data\RefundRequestSearchResultsInterface" type="Aplazo\AplazoPayment\Model\RefundRequestSearchResults"/>
+    <preference for="Aplazo\AplazoPayment\Api\RefundRequestRepositoryInterface" type="Aplazo\AplazoPayment\Model\RefundRequestRepository"/>
+    <preference for="Aplazo\AplazoPayment\Api\RefundQueueManagementInterface" type="Aplazo\AplazoPayment\Model\RefundQueueManagement"/>
+
     <virtualType name="AplazoGatewayCustomLogger" type="Magento\Framework\Logger\Monolog">
         <arguments>
             <argument name="handlers" xsi:type="array">
@@ -75,5 +80,29 @@
     </type>
     <type name="Magento\Quote\Observer\SubmitObserver">
         <plugin name="aplazo_payment_new_order_email" type="Aplazo\AplazoPayment\Plugin\Order\NewOrderEmail" />
+    </type>
+
+    <type name="Magento\Framework\View\Element\UiComponent\DataProvider\CollectionFactory">
+        <arguments>
+            <argument name="collections" xsi:type="array">
+                <item name="aplazo_refund_request_listing_data_source" xsi:type="string">Aplazo\AplazoPayment\Model\ResourceModel\RefundRequest\Grid\Collection</item>
+            </argument>
+        </arguments>
+    </type>
+
+    <type name="Aplazo\AplazoPayment\Model\ResourceModel\RefundRequest\Grid\Collection">
+        <arguments>
+            <argument name="mainTable" xsi:type="string">aplazo_refund_request</argument>
+            <argument name="resourceModel" xsi:type="string">Aplazo\AplazoPayment\Model\ResourceModel\RefundRequest</argument>
+        </arguments>
+    </type>
+
+    <type name="Magento\Framework\Console\CommandList">
+        <arguments>
+            <argument name="commands" xsi:type="array">
+                <item name="aplazo_refund_process" xsi:type="object">Aplazo\AplazoPayment\Console\Command\ProcessRefundQueueCommand</item>
+                <item name="aplazo_orders_cancel" xsi:type="object">Aplazo\AplazoPayment\Console\Command\CancelOrdersCommand</item>
+            </argument>
+        </arguments>
     </type>
 </config>
