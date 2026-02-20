@@ -16,6 +16,7 @@ class RmaObserverAfterSave implements ObserverInterface
 {
     private const TYPE_RMA = 'rma';
     private const RMA_REFUND_RESOLUTION = 5;
+    private const RMA_STATUS_APPROVED = 'approved';
 
     public function __construct(
         private RefundRequestFactory $refundRequestFactory,
@@ -30,8 +31,7 @@ class RmaObserverAfterSave implements ObserverInterface
     {
         if (
             !$this->data->getRmaRefund()
-            || !class_exists(\Magento\Rma\Model\ItemFactory::class)
-            || !class_exists(\Magento\Rma\Model\Rma\Source\Status::class)
+            || !class_exists('Magento\\Rma\\Model\\ItemFactory')
         ) {
             return;
         }
@@ -46,14 +46,14 @@ class RmaObserverAfterSave implements ObserverInterface
         $rmaEntityId = (int)$rma->getEntityId();
 
         /** @var \Magento\Rma\Model\ItemFactory $itemFactory */
-        $itemFactory = \Magento\Framework\App\ObjectManager::getInstance()->get(\Magento\Rma\Model\ItemFactory::class);
+        $itemFactory = \Magento\Framework\App\ObjectManager::getInstance()->get('Magento\\Rma\\Model\\ItemFactory');
 
         $currency = ''; // RMA does not always carry currency; keep optional.
 
         foreach ((array)$rma->getItems() as $item) {
             if (
                 (int)$item->getResolution() !== self::RMA_REFUND_RESOLUTION
-                || (int)$item->getStatus() !== (int)\Magento\Rma\Model\Rma\Source\Status::STATE_APPROVED
+                || (string)$item->getStatus() !== self::RMA_STATUS_APPROVED
             ) {
                 continue;
             }

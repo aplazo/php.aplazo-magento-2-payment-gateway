@@ -164,3 +164,7 @@
 * Cancel loan in Aplazo executed even if magento cancel fail
 ## 4.0.7
 * Script aplazo.js changed
+## 4.0.8
+* Script aplazo.js bug fixed
+* Aplazo refund improved (added idempotency and a grid)
+* Console command to exec refunds and orders pending cancel

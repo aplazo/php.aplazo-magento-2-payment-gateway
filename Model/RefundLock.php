@@ -2,36 +2,31 @@
 
 namespace Aplazo\AplazoPayment\Model;
 
-use Magento\Framework\App\CacheInterface;
+use Magento\Framework\Lock\LockManagerInterface;
 
 class RefundLock
 {
-    private const CACHE_PREFIX = 'aplazo_refund_lock_';
+    private const LOCK_PREFIX = 'aplazo_refund_lock_';
 
-    public function __construct(private CacheInterface $cache)
+    public function __construct(private LockManagerInterface $lockManager)
     {
     }
 
-    public function acquire(string $key, int $ttlSeconds = 300): bool
+    public function acquire(string $key, int $timeoutSeconds = 0): bool
     {
-        $cacheKey = $this->toCacheKey($key);
-        if ($this->cache->load($cacheKey)) {
-            return false;
-        }
-
-        // Best-effort lock. Cache backends are shared (Redis/Valkey) in most Magento setups.
-        return (bool)$this->cache->save('1', $cacheKey, [], $ttlSeconds);
+        // Uses Magento lock backend (DB / cache-backed) which provides atomic acquisition.
+        return $this->lockManager->lock($this->toLockName($key), $timeoutSeconds);
     }
 
     public function release(string $key): void
     {
-        $this->cache->remove($this->toCacheKey($key));
+        $this->lockManager->unlock($this->toLockName($key));
     }
 
-    private function toCacheKey(string $key): string
+    private function toLockName(string $key): string
     {
-        // Avoid cache key length limits and illegal characters.
-        return self::CACHE_PREFIX . sha1($key);
+        // Avoid backend name length limits and illegal characters.
+        return self::LOCK_PREFIX . sha1($key);
     }
 }
 
