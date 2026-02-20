@@ -46,8 +46,9 @@ class RefundQueueManagement implements RefundQueueManagementInterface
     {
         // Lock first (prevents parallel processing in multi-cron environments).
         $lockKey = $request->getType() . '|' . $request->getIdempotencyKey();
-        if (!$this->refundLock->acquire($lockKey, 300)) {
-            $this->scheduleRetry($request, 'Lock already acquired; skipping', 1);
+        if (!$this->refundLock->acquire($lockKey, 0)) {
+            // Lock contention is expected in multi-cron environments and should NOT consume retry budget.
+            $this->data->log('Refund queue lock already acquired; skipping entity_id=' . $request->getId());
             return;
         }
 
@@ -157,6 +158,9 @@ class RefundQueueManagement implements RefundQueueManagementInterface
 
         try {
             $order = $this->orderRepository->get($orderId);
+            if (!$order instanceof \Magento\Sales\Model\Order) {
+                return;
+            }
             $order->addCommentToStatusHistory((string)$message);
             $this->orderRepository->save($order);
         } catch (\Throwable $e) {
@@ -166,7 +170,7 @@ class RefundQueueManagement implements RefundQueueManagementInterface
 
     private function applyRmaQtyRefunded(RefundRequest $request): void
     {
-        if (!class_exists(\Magento\Rma\Model\ItemFactory::class)) {
+        if (!class_exists('Magento\\Rma\\Model\\ItemFactory')) {
             return;
         }
 
@@ -182,7 +186,7 @@ class RefundQueueManagement implements RefundQueueManagementInterface
         $qtyInt = (int)round($qty);
 
         /** @var \Magento\Rma\Model\ItemFactory $itemFactory */
-        $itemFactory = \Magento\Framework\App\ObjectManager::getInstance()->get(\Magento\Rma\Model\ItemFactory::class);
+        $itemFactory = \Magento\Framework\App\ObjectManager::getInstance()->get('Magento\\Rma\\Model\\ItemFactory');
         /** @var \Magento\Rma\Model\Item $itemModel */
         $itemModel = $itemFactory->create()->load($rmaItemId);
         if (!$itemModel->getId()) {
