@@ -13,6 +13,7 @@ use Magento\Framework\Event\ObserverInterface;
 use Magento\Framework\Message\ManagerInterface;
 use Magento\Sales\Api\OrderRepositoryInterface;
 use Magento\Sales\Model\Order\Creditmemo;
+use Aplazo\AplazoPayment\Service\TrackingService;
 
 class RefundObserverAfterSave implements ObserverInterface
 {
@@ -23,7 +24,8 @@ class RefundObserverAfterSave implements ObserverInterface
         private RefundRequestRepositoryInterface $refundRequestRepository,
         private OrderRepositoryInterface $orderRepository,
         private ManagerInterface $messageManager,
-        private Data $data
+        private Data $data,
+        private TrackingService $trackingService
     ) {
     }
 
@@ -104,6 +106,24 @@ class RefundObserverAfterSave implements ObserverInterface
 
             $order->addCommentToStatusHistory((string)$message . ' ' . __('Idempotency key: %1', $idempotencyKey));
             $this->orderRepository->save($order);
+
+            try {
+                $this->trackingService->sendEvent(
+                    TrackingService::EVENT_REFUND_CREATED,
+                    [
+                        'platform' => $this->data->getPlatformCode(),
+                        'order_id' => (int)$order->getEntityId(),
+                        'order_increment_id' => (string)$order->getIncrementId(),
+                        'creditmemo_id' => (int)$creditMemo->getEntityId(),
+                        'amount_cents' => $amountCents,
+                        'currency' => $currency,
+                        'idempotency_key' => $idempotencyKey,
+                    ],
+                    []
+                );
+            } catch (\Throwable $e) {
+                // Never block credit memo save because of tracking.
+            }
         } catch (AlreadyExistsException $e) {
             // Dedupe hit: the refund request already exists.
             $message = __('Aplazo refund is already queued for this credit memo. Please wait and check the order history.');
