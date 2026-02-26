@@ -168,3 +168,5 @@
 * Script aplazo.js bug fixed
 * Aplazo refund improved (added idempotency and a grid)
 * Console command to exec refunds and orders pending cancel
+## 4.0.9
+* 5 events added
