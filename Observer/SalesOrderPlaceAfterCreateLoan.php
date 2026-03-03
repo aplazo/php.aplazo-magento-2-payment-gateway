@@ -3,6 +3,7 @@
 namespace Aplazo\AplazoPayment\Observer;
 
 use Aplazo\AplazoPayment\Model\Ui\ConfigProvider;
+use Aplazo\AplazoPayment\Service\TrackingService;
 use Magento\Framework\Event\ObserverInterface;
 use Aplazo\AplazoPayment\Helper\Data as AplazoHelper;
 use Aplazo\AplazoPayment\Model\Service\OrderService;
@@ -13,14 +14,17 @@ class SalesOrderPlaceAfterCreateLoan implements ObserverInterface
 {
     private $aplazoHelper;
     private $orderService;
+    private TrackingService $trackingService;
 
     public function __construct(
         AplazoHelper $aplazoHelper,
-        OrderService $orderService
+        OrderService $orderService,
+        TrackingService $trackingService
     )
     {
         $this->aplazoHelper = $aplazoHelper;
         $this->orderService = $orderService;
+        $this->trackingService = $trackingService;
     }
 
     public function execute(\Magento\Framework\Event\Observer $observer)
@@ -32,6 +36,11 @@ class SalesOrderPlaceAfterCreateLoan implements ObserverInterface
                 $randomToken = $this->generateRandomString();
             } catch (RandomException $e) {
                 $randomToken = "0";
+            }
+            try {
+                $this->trackingService->trackOrderCreated($order);
+            } catch (\Throwable $e) {
+                // Never block order placement because of tracking.
             }
             $result = $this->orderService->createLoan($order, $randomToken);
             if(!empty($result['url'])){

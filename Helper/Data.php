@@ -22,6 +22,9 @@ class Data extends \Magento\Payment\Helper\Data
     const LOGS_CATEGORY_WARNING = 'warning';
     const LOGS_CATEGORY_INFO = 'info';
     const LOGS_VVV = 2;
+    private const DEFAULT_TRACKING_BASE_URL_STG = 'https://core.aplazo.net';
+    private const DEFAULT_TRACKING_BASE_URL_PROD = 'https://core.aplazo.mx';
+    private const PLATFORM_CODE = 'MGT';
 
     /**
      * @var StoreManagerInterface
@@ -111,6 +114,28 @@ class Data extends \Magento\Payment\Helper\Data
         return $this->getConfigData(self::GENERAL_SECTION . 'send_email');
     }
 
+    public function getTrackingEnabled(): bool
+    {
+        return (bool)$this->getConfigFlag(self::GENERAL_SECTION . 'tracking_enabled');
+    }
+
+    public function getTrackingEnvironment(): string
+    {
+        return $this->getConfigFlag(self::GENERAL_SECTION . 'sanbox_mode') ? 'stg' : 'prod';
+    }
+
+    public function getTrackingBaseUrl(): string
+    {
+        return $this->getConfigFlag(self::GENERAL_SECTION . 'sanbox_mode')
+            ? self::DEFAULT_TRACKING_BASE_URL_STG
+            : self::DEFAULT_TRACKING_BASE_URL_PROD;
+    }
+
+    public function getPlatformCode(): string
+    {
+        return self::PLATFORM_CODE;
+    }
+
     public function canCancelOnFailure(){
         return $this->getConfigFlag(self::GENERAL_SECTION . 'cancel_order');
     }
@@ -137,11 +162,15 @@ class Data extends \Magento\Payment\Helper\Data
 
     public function getCallbackUrl(): string
     {
-        return $this->storeManager->getStore()->getBaseUrl(\Magento\Framework\UrlInterface::URL_TYPE_WEB) . 'rest/default/V1/aplazo/callback';
+        /** @var \Magento\Store\Model\Store $store */
+        $store = $this->storeManager->getStore();
+        return $store->getBaseUrl(\Magento\Framework\UrlInterface::URL_TYPE_WEB) . 'rest/default/V1/aplazo/callback';
     }
 
     public function getCurrentCurrencyCode(){
-        return $this->storeManager->getStore()->getCurrentCurrency()->getCode();
+        /** @var \Magento\Store\Model\Store $store */
+        $store = $this->storeManager->getStore();
+        return $store->getCurrentCurrency()->getCode();
     }
 
     public function getServiceUrl(){

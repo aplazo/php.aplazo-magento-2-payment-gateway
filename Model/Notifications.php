@@ -7,6 +7,7 @@ use Magento\Sales\Model\Order;
 use Aplazo\AplazoPayment\Api\NotificationsInterface;
 use Aplazo\AplazoPayment\Model\Service\OrderService;
 use Aplazo\AplazoPayment\Service\ApiService as AplazoService;
+use Aplazo\AplazoPayment\Service\TrackingService;
 use Firebase\JWT\JWT;
 use Firebase\JWT\Key;
 
@@ -34,19 +35,22 @@ class Notifications implements NotificationsInterface
     private $validationMessageError;
     private $debugEnable;
     private $aplazoService;
+    private TrackingService $trackingService;
 
     public function __construct
     (
         OrderService                      $orderService,
         \Aplazo\AplazoPayment\Helper\Data $aplazoHelper,
         \Magento\Sales\Model\Order\Email\Sender\OrderSender $orderSender,
-        AplazoService                     $aplazoService
+        AplazoService                     $aplazoService,
+        TrackingService                   $trackingService
     )
     {
         $this->orderService = $orderService;
         $this->aplazoService = $aplazoService;
         $this->aplazoHelper = $aplazoHelper;
         $this->orderSender = $orderSender;
+        $this->trackingService = $trackingService;
         $this->debugEnable = $this->aplazoHelper->getDebugVerbosity();
     }
 
@@ -76,6 +80,15 @@ class Notifications implements NotificationsInterface
                         $orderPayment->setAdditionalInformation('aplazo_status', $aplazoData[self::APLAZO_PAYLOAD_STATUS_INDEX]);
                         $this->addOperationCommentToStatusHistory($order, $aplazoData[self::APLAZO_PAYLOAD_STATUS_INDEX], $aplazoData[self::APLAZO_PAYLOAD_LOAN_ID_INDEX], $orderService['message']);
                         $this->orderService->saveOrder($order);
+                        try {
+                            $this->trackingService->trackOrderPaid(
+                                $order,
+                                (string)$aplazoData[self::APLAZO_PAYLOAD_LOAN_ID_INDEX],
+                                (string)$aplazoData[self::APLAZO_PAYLOAD_STATUS_INDEX]
+                            );
+                        } catch (\Throwable $e) {
+                            // Never block webhook processing because of tracking.
+                        }
                         $this->aplazoService->sendLog("Se avanza la orden a través del webhook", AplazoHelper::LOGS_CATEGORY_INFO, AplazoHelper::LOGS_SUBCATEGORY_WEBHOOK,
                             ['cartId' => $cartId, 'loanId' => $loanId]);
                     }
