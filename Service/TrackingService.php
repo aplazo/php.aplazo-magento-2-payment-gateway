@@ -7,13 +7,12 @@ use Magento\Framework\App\ProductMetadataInterface;
 use Magento\Framework\HTTP\Client\CurlFactory;
 use Magento\Framework\Module\ModuleListInterface;
 use Magento\Sales\Api\Data\OrderInterface;
+use Magento\Store\Model\Store;
+use Magento\Store\Model\StoreManagerInterface;
 
 class TrackingService
 {
-    private const SOURCE_BACKEND = 'backend';
     private const SCHEMA_VERSION = 1;
-    private const PLATFORM_PROPERTY = 'platform';
-    private const PLATFORM_CONTEXT_KEY = 'platform';
 
     /**
      * Keep these stable; they become analytics contract.
@@ -31,7 +30,8 @@ class TrackingService
         private CurlFactory $curlFactory,
         private Data $aplazoHelper,
         private ModuleListInterface $moduleList,
-        private ProductMetadataInterface $productMetadata
+        private ProductMetadataInterface $productMetadata,
+        private StoreManagerInterface $storeManager
     ) {
     }
 
@@ -54,7 +54,6 @@ class TrackingService
     public function trackOrderCreated(OrderInterface $order): void
     {
         $properties = [
-            self::PLATFORM_PROPERTY => $this->aplazoHelper->getPlatformCode(),
             'order_id' => (int)$order->getEntityId(),
             'order_increment_id' => (string)$order->getIncrementId(),
             'store_id' => (int)$order->getStoreId(),
@@ -67,13 +66,12 @@ class TrackingService
         $customerId = $order->getCustomerId();
         $identity = $customerId ? ['customerId' => (string)$customerId] : [];
 
-        $this->sendEvent(self::EVENT_ORDER_CREATED, $properties, $this->defaultContext(), $identity);
+        $this->sendEvent(self::EVENT_ORDER_CREATED, $properties, $this->buildContextForStoreId((int)$order->getStoreId()), $identity);
     }
 
     public function trackOrderPaid(OrderInterface $order, string $loanId, string $aplazoStatus): void
     {
         $properties = [
-            self::PLATFORM_PROPERTY => $this->aplazoHelper->getPlatformCode(),
             'order_id' => (int)$order->getEntityId(),
             'order_increment_id' => (string)$order->getIncrementId(),
             'store_id' => (int)$order->getStoreId(),
@@ -86,7 +84,7 @@ class TrackingService
         $customerId = $order->getCustomerId();
         $identity = $customerId ? ['customerId' => (string)$customerId] : [];
 
-        $this->sendEvent(self::EVENT_ORDER_PAID, $properties, $this->defaultContext(), $identity);
+        $this->sendEvent(self::EVENT_ORDER_PAID, $properties, $this->buildContextForStoreId((int)$order->getStoreId()), $identity);
     }
 
     /**
@@ -100,11 +98,8 @@ class TrackingService
             return;
         }
 
-        if (!isset($properties[self::PLATFORM_PROPERTY])) {
-            $properties[self::PLATFORM_PROPERTY] = $this->aplazoHelper->getPlatformCode();
-        }
-        if (!isset($context[self::PLATFORM_CONTEXT_KEY])) {
-            $context[self::PLATFORM_CONTEXT_KEY] = $this->aplazoHelper->getPlatformCode();
+        if (!isset($context['shopName']) || !is_string($context['shopName']) || $context['shopName'] === '') {
+            $context['shopName'] = $this->inferShopNameFromBaseUrl();
         }
 
         $merchantId = (string)$this->aplazoHelper->getMerchantId();
@@ -113,7 +108,8 @@ class TrackingService
             'eventId' => $this->uuidV4(),
             'eventName' => $eventName,
             'occurredAt' => $this->nowIso8601Zulu(),
-            'source' => self::SOURCE_BACKEND,
+            // Tracking team requested using platform code here (SHOPI/PRESTA/WOO/MGT).
+            'source' => $this->aplazoHelper->getPlatformCode(),
             'environment' => $this->aplazoHelper->getTrackingEnvironment(),
             'schemaVersion' => self::SCHEMA_VERSION,
             'eventVersion' => $eventVersion,
@@ -163,7 +159,6 @@ class TrackingService
         $moduleInfo = $this->moduleList->getOne('Aplazo_AplazoPayment') ?: [];
 
         return [
-            self::PLATFORM_PROPERTY => $this->aplazoHelper->getPlatformCode(),
             'module_name' => 'Aplazo_AplazoPayment',
             'module_setup_version' => (string)($moduleInfo['setup_version'] ?? ''),
             'module_composer_version' => (string)($moduleInfo['version'] ?? ''),
@@ -175,9 +170,20 @@ class TrackingService
     /**
      * @return array<string, mixed>
      */
-    private function defaultContext(): array
+    private function buildContextForStoreId(?int $storeId): array
     {
-        return [self::PLATFORM_CONTEXT_KEY => $this->aplazoHelper->getPlatformCode()];
+        $baseUrl = '';
+        try {
+            /** @var Store $store */
+            $store = $storeId !== null ? $this->storeManager->getStore($storeId) : $this->storeManager->getStore();
+            $baseUrl = (string)$store->getBaseUrl();
+        } catch (\Throwable $e) {
+            $baseUrl = '';
+        }
+
+        $shopName = $this->inferShopNameFromBaseUrl($baseUrl);
+
+        return $shopName !== '' ? ['shopName' => $shopName] : [];
     }
 
     private function nowIso8601Zulu(): string
@@ -200,6 +206,28 @@ class TrackingService
             substr($hex, 16, 4),
             substr($hex, 20, 12)
         );
+    }
+
+    private function inferShopNameFromBaseUrl(?string $baseUrl = null): string
+    {
+        $url = (string)($baseUrl ?: '');
+        if ($url === '') {
+            try {
+                /** @var Store $store */
+                $store = $this->storeManager->getStore();
+                $url = (string)$store->getBaseUrl();
+            } catch (\Throwable $e) {
+                $url = '';
+            }
+        }
+
+        $host = (string)(parse_url($url, PHP_URL_HOST) ?: '');
+        $host = strtolower(trim($host));
+        if ($host !== '') {
+            return $host;
+        }
+
+        return rtrim($url, '/');
     }
 }
 
