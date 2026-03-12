@@ -111,7 +111,6 @@ class RefundObserverAfterSave implements ObserverInterface
                 $this->trackingService->sendEvent(
                     TrackingService::EVENT_REFUND_CREATED,
                     [
-                        'platform' => $this->data->getPlatformCode(),
                         'order_id' => (int)$order->getEntityId(),
                         'order_increment_id' => (string)$order->getIncrementId(),
                         'creditmemo_id' => (int)$creditMemo->getEntityId(),

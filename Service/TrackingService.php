@@ -94,15 +94,21 @@ class TrackingService
      */
     public function sendEvent(string $eventName, array $properties, array $context = [], array $identity = [], int $eventVersion = 1): void
     {
-        if (!$this->aplazoHelper->getTrackingEnabled()) {
-            return;
-        }
-
         if (!isset($context['shopName']) || !is_string($context['shopName']) || $context['shopName'] === '') {
             $context['shopName'] = $this->inferShopNameFromBaseUrl();
         }
 
         $merchantId = (string)$this->aplazoHelper->getMerchantId();
+        $properties = array_merge($properties, $context);
+        if ($merchantId !== '') {
+            $properties['merchantId'] = $merchantId;
+        }
+        foreach ($identity as $key => $value) {
+            if ($value === '') {
+                continue;
+            }
+            $properties[$key] = $value;
+        }
 
         $payload = [
             'eventId' => $this->uuidV4(),
@@ -114,40 +120,62 @@ class TrackingService
             'schemaVersion' => self::SCHEMA_VERSION,
             'eventVersion' => $eventVersion,
             'properties' => (object)$properties,
-            'context' => (object)$context,
         ];
 
-        if ($merchantId !== '') {
-            $payload['merchantId'] = $merchantId;
-        }
-
-        foreach ($identity as $key => $value) {
-            if ($value === '') {
-                continue;
-            }
-            $payload[$key] = $value;
-        }
+        $url = rtrim($this->aplazoHelper->getTrackingBaseUrl(), '/') . '/api/v1/tracking/events';
 
         try {
+            $this->aplazoHelper->log(
+                sprintf(
+                    "Tracking event request.\nEVENT: %s\nURL: %s\nPAYLOAD: %s",
+                    $eventName,
+                    $url,
+                    (string)json_encode($payload, JSON_UNESCAPED_SLASHES)
+                )
+            );
+
             $curl = $this->curlFactory->create();
             $curl->setOption(CURLOPT_CONNECTTIMEOUT, self::DEFAULT_CONNECT_TIMEOUT_SECONDS);
             $curl->setOption(CURLOPT_TIMEOUT, self::DEFAULT_TIMEOUT_SECONDS);
 
             $headers = ['Content-Type' => 'application/json'];
             $curl->setHeaders($headers);
-
-            $url = rtrim($this->aplazoHelper->getTrackingBaseUrl(), '/') . '/api/v1/tracking/events';
             $curl->post($url, json_encode($payload, JSON_UNESCAPED_SLASHES));
 
             $status = (int)$curl->getStatus();
+            $responseBody = (string)$curl->getBody();
+
+            $this->aplazoHelper->log(
+                sprintf(
+                    "Tracking event response.\nEVENT: %s\nURL: %s\nSTATUS: %s\nBODY: %s",
+                    $eventName,
+                    $url,
+                    $status,
+                    $responseBody
+                )
+            );
+
             if (!in_array($status, [200, 201, 202], true)) {
                 $this->aplazoHelper->log(
-                    sprintf('Tracking event failed. status=%s body=%s', $status, (string)$curl->getBody())
+                    sprintf(
+                        "Tracking event failed.\nEVENT: %s\nURL: %s\nSTATUS: %s\nBODY: %s",
+                        $eventName,
+                        $url,
+                        $status,
+                        $responseBody
+                    )
                 );
             }
         } catch (\Throwable $e) {
             // Never block commerce flows because of tracking.
-            $this->aplazoHelper->log('Tracking event exception: ' . $e->getMessage());
+            $this->aplazoHelper->log(
+                sprintf(
+                    "Tracking event exception.\nEVENT: %s\nURL: %s\nMESSAGE: %s",
+                    $eventName,
+                    $url,
+                    $e->getMessage()
+                )
+            );
         }
     }
 
