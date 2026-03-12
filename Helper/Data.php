@@ -114,11 +114,6 @@ class Data extends \Magento\Payment\Helper\Data
         return $this->getConfigData(self::GENERAL_SECTION . 'send_email');
     }
 
-    public function getTrackingEnabled(): bool
-    {
-        return (bool)$this->getConfigFlag(self::GENERAL_SECTION . 'tracking_enabled');
-    }
-
     public function getTrackingEnvironment(): string
     {
         return $this->getConfigFlag(self::GENERAL_SECTION . 'sanbox_mode') ? 'stg' : 'prod';

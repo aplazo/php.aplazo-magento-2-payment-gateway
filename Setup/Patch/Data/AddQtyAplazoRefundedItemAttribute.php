@@ -15,6 +15,7 @@ use Magento\Framework\Setup\Patch\PatchRevertableInterface;
 
 class AddQtyAplazoRefundedItemAttribute implements DataPatchInterface, PatchRevertableInterface
 {
+    private const RMA_ITEM_CLASS = 'Magento\\Rma\\Model\\Item';
 
     /**
      * @var ModuleDataSetupInterface
@@ -45,12 +46,18 @@ class AddQtyAplazoRefundedItemAttribute implements DataPatchInterface, PatchReve
     public function apply()
     {
         $this->moduleDataSetup->getConnection()->startSetup();
-        // Only magento Commerce
-        if(class_exists('\Magento\Rma\Model\Item')){
+        try {
+            // Only Adobe Commerce ships with the RMA module.
+            if (!class_exists(self::RMA_ITEM_CLASS)) {
+                return;
+            }
+
+            $rmaEntityType = constant(self::RMA_ITEM_CLASS . '::ENTITY');
+
             /** @var EavSetup $eavSetup */
             $eavSetup = $this->eavSetupFactory->create(['setup' => $this->moduleDataSetup]);
             $eavSetup->addAttribute(
-                \Magento\Rma\Model\Item::ENTITY,
+                $rmaEntityType,
                 'qty_aplazo_refunded',
                 [
                     'type' => 'decimal',
@@ -66,19 +73,28 @@ class AddQtyAplazoRefundedItemAttribute implements DataPatchInterface, PatchReve
                     'group' => 'General',
                 ]
             );
+        } finally {
+            $this->moduleDataSetup->getConnection()->endSetup();
         }
-
-        $this->moduleDataSetup->getConnection()->endSetup();
     }
 
     public function revert()
     {
         $this->moduleDataSetup->getConnection()->startSetup();
-        /** @var EavSetup $eavSetup */
-        $eavSetup = $this->eavSetupFactory->create(['setup' => $this->moduleDataSetup]);
-        $eavSetup->removeAttribute(\Magento\Rma\Model\Item::ENTITY, 'qty_aplazo_refunded');
+        try {
+            // In Open Source the RMA classes do not exist, so there's nothing to revert.
+            if (!class_exists(self::RMA_ITEM_CLASS)) {
+                return;
+            }
 
-        $this->moduleDataSetup->getConnection()->endSetup();
+            $rmaEntityType = constant(self::RMA_ITEM_CLASS . '::ENTITY');
+
+            /** @var EavSetup $eavSetup */
+            $eavSetup = $this->eavSetupFactory->create(['setup' => $this->moduleDataSetup]);
+            $eavSetup->removeAttribute($rmaEntityType, 'qty_aplazo_refunded');
+        } finally {
+            $this->moduleDataSetup->getConnection()->endSetup();
+        }
     }
 
     /**
