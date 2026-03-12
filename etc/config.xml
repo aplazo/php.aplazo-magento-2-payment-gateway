@@ -32,7 +32,6 @@
                 <refund>1</refund>
                 <rma_refund>1</rma_refund>
                 <send_email>0</send_email>
-                <tracking_enabled>1</tracking_enabled>
             </aplazo_gateway>
         </payment>
     </default>
