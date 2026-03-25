@@ -3,6 +3,7 @@
 namespace Aplazo\AplazoPayment\Observer;
 
 use Aplazo\AplazoPayment\Model\Ui\ConfigProvider;
+use Aplazo\AplazoPayment\Service\LogService;
 use Aplazo\AplazoPayment\Service\TrackingService;
 use Magento\Framework\Event\ObserverInterface;
 use Aplazo\AplazoPayment\Helper\Data as AplazoHelper;
@@ -15,16 +16,19 @@ class SalesOrderPlaceAfterCreateLoan implements ObserverInterface
     private $aplazoHelper;
     private $orderService;
     private TrackingService $trackingService;
+    private LogService $logService;
 
     public function __construct(
         AplazoHelper $aplazoHelper,
         OrderService $orderService,
-        TrackingService $trackingService
+        TrackingService $trackingService,
+        LogService $logService
     )
     {
         $this->aplazoHelper = $aplazoHelper;
         $this->orderService = $orderService;
         $this->trackingService = $trackingService;
+        $this->logService = $logService;
     }
 
     public function execute(\Magento\Framework\Event\Observer $observer)
@@ -42,12 +46,16 @@ class SalesOrderPlaceAfterCreateLoan implements ObserverInterface
             } catch (\Throwable $e) {
                 // Never block order placement because of tracking.
             }
+            $this->logService->send('info', 'Order placed, creating loan', ['module:checkout'], ['order_id' => $order->getIncrementId(), 'grand_total' => (float)$order->getGrandTotal()]);
             $result = $this->orderService->createLoan($order, $randomToken);
             if(!empty($result['url'])){
                 $order->setStatus($this->aplazoHelper->getNewOrderStatus());
                 $aplazoCheckoutUrl = empty($randomToken) ? $result['url'] : $result['url'] . '||' . $randomToken;
                 $order->setAplazoCheckoutUrl($aplazoCheckoutUrl);
                 $this->aplazoHelper->log('Se guarda la url de Aplazo en la orden: '. $aplazoCheckoutUrl, AplazoHelper::LOGS_VVV);
+                $this->logService->send('info', 'Loan URL assigned to order', ['module:checkout'], ['order_id' => $order->getIncrementId()]);
+            } else {
+                $this->logService->send('error', 'Loan creation returned no URL', ['module:checkout'], ['order_id' => $order->getIncrementId()]);
             }
         }
 

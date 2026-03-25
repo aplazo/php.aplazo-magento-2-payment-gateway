@@ -11,6 +11,7 @@ use Aplazo\AplazoPayment\Api\CheckoutNotPaidManagementInterface;
 use Aplazo\AplazoPayment\Api\CheckoutNotPaidManagementResponseInterfaceFactory;
 use Aplazo\AplazoPayment\Model\Service\OrderService;
 use Aplazo\AplazoPayment\Service\ApiService as AplazoService;
+use Aplazo\AplazoPayment\Service\LogService;
 use Aplazo\AplazoPayment\Helper\Data as AplazoHelper;
 
 class CheckoutNotPaidManagement implements CheckoutNotPaidManagementInterface
@@ -34,6 +35,7 @@ class CheckoutNotPaidManagement implements CheckoutNotPaidManagementInterface
     private $quoteFactory;
     private $checkoutSession;
     private $responseInterfaceFactory;
+    private LogService $logService;
 
     public function __construct(
         OrderService  $orderService,
@@ -43,7 +45,8 @@ class CheckoutNotPaidManagement implements CheckoutNotPaidManagementInterface
         \Magento\Quote\Api\CartRepositoryInterface $cartRepository,
         \Magento\Quote\Model\QuoteFactory $quoteFactory,
         \Magento\Checkout\Model\Session $session,
-        CheckoutNotPaidManagementResponseInterfaceFactory $responseInterfaceFactory
+        CheckoutNotPaidManagementResponseInterfaceFactory $responseInterfaceFactory,
+        LogService $logService
     )
     {
         $this->orderService = $orderService;
@@ -54,6 +57,7 @@ class CheckoutNotPaidManagement implements CheckoutNotPaidManagementInterface
         $this->quoteFactory = $quoteFactory;
         $this->checkoutSession = $session;
         $this->responseInterfaceFactory = $responseInterfaceFactory;
+        $this->logService = $logService;
     }
 
     /**
@@ -61,6 +65,8 @@ class CheckoutNotPaidManagement implements CheckoutNotPaidManagementInterface
      */
     public function postCheckoutNotPaid($incrementId)
     {
+        $this->logService->resetRequestId();
+        $this->logService->send('info', 'Checkout not paid: processing', ['module:cancel'], ['increment_id' => $incrementId, 'recover_cart_enabled' => $this->aplazoHelper->getEnableRecoverCart() ? 'yes' : 'no']);
         $orderArray = $this->orderService->getOrderByIncrementId($incrementId);
         /** @var \Aplazo\AplazoPayment\Api\CheckoutNotPaidManagementResponseInterface $return */
         $return = $this->responseInterfaceFactory->create();
@@ -68,14 +74,32 @@ class CheckoutNotPaidManagement implements CheckoutNotPaidManagementInterface
             ->setQuoteId(null)
             ->setMessageError(null);
         if ($order = $orderArray['order']) {
+            $this->logService->send('info', 'Checkout not paid: cancelling order', ['module:cancel'], ['increment_id' => $incrementId, 'order_status' => $order->getStatus()]);
             $this->orderService->cancelOrder($order->getId());
+            $this->checkoutSession->unsLastRealOrderId();
+            $this->checkoutSession->clearHelperData();
             $return->setMessage($this->aplazoHelper->getCancelMessage());
             if($this->aplazoHelper->getEnableRecoverCart()){
                 $quoteId = $order->getQuoteId();
                 try {
                     $quote = $this->cartRepository->get($quoteId);
                     /** @var \Magento\Quote\Model\Quote $newQuote */
-                    $newQuote = $this->quoteFactory->create()->setStoreId($quote->getStoreId())->save();
+                    $newQuote = $this->quoteFactory->create();
+                    $newQuote->setStoreId($quote->getStoreId());
+                    $newQuote->setCustomerId($quote->getCustomerId());
+                    $newQuote->setCustomerEmail($quote->getCustomerEmail());
+                    $newQuote->setCustomerFirstname($quote->getCustomerFirstname());
+                    $newQuote->setCustomerLastname($quote->getCustomerLastname());
+                    $newQuote->setCustomerGroupId($quote->getCustomerGroupId());
+                    $newQuote->setCustomerIsGuest($quote->getCustomerIsGuest());
+                    $newQuote->setIsActive(true);
+                    $this->logService->send('info', 'New quote created with customer context', ['module:cancel'], [
+                        'increment_id' => $incrementId,
+                        'old_quote_id' => $quoteId,
+                        'customer_id' => $quote->getCustomerId(),
+                        'customer_email' => $quote->getCustomerEmail(),
+                        'is_guest' => $quote->getCustomerIsGuest()
+                    ]);
                     $canRecoverQuote = false;
                     foreach ($quote->getAllVisibleItems() as $item) {
                         try{
@@ -91,8 +115,7 @@ class CheckoutNotPaidManagement implements CheckoutNotPaidManagementInterface
                                 }
                             }
                         } catch (\Exception $e) {
-                            $this->aplazoService->sendLog('No se pudo recuperar el producto ' . $product->getId() . ' ' . $product->getName(), AplazoHelper::LOGS_CATEGORY_WARNING, AplazoHelper::LOGS_SUBCATEGORY_ORDER,
-                        ['method' => 'postCheckoutNotPaid', 'class' => '\Aplazo\AplazoPayment\Model\CheckoutNotPaidManagement', 'error' => $e->getMessage()]);
+                            $this->logService->send('warn', 'Could not recover product for cart', ['module:cancel'], ['increment_id' => $incrementId, 'product_id' => $item->getProduct()->getId(), 'error' => $e->getMessage()]);
                         }
                     }
                     if($canRecoverQuote){
@@ -100,20 +123,27 @@ class CheckoutNotPaidManagement implements CheckoutNotPaidManagementInterface
                         $newQuote->getShippingAddress()->setCollectShippingRates(true);
                         $newQuote->collectTotals();
                         $this->cartRepository->save($newQuote);
-                        $this->checkoutSession->setQuoteId($newQuote->getId());
+                        $this->checkoutSession->replaceQuote($newQuote);
                         $return->setQuoteId($newQuote->getId());
+                        $this->logService->send('info', 'Cart recovered successfully', ['module:cancel'], [
+                            'increment_id' => $incrementId,
+                            'new_quote_id' => $newQuote->getId(),
+                            'customer_id' => $newQuote->getCustomerId(),
+                            'is_guest' => $newQuote->getCustomerIsGuest(),
+                            'items_count' => $newQuote->getItemsCount(),
+                            'grand_total' => $newQuote->getGrandTotal()
+                        ]);
                     } else {
                         $return->setMessageError('No se pudo recuperar el carrito');
+                        $this->logService->send('warn', 'Cart recovery failed: no recoverable items', ['module:cancel'], ['increment_id' => $incrementId]);
                     }
                 } catch (\Exception $e) {
                     $return->setMessageError('No se pudo recuperar el carrito. Mensaje de error ' .$e->getMessage());
-                    $this->aplazoService->sendLog('No se pudo crear el quote de ' . $incrementId, AplazoHelper::LOGS_CATEGORY_WARNING, AplazoHelper::LOGS_SUBCATEGORY_ORDER,
-                        ['method' => 'cancel', 'class' => '\Aplazo\AplazoPayment\Controller\Order\Operations', 'error' => $e->getMessage()]);
+                    $this->logService->send('error', 'Cart recovery exception', ['module:cancel'], ['increment_id' => $incrementId, 'error' => $e->getMessage()]);
                 }
             }
         } else {
-            $this->aplazoService->sendLog('No se pudo obtener la orden id ' . $incrementId . ', se procede ir a carrito', AplazoHelper::LOGS_CATEGORY_WARNING, AplazoHelper::LOGS_SUBCATEGORY_ORDER,
-                ['method' => 'cancel', 'class' => '\Aplazo\AplazoPayment\Controller\Order\Operations']);
+            $this->logService->send('warn', 'Order not found, redirecting to cart', ['module:cancel'], ['increment_id' => $incrementId]);
         }
         return $return;
     }

@@ -4,6 +4,7 @@ namespace Aplazo\AplazoPayment\Observer;
 
 use Aplazo\AplazoPayment\Helper\Data;
 use Aplazo\AplazoPayment\Service\ApiService as AplazoService;
+use Aplazo\AplazoPayment\Service\LogService;
 use Magento\Framework\App\Action\Context;
 use Magento\Framework\Event\ObserverInterface;
 use Magento\Sales\Api\OrderItemRepositoryInterface;
@@ -36,24 +37,28 @@ class RmaObserverBeforeSave implements ObserverInterface
      */
     private $_orderItemRepository;
 
+    private LogService $_logService;
 
     /**
      * @param Context $context
      * @param AplazoService $aplazoService
      * @param Data $data
      * @param OrderItemRepositoryInterface $itemRepository
+     * @param LogService $logService
      */
     public function __construct(
         Context $context,
         AplazoService $aplazoService,
         Data $data,
-        OrderItemRepositoryInterface $itemRepository
+        OrderItemRepositoryInterface $itemRepository,
+        LogService $logService
     )
     {
         $this->messageManager = $context->getMessageManager();
         $this->_aplazoService = $aplazoService;
         $this->_data = $data;
         $this->_orderItemRepository = $itemRepository;
+        $this->_logService = $logService;
     }
 
     public function execute(\Magento\Framework\Event\Observer $observer)
@@ -68,6 +73,7 @@ class RmaObserverBeforeSave implements ObserverInterface
         $itemFactory = \Magento\Framework\App\ObjectManager::getInstance()->get(\Magento\Rma\Model\ItemFactory::class);
         $order_increment_id = $rma->getOrderIncrementId();
         $items = $rma->getItems();
+        $this->_logService->send('info', 'RMA refund processing started', ['module:refund'], ['order_id' => $order_increment_id, 'rma_id' => $rma->getId(), 'items_count' => count($items)]);
 
         foreach($items as $item){
             if($item->getResolution() == self::RMA_REFUND_RESOLUTION && $item->getStatus() == \Magento\Rma\Model\Rma\Source\Status::STATE_APPROVED){
@@ -92,7 +98,7 @@ class RmaObserverBeforeSave implements ObserverInterface
 
                 if (isset($response['status'])){
                     if($response['status'] === 0) {
-                        $this->_aplazoService->sendLog("Rma Refund error " . $response['message'], Data::LOGS_CATEGORY_ERROR, Data::LOGS_SUBCATEGORY_REFUND);
+                        $this->_logService->send('error', 'RMA refund error: ' . ($response['message'] ?? ''), ['module:refund'], ['order_id' => $order_increment_id, 'item_id' => $item_id]);
                         $this->throwRefundException($response['message']);
                     }
                 }
@@ -100,12 +106,12 @@ class RmaObserverBeforeSave implements ObserverInterface
                 if (!(empty($response['refundId']))) {
                     if($response['refundStatus'] === "REJECTED") {
                         $message = 'Credit memo is not available due to the Loan status';
-                        $this->_aplazoService->sendLog("Rma Refund error " . $message, Data::LOGS_CATEGORY_ERROR, Data::LOGS_SUBCATEGORY_REFUND);
+                        $this->_logService->send('error', 'RMA refund rejected', ['module:refund'], ['order_id' => $order_increment_id, 'refund_id' => $response['refundId']]);
                         $this->throwRefundException($message);
                     } elseif($response['refundStatus'] === "REQUESTED") {
                         $message = 'Aplazo refund was processed successfully. The Aplazo status is Requested';
                         $this->messageManager->addSuccessMessage($message);
-                        $this->_aplazoService->sendLog("Rma Refund success: " . $message, Data::LOGS_CATEGORY_INFO, Data::LOGS_SUBCATEGORY_REFUND);
+                        $this->_logService->send('info', 'RMA refund requested successfully', ['module:refund'], ['order_id' => $order_increment_id, 'refund_id' => $response['refundId']]);
                         $qty_to_aplazo_save = $qty_to_aplazo_refund + $qty_to_send;
                         $item_model->setData('qty_aplazo_refunded', $qty_to_aplazo_save);
                         $item_model->save();
