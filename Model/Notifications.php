@@ -62,16 +62,13 @@ class Notifications implements NotificationsInterface
     {
         $this->logService->resetRequestId();
         $this->aplazoHelper->log("Webhook triggered.");
-        $this->logService->send('info', 'Webhook received', ['module:webhook'], ['loan_id' => $loanId, 'status' => $status, 'cart_id' => $cartId]);
         $response = ['status' => true, 'message' => 'OK'];
         if ($aplazoData = $this->validateJWT()) {
-            $this->logService->send('info', 'JWT validated, processing webhook payload', ['module:webhook'], ['payload_loan_id' => $aplazoData[self::APLAZO_PAYLOAD_LOAN_ID_INDEX] ?? '', 'payload_status' => $aplazoData[self::APLAZO_PAYLOAD_STATUS_INDEX] ?? '', 'payload_cart_id' => $aplazoData[self::APLAZO_PAYLOAD_ORDER_ID_INDEX] ?? '']);
             try {
                 $orderResult = $this->orderService->getOrderByIncrementId($aplazoData[self::APLAZO_PAYLOAD_ORDER_ID_INDEX]);
                 if ($orderResult['success']) {
                     /** @var Order $order */
                     $order = $orderResult['order'];
-                    $this->logService->send('info', 'Order found for webhook', ['module:webhook'], ['order_id' => $order->getIncrementId(), 'current_state' => $order->getState(), 'current_status' => $order->getStatus()]);
                     if ($status == 'Activo') {
                         $orderService = $this->orderService->approveOrder($order->getId());
                         $order = $orderService['order'];
@@ -80,7 +77,6 @@ class Notifications implements NotificationsInterface
                         }
                         if($this->aplazoHelper->getSendEmail()){
                             $this->orderSender->send($order, true);
-                            $this->logService->send('info', 'Order confirmation email sent', ['module:webhook'], ['order_id' => $order->getIncrementId()]);
                         }
                         $orderPayment = $order->getPayment();
                         $orderPayment->setAdditionalInformation('aplazo_payment_id', $aplazoData[self::APLAZO_PAYLOAD_LOAN_ID_INDEX]);

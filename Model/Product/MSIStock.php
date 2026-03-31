@@ -2,7 +2,6 @@
 
 namespace Aplazo\AplazoPayment\Model\Product;
 
-use Aplazo\AplazoPayment\Service\LogService;
 use Magento\Framework\Exception\CouldNotSaveException;
 use Magento\Framework\Exception\InputException;
 use Magento\Framework\Exception\LocalizedException;
@@ -36,7 +35,6 @@ class MSIStock
     private $salesEventFactory;
     private $salesChannelFactory;
     private $placeReservationsForSalesEvent;
-    private LogService $logService;
 
     public function __construct(
         GetSkusByProductIdsInterface                         $getSkusByProductIds,
@@ -49,8 +47,7 @@ class MSIStock
         SalesEventExtensionFactory                           $salesEventExtensionFactory,
         SalesEventInterfaceFactory                           $salesEventFactory,
         SalesChannelInterfaceFactory                         $salesChannelFactory,
-        PlaceReservationsForSalesEventInterface              $placeReservationsForSalesEvent,
-        LogService                                           $logService
+        PlaceReservationsForSalesEventInterface              $placeReservationsForSalesEvent
     )
     {
         $this->getSkusByProductIds = $getSkusByProductIds;
@@ -64,7 +61,6 @@ class MSIStock
         $this->salesEventFactory = $salesEventFactory;
         $this->salesChannelFactory = $salesChannelFactory;
         $this->placeReservationsForSalesEvent = $placeReservationsForSalesEvent;
-        $this->logService = $logService;
     }
 
     /**
@@ -79,15 +75,12 @@ class MSIStock
      */
     public function updateQty($order, $plus, $type)
     {
-        $direction = $plus ? 'increase' : 'decrease';
         $itemsById = $itemsBySku = $itemsToSell = [];
-        $itemNames = [];
         foreach ($order->getItems() as $item) {
             if (!isset($itemsById[$item->getProductId()])) {
                 $itemsById[$item->getProductId()] = 0;
             }
             $itemsById[$item->getProductId()] += $item->getQtyOrdered();
-            $itemNames[$item->getProductId()] = $item->getName();
         }
         $productSkus = $this->getSkusByProductIds->execute(array_keys($itemsById));
         $productTypes = $this->getProductTypesBySkus->execute($productSkus);
@@ -102,14 +95,6 @@ class MSIStock
             $itemsToSell[] = $this->itemsToSellFactory->create([
                 'sku' => $sku,
                 'qty' => $reservationQty
-            ]);
-            $this->logService->send('info', "MSI reservation $direction for item", ['module:checkout', 'action:stock'], [
-                'order_id' => $order->getIncrementId(),
-                'product_id' => $productId,
-                'sku' => $sku,
-                'name' => $itemNames[$productId] ?? '',
-                'qty_ordered' => (float)$itemsById[$productId],
-                'reservation_qty' => $reservationQty
             ]);
         }
 

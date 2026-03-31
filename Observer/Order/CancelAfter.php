@@ -52,7 +52,6 @@ class CancelAfter implements \Magento\Framework\Event\ObserverInterface
         $order = $observer->getEvent()->getOrder();
 
         if($order->getPayment()->getMethod() === ConfigProvider::CODE){
-            $this->logService->send('info', 'Order cancel after: cancelling loan and updating stock', ['module:cancel'], ['order_id' => $order->getIncrementId(), 'state' => $order->getState(), 'status' => $order->getStatus()]);
             $this->orderService->decreasingStockAfterPaymentSuccess($order, 'order_canceled_aplazo');
             try{
                 $this->aplazoService->cancelLoan([
@@ -60,7 +59,6 @@ class CancelAfter implements \Magento\Framework\Event\ObserverInterface
                     "totalAmount" => 0,
                     "reason" => 'No payment'
                 ]);
-                $this->logService->send('info', 'Loan cancelled via API', ['module:cancel'], ['order_id' => $order->getIncrementId()]);
             } catch (LocalizedException $e) {
                 $this->logService->send('error', 'Cancel loan API failed: ' . $e->getMessage(), ['module:cancel'], ['order_id' => $order->getIncrementId()]);
             }

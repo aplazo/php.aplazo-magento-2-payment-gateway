@@ -59,7 +59,6 @@ class RefundQueueManagement implements RefundQueueManagementInterface
             $this->refundRequestRepository->save($request);
 
             $payload = json_decode($request->getPayloadJson(), true) ?: [];
-            $this->logService->send('info', 'Processing refund from queue', ['module:refund'], ['order_id' => $request->getOrderIncrementId(), 'amount_cents' => $request->getAmountCents(), 'attempt' => $request->getRetries() + 1]);
             $response = $this->apiService->createRefund($payload, $request->getIdempotencyKey());
             $this->handleRefundResponse($request, $response);
         } catch (\Throwable $e) {

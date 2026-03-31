@@ -98,16 +98,9 @@ class OrderService
     public function reservingStockUntilPayment($order, $type = SalesEventInterface::EVENT_ORDER_PLACED)
     {
         $reserveStockEnabled = $this->aplazoHelper->getReserveStock();
-        $this->logService->send('info', 'reservingStockUntilPayment called', ['module:checkout', 'action:stock'], [
-            'order_id' => $order->getIncrementId(),
-            'reserve_stock_config' => $reserveStockEnabled ? 'yes' : 'no',
-            'operation' => 'restore (plus)',
-            'type' => $type
-        ]);
         if ($reserveStockEnabled) {
             try {
                 $this->isMsiOrInventory($order, true, 'aplazo_item_reserved');
-                $this->logService->send('info', 'Stock reservation restored successfully', ['module:checkout', 'action:stock'], ['order_id' => $order->getIncrementId()]);
             } catch (\Exception $e) {
                 $message = 'Webhook error inventory: Al crear pedido no se recupero la reserva de stock. Increment_id ' . $order->getIncrementId();
                 $this->aplazoHelper->log($message);
@@ -123,16 +116,9 @@ class OrderService
     public function decreasingStockAfterPaymentSuccess($order, $type = SalesEventInterface::EVENT_ORDER_CANCELED)
     {
         $reserveStockEnabled = $this->aplazoHelper->getReserveStock();
-        $this->logService->send('info', 'decreasingStockAfterPaymentSuccess called', ['module:webhook', 'action:stock'], [
-            'order_id' => $order->getIncrementId(),
-            'reserve_stock_config' => $reserveStockEnabled ? 'yes' : 'no',
-            'operation' => 'decrease (minus)',
-            'type' => $type
-        ]);
         if ($reserveStockEnabled) {
             try {
                 $this->isMsiOrInventory($order, false, $type);
-                $this->logService->send('info', 'Stock decreased successfully after payment', ['module:webhook', 'action:stock'], ['order_id' => $order->getIncrementId(), 'type' => $type]);
             } catch (\Exception $e) {
                 $message = 'Webhook error inventory: Al crear invoice no se pudo reservar stock. Increment_id ' . $order->getIncrementId();
                 $this->aplazoHelper->log($message);
@@ -144,29 +130,18 @@ class OrderService
 
     public function isMsiOrInventory($order, $plus, $type = ''){
         $msiEnabled = $this->manager->isEnabled("Magento_Inventory") && $this->manager->isEnabled("Magento_InventoryCatalogApi");
-        $direction = $plus ? 'increase' : 'decrease';
-        $this->logService->send('info', "Stock update: $direction via " . ($msiEnabled ? 'MSI' : 'legacy'), ['module:checkout', 'action:stock'], [
-            'order_id' => $order->getIncrementId(),
-            'msi_enabled' => $msiEnabled,
-            'direction' => $direction,
-            'type' => $type,
-            'items_count' => count($order->getItems())
-        ]);
         if($msiEnabled){
             try{
                 $msiStock = \Magento\Framework\App\ObjectManager::getInstance()->get(\Aplazo\AplazoPayment\Model\Product\MSIStock::class);
                 $msiStock->updateQty($order, $plus, $type);
-                $this->logService->send('info', "MSI stock updated ($direction)", ['module:checkout', 'action:stock'], ['order_id' => $order->getIncrementId()]);
             } catch (\Exception $e){
                 $this->logService->send('warn', 'MSI stock failed, falling back to legacy inventory: ' . $e->getMessage(), ['module:checkout', 'action:stock'], ['order_id' => $order->getIncrementId()]);
                 $inventoryStock = \Magento\Framework\App\ObjectManager::getInstance()->get(\Aplazo\AplazoPayment\Model\Product\InventoryStock::class);
                 $inventoryStock->updateQtyNotMSI($order, $plus);
-                $this->logService->send('info', "Legacy inventory stock updated ($direction) after MSI fallback", ['module:checkout', 'action:stock'], ['order_id' => $order->getIncrementId()]);
             }
         } else {
             $inventoryStock = \Magento\Framework\App\ObjectManager::getInstance()->get(\Aplazo\AplazoPayment\Model\Product\InventoryStock::class);
             $inventoryStock->updateQtyNotMSI($order, $plus);
-            $this->logService->send('info', "Legacy inventory stock updated ($direction)", ['module:checkout', 'action:stock'], ['order_id' => $order->getIncrementId()]);
         }
     }
 
@@ -325,7 +300,6 @@ class OrderService
         $order = $this->orderRepository->get($orderId);
         $message = '';
         $orderData = $this->aplazoService->getOrderImportantDataToLog($order);
-        $this->logService->send('info', 'approveOrder started', ['module:webhook'], $orderData);
         $this->decreasingStockAfterPaymentSuccess($order, 'order_placed_aplazo');
         if (!$this->invoiceOrder($order)) {
             $message = 'Orden no se puede hacer invoice ' . $order->getIncrementId();
@@ -353,7 +327,6 @@ class OrderService
     {
         if ($order->canInvoice()) {
             try {
-                $this->logService->send('info', 'Creating invoice for order', ['module:webhook'], ['order_id' => $order->getIncrementId(), 'state' => $order->getState(), 'status' => $order->getStatus()]);
                 $invoice = $this->invoiceService->prepareInvoice($order);
                 $invoice->setRequestedCaptureCase(\Magento\Sales\Model\Order\Invoice::CAPTURE_ONLINE);
                 $invoice->register();
@@ -361,7 +334,6 @@ class OrderService
                     ->addObject($invoice)
                     ->addObject($invoice->getOrder());
                 $transaction->save();
-                $this->logService->send('info', 'Invoice created successfully', ['module:webhook'], ['order_id' => $order->getIncrementId(), 'invoice_id' => $invoice->getIncrementId()]);
             } catch (\Exception $e) {
                 $message = 'Error al crear el invoice de la orden ' . $order->getIncrementId() . ' mensaje de error > ' . $e->getMessage();
                 $this->aplazoHelper->log($message);
@@ -383,17 +355,14 @@ class OrderService
         $result = ['success' => false, 'message' => ''];
         try {
             $order = $this->orderRepository->get($orderId);
-            $this->logService->send('info', 'cancelOrder called', ['module:cancel'], ['order_id' => $order->getIncrementId(), 'entity_id' => $orderId, 'state' => $order->getState(), 'status' => $order->getStatus()]);
             if ($order->canCancel()) {
                 $order->cancel();
                 $result['success'] = true;
                 $result['message'] = __("Order successfully canceled");
-                $this->logService->send('info', 'Order cancelled successfully', ['module:cancel'], ['order_id' => $order->getIncrementId()]);
             } else {
                 if ($order->isCanceled()) {
                     $result['success'] = true;
                     $result['message'] = __("Order already canceled");
-                    $this->logService->send('info', 'Order was already cancelled', ['module:cancel'], ['order_id' => $order->getIncrementId()]);
                 } else {
                     $result['message'] = __("Can not cancel this orden");
                     $this->logService->send('warn', 'Order cannot be cancelled', ['module:cancel'], ['order_id' => $order->getIncrementId(), 'state' => $order->getState(), 'status' => $order->getStatus()]);

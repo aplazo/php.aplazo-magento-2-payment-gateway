@@ -66,7 +66,6 @@ class CheckoutNotPaidManagement implements CheckoutNotPaidManagementInterface
     public function postCheckoutNotPaid($incrementId)
     {
         $this->logService->resetRequestId();
-        $this->logService->send('info', 'Checkout not paid: processing', ['module:cancel'], ['increment_id' => $incrementId, 'recover_cart_enabled' => $this->aplazoHelper->getEnableRecoverCart() ? 'yes' : 'no']);
         $orderArray = $this->orderService->getOrderByIncrementId($incrementId);
         /** @var \Aplazo\AplazoPayment\Api\CheckoutNotPaidManagementResponseInterface $return */
         $return = $this->responseInterfaceFactory->create();
@@ -74,7 +73,6 @@ class CheckoutNotPaidManagement implements CheckoutNotPaidManagementInterface
             ->setQuoteId(null)
             ->setMessageError(null);
         if ($order = $orderArray['order']) {
-            $this->logService->send('info', 'Checkout not paid: cancelling order', ['module:cancel'], ['increment_id' => $incrementId, 'order_status' => $order->getStatus()]);
             $this->orderService->cancelOrder($order->getId());
             $this->checkoutSession->unsLastRealOrderId();
             $this->checkoutSession->clearHelperData();
@@ -93,13 +91,6 @@ class CheckoutNotPaidManagement implements CheckoutNotPaidManagementInterface
                     $newQuote->setCustomerGroupId($quote->getCustomerGroupId());
                     $newQuote->setCustomerIsGuest($quote->getCustomerIsGuest());
                     $newQuote->setIsActive(true);
-                    $this->logService->send('info', 'New quote created with customer context', ['module:cancel'], [
-                        'increment_id' => $incrementId,
-                        'old_quote_id' => $quoteId,
-                        'customer_id' => $quote->getCustomerId(),
-                        'customer_email' => $quote->getCustomerEmail(),
-                        'is_guest' => $quote->getCustomerIsGuest()
-                    ]);
                     $canRecoverQuote = false;
                     foreach ($quote->getAllVisibleItems() as $item) {
                         try{

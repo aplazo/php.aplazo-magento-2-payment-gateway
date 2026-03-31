@@ -73,8 +73,6 @@ class RmaObserverBeforeSave implements ObserverInterface
         $itemFactory = \Magento\Framework\App\ObjectManager::getInstance()->get(\Magento\Rma\Model\ItemFactory::class);
         $order_increment_id = $rma->getOrderIncrementId();
         $items = $rma->getItems();
-        $this->_logService->send('info', 'RMA refund processing started', ['module:refund'], ['order_id' => $order_increment_id, 'rma_id' => $rma->getId(), 'items_count' => count($items)]);
-
         foreach($items as $item){
             if($item->getResolution() == self::RMA_REFUND_RESOLUTION && $item->getStatus() == \Magento\Rma\Model\Rma\Source\Status::STATE_APPROVED){
                 /** @var \Magento\Rma\Model\Item $item_model */
