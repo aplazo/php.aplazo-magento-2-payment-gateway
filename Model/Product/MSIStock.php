@@ -91,17 +91,11 @@ class MSIStock
             }
 
             $itemsBySku[$sku] = (float)$itemsById[$productId];
-            if ($plus) {
-                $itemsToSell[] = $this->itemsToSellFactory->create([
-                    'sku' => $sku,
-                    'qty' => (float)$itemsById[$productId]
-                ]);
-            } else {
-                $itemsToSell[] = $this->itemsToSellFactory->create([
-                    'sku' => $sku,
-                    'qty' => -(float)$itemsById[$productId]
-                ]);
-            }
+            $reservationQty = $plus ? (float)$itemsById[$productId] : -(float)$itemsById[$productId];
+            $itemsToSell[] = $this->itemsToSellFactory->create([
+                'sku' => $sku,
+                'qty' => $reservationQty
+            ]);
         }
 
         $websiteId = (int)$order->getStore()->getWebsiteId();

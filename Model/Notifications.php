@@ -7,6 +7,7 @@ use Magento\Sales\Model\Order;
 use Aplazo\AplazoPayment\Api\NotificationsInterface;
 use Aplazo\AplazoPayment\Model\Service\OrderService;
 use Aplazo\AplazoPayment\Service\ApiService as AplazoService;
+use Aplazo\AplazoPayment\Service\LogService;
 use Aplazo\AplazoPayment\Service\TrackingService;
 use Firebase\JWT\JWT;
 use Firebase\JWT\Key;
@@ -36,6 +37,7 @@ class Notifications implements NotificationsInterface
     private $debugEnable;
     private $aplazoService;
     private TrackingService $trackingService;
+    private LogService $logService;
 
     public function __construct
     (
@@ -43,7 +45,8 @@ class Notifications implements NotificationsInterface
         \Aplazo\AplazoPayment\Helper\Data $aplazoHelper,
         \Magento\Sales\Model\Order\Email\Sender\OrderSender $orderSender,
         AplazoService                     $aplazoService,
-        TrackingService                   $trackingService
+        TrackingService                   $trackingService,
+        LogService                        $logService
     )
     {
         $this->orderService = $orderService;
@@ -51,14 +54,14 @@ class Notifications implements NotificationsInterface
         $this->aplazoHelper = $aplazoHelper;
         $this->orderSender = $orderSender;
         $this->trackingService = $trackingService;
+        $this->logService = $logService;
         $this->debugEnable = $this->aplazoHelper->getDebugVerbosity();
     }
 
     public function notify($loanId, $status, $cartId)
     {
+        $this->logService->resetRequestId();
         $this->aplazoHelper->log("Webhook triggered.");
-        $this->aplazoService->sendLog("Webhook triggered", AplazoHelper::LOGS_CATEGORY_INFO, AplazoHelper::LOGS_SUBCATEGORY_WEBHOOK,
-            ['cartId' => $cartId, 'loanId' => $loanId, 'status' => $status]);
         $response = ['status' => true, 'message' => 'OK'];
         if ($aplazoData = $this->validateJWT()) {
             try {
@@ -89,20 +92,22 @@ class Notifications implements NotificationsInterface
                         } catch (\Throwable $e) {
                             // Never block webhook processing because of tracking.
                         }
-                        $this->aplazoService->sendLog("Se avanza la orden a través del webhook", AplazoHelper::LOGS_CATEGORY_INFO, AplazoHelper::LOGS_SUBCATEGORY_WEBHOOK,
-                            ['cartId' => $cartId, 'loanId' => $loanId]);
+                        $this->logService->send('info', 'Order advanced via webhook', ['module:webhook'], ['order_id' => $order->getIncrementId(), 'loan_id' => $loanId, 'cart_id' => $cartId, 'final_status' => $order->getStatus()]);
+                    } else {
+                        $this->logService->send('info', 'Webhook status is not Activo, no action taken', ['module:webhook'], ['order_id' => $order->getIncrementId(), 'webhook_status' => $status]);
                     }
                 } else {
                     $response['status'] = false;
                     $response['message'] = $orderResult['message'];
                     $request = json_encode(['loanid' => $aplazoData[self::APLAZO_PAYLOAD_LOAN_ID_INDEX], 'status' => $aplazoData[self::APLAZO_PAYLOAD_STATUS_INDEX], 'cartid' => $aplazoData[self::APLAZO_PAYLOAD_ORDER_ID_INDEX]]);
+                    $this->aplazoHelper->log("From: \Aplazo\AplazoPayment\Model\Notifications::notify\nREQUEST: $request\nRESPONSE:" . json_encode($response));
+                    $this->logService->send('error', 'Order not found for webhook', ['module:webhook'], ['cart_id' => $aplazoData[self::APLAZO_PAYLOAD_ORDER_ID_INDEX], 'error' => $orderResult['message']]);
                     $response = json_encode($response);
-                    $this->aplazoHelper->log("From: \Aplazo\AplazoPayment\Model\Notifications::notify\nREQUEST: $request\nRESPONSE:$response");
                 }
             } catch (\Exception $e) {
                 $response['status'] = false;
                 $response['message'] = $e->getMessage();
-                $this->aplazoService->sendLog('Webhook error: : ' . $e->getMessage(), AplazoHelper::LOGS_CATEGORY_ERROR, AplazoHelper::LOGS_SUBCATEGORY_WEBHOOK, ['trace' => $e->getTrace()[0]['line'] . $e->getLine()]);
+                $this->logService->send('error', 'Webhook processing error: ' . $e->getMessage(), ['module:webhook'], ['loan_id' => $loanId, 'cart_id' => $cartId, 'trace' => $e->getFile() . ':' . $e->getLine()]);
             }
         } else {
             $response['status'] = false;
@@ -143,7 +148,7 @@ class Notifications implements NotificationsInterface
         } catch (\Exception $e) {
             $this->aplazoHelper->log("JWT Validation error: " . $e->getMessage());
             $this->validationMessageError = 'Something went wrong '. $e->getTrace()[0]['line'] . $e->getLine();
-            $this->aplazoService->sendLog('JWT Validation error: : ' . $e->getMessage(), AplazoHelper::LOGS_CATEGORY_ERROR, AplazoHelper::LOGS_SUBCATEGORY_WEBHOOK, ['trace' => $this->validationMessageError]);
+            $this->logService->send('error', 'JWT validation error: ' . $e->getMessage(), ['module:webhook'], ['trace' => $this->validationMessageError]);
             return false;
         }
     }

@@ -54,13 +54,13 @@ class TrackingService
     public function trackOrderCreated(OrderInterface $order): void
     {
         $properties = [
-            'order_id' => (int)$order->getEntityId(),
-            'order_increment_id' => (string)$order->getIncrementId(),
-            'store_id' => (int)$order->getStoreId(),
-            'grand_total' => (float)$order->getGrandTotal(),
+            'orderId' => (int)$order->getEntityId(),
+            'orderIncrementId' => (string)$order->getIncrementId(),
+            'storeId' => (int)$order->getStoreId(),
+            'grandTotal' => (float)$order->getGrandTotal(),
             'currency' => (string)($order->getOrderCurrencyCode() ?: $order->getBaseCurrencyCode() ?: ''),
-            'items_count' => (int)$order->getTotalItemCount(),
-            'is_guest' => (bool)$order->getCustomerIsGuest(),
+            'itemsCount' => (int)$order->getTotalItemCount(),
+            'isGuest' => (bool)$order->getCustomerIsGuest(),
         ];
 
         $customerId = $order->getCustomerId();
@@ -72,13 +72,13 @@ class TrackingService
     public function trackOrderPaid(OrderInterface $order, string $loanId, string $aplazoStatus): void
     {
         $properties = [
-            'order_id' => (int)$order->getEntityId(),
-            'order_increment_id' => (string)$order->getIncrementId(),
-            'store_id' => (int)$order->getStoreId(),
-            'grand_total' => (float)$order->getGrandTotal(),
+            'orderId' => (int)$order->getEntityId(),
+            'orderIncrementId' => (string)$order->getIncrementId(),
+            'storeId' => (int)$order->getStoreId(),
+            'grandTotal' => (float)$order->getGrandTotal(),
             'currency' => (string)($order->getOrderCurrencyCode() ?: $order->getBaseCurrencyCode() ?: ''),
-            'loan_id' => $loanId,
-            'aplazo_status' => $aplazoStatus,
+            'loanId' => $loanId,
+            'aplazoStatus' => $aplazoStatus,
         ];
 
         $customerId = $order->getCustomerId();
@@ -187,11 +187,11 @@ class TrackingService
         $moduleInfo = $this->moduleList->getOne('Aplazo_AplazoPayment') ?: [];
 
         return [
-            'module_name' => 'Aplazo_AplazoPayment',
-            'module_setup_version' => (string)($moduleInfo['setup_version'] ?? ''),
-            'module_composer_version' => (string)($moduleInfo['version'] ?? ''),
-            'magento_version' => (string)$this->productMetadata->getVersion(),
-            'php_version' => PHP_VERSION,
+            'moduleName' => 'Aplazo_AplazoPayment',
+            'moduleSetupVersion' => (string)($moduleInfo['setup_version'] ?? ''),
+            'moduleComposerVersion' => (string)($moduleInfo['version'] ?? ''),
+            'magentoVersion' => (string)$this->productMetadata->getVersion(),
+            'phpVersion' => PHP_VERSION,
         ];
     }
 

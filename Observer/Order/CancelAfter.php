@@ -10,6 +10,7 @@ namespace Aplazo\AplazoPayment\Observer\Order;
 use Aplazo\AplazoPayment\Model\Service\OrderService;
 use Aplazo\AplazoPayment\Model\Ui\ConfigProvider;
 use Aplazo\AplazoPayment\Service\ApiService as AplazoService;
+use Aplazo\AplazoPayment\Service\LogService;
 use Magento\Framework\Exception\LocalizedException;
 use Magento\Sales\Model\Order;
 
@@ -25,13 +26,17 @@ class CancelAfter implements \Magento\Framework\Event\ObserverInterface
      */
     private $orderService;
 
+    private LogService $logService;
+
     public function __construct(
         OrderService $orderService,
-        AplazoService $aplazoService
+        AplazoService $aplazoService,
+        LogService $logService
     )
     {
         $this->orderService = $orderService;
         $this->aplazoService = $aplazoService;
+        $this->logService = $logService;
     }
 
     /**
@@ -55,6 +60,7 @@ class CancelAfter implements \Magento\Framework\Event\ObserverInterface
                     "reason" => 'No payment'
                 ]);
             } catch (LocalizedException $e) {
+                $this->logService->send('error', 'Cancel loan API failed: ' . $e->getMessage(), ['module:cancel'], ['order_id' => $order->getIncrementId()]);
             }
         }
     }

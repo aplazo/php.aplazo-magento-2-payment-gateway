@@ -26,14 +26,18 @@ class ApiService
      */
     private $curl;
 
+    private LogService $logService;
+
     public function __construct
     (
         CurlFactory  $curlFactory,
-        AplazoHelper $aplazoHelper
+        AplazoHelper $aplazoHelper,
+        LogService   $logService
     )
     {
         $this->curl = $curlFactory->create();
         $this->aplazoHelper = $aplazoHelper;
+        $this->logService = $logService;
     }
 
     /**
@@ -101,7 +105,6 @@ class ApiService
             if (!isset($response['Authorization'])) {
                 $message = __('No token returned from ' . $this->getAuthorizationUrl());
                 $this->aplazoHelper->log($message);
-                $this->sendLog($message, AplazoHelper::LOGS_CATEGORY_ERROR, AplazoHelper::LOGS_SUBCATEGORY_AUTH, ['token' => $this->aplazoHelper->getApiToken()]);
                 throw new AuthenticationException($message);
             }
             $authToken = $response['Authorization'];
@@ -121,7 +124,7 @@ class ApiService
         } catch (LocalizedException $e) {
             $message = "Aplazo communication failed in cartId $cartId get loan status from Aplazo " . $e->getMessage();
             $this->aplazoHelper->log($message);
-            $this->sendLog($message, AplazoHelper::LOGS_CATEGORY_ERROR, AplazoHelper::LOGS_SUBCATEGORY_LOAN);
+            $this->logService->send('error', $message, ['module:checkout'], ['cart_id' => $cartId]);
             return false;
         }
         return $response;
@@ -131,7 +134,6 @@ class ApiService
     {
         $response = $this->getLoanStatus($cartId);
         if(is_array($response)){
-            // An Aplazo response could have more than one loan with the same increment_id. With at least one in OUTSTANDING status, the order means that is paid.
             foreach ($response as $index => $loan) {
                 if (isset($loan['status'])) {
                     if ($loan['status'] === self::LOAN_SUCCESS_STATUS) {
@@ -141,8 +143,11 @@ class ApiService
                     $this->aplazoHelper->log("Loan status is for index [$index] " . $loan['status'] . ". Cart ID $cartId must be cancelled.");
                 } else {
                     $this->aplazoHelper->log("Loan not found. Cart ID $cartId must be cancelled.");
+                    $this->logService->send('warn', "Loan [$index] has no status field", ['module:cron'], ['cart_id' => $cartId]);
                 }
             }
+        } else {
+            $this->logService->send('warn', 'Loan status response is not an array, order will be cancelled', ['module:cron'], ['cart_id' => $cartId]);
         }
         return false;
     }
@@ -193,18 +198,12 @@ class ApiService
 
         if (!$response['success']) {
             $message = __('No response from request to ' . $url);
-            if (strpos($url, "posbifrost") === false) {
-                $this->sendLog($message . ' ' . $response['message'], AplazoHelper::LOGS_CATEGORY_ERROR, AplazoHelper::LOGS_SUBCATEGORY_REQUEST, ['method' => $method, 'body' => $body]);
-            }
             $this->aplazoHelper->log("ERROR > From: \Aplazo\AplazoPayment\Service\ApiService::request\nURL: $url\nMETHOD: $method\nREQUEST: $body\nRESPONSE:".json_encode($response));
+            $this->logService->send('error', 'HTTP request failed', ['module:http'], ['url' => $url, 'method' => $method, 'error' => $response['message'] ?? '']);
             throw new LocalizedException($message);
         }
 
         $this->aplazoHelper->log("From: \Aplazo\AplazoPayment\Service\ApiService::request\nURL: $url\nMETHOD: $method\nREQUEST: $body\nRESPONSE:".json_encode($response), AplazoHelper::LOGS_VVV);
-        if (strpos($url, "posbifrost") === false && $url !== $this->getAuthorizationUrl()) {
-            $this->sendLog("HttpRequest URL:".$url, AplazoHelper::LOGS_CATEGORY_INFO, AplazoHelper::LOGS_SUBCATEGORY_REQUEST,
-            ['method' => $method, 'body' => $body, 'response' => $response]);
-        }
 
         return $response['data'];
     }
@@ -275,27 +274,6 @@ class ApiService
         $this->aplazoHelper->log("From: \Aplazo\AplazoPayment\Service\ApiService::request\nURL: $url\nMETHOD: $method\nREQUEST: $body\nRESPONSE:$response");
 
         return json_decode($response,true);
-    }
-
-    public function sendLog($message, $category, $subcategory, $metadata = [], $secondChance = false)
-    {
-        $metadata = array_merge($metadata, [
-            "merchantId" => $this->aplazoHelper->getMerchantId(),
-            "log" => $message
-        ]);
-        $body = [
-            "eventType"=> "tag_plugin_w",
-            "origin"=> "MGT2",
-            "category"=> $category,
-            "subcategory"=> $subcategory,
-            "metadata"=> $metadata
-        ];
-
-        try {
-            return $this->requestService($this->aplazoHelper->getServiceLogUrl(), json_encode($body));
-        } catch (LocalizedException $e) {
-            return 'error';
-        }
     }
 
     public function getOrderImportantDataToLog($order)

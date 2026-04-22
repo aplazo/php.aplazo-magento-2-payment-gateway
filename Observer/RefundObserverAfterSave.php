@@ -7,6 +7,7 @@ use Aplazo\AplazoPayment\Model\RefundRequest;
 use Aplazo\AplazoPayment\Model\RefundRequestFactory;
 use Aplazo\AplazoPayment\Model\Ui\ConfigProvider;
 use Aplazo\AplazoPayment\Api\RefundRequestRepositoryInterface;
+use Aplazo\AplazoPayment\Service\LogService;
 use Magento\Framework\Exception\AlreadyExistsException;
 use Magento\Framework\Event\Observer;
 use Magento\Framework\Event\ObserverInterface;
@@ -25,7 +26,8 @@ class RefundObserverAfterSave implements ObserverInterface
         private OrderRepositoryInterface $orderRepository,
         private ManagerInterface $messageManager,
         private Data $data,
-        private TrackingService $trackingService
+        private TrackingService $trackingService,
+        private LogService $logService
     ) {
     }
 
@@ -101,6 +103,8 @@ class RefundObserverAfterSave implements ObserverInterface
 
             $this->refundRequestRepository->save($refundRequest);
 
+            $this->logService->send('info', 'Refund queued', ['module:refund'], ['order_id' => (string)$order->getIncrementId(), 'amount' => $amount, 'idempotency_key' => $idempotencyKey]);
+
             $message = __('Credit memo created. Aplazo refund has been queued and will be processed shortly.');
             $this->messageManager->addSuccessMessage($message);
 
@@ -111,12 +115,12 @@ class RefundObserverAfterSave implements ObserverInterface
                 $this->trackingService->sendEvent(
                     TrackingService::EVENT_REFUND_CREATED,
                     [
-                        'order_id' => (int)$order->getEntityId(),
-                        'order_increment_id' => (string)$order->getIncrementId(),
-                        'creditmemo_id' => (int)$creditMemo->getEntityId(),
-                        'amount_cents' => $amountCents,
+                        'orderId' => (int)$order->getEntityId(),
+                        'orderIncrementId' => (string)$order->getIncrementId(),
+                        'creditMemoId' => (int)$creditMemo->getEntityId(),
+                        'amountCents' => $amountCents,
                         'currency' => $currency,
-                        'idempotency_key' => $idempotencyKey,
+                        'idempotencyKey' => $idempotencyKey,
                     ],
                     []
                 );
@@ -128,7 +132,7 @@ class RefundObserverAfterSave implements ObserverInterface
             $message = __('Aplazo refund is already queued for this credit memo. Please wait and check the order history.');
             $this->messageManager->addWarningMessage($message);
         } catch (\Throwable $e) {
-            // Never block the credit memo save for queue failures; just inform the user.
+            $this->logService->send('error', 'Failed to queue refund: ' . $e->getMessage(), ['module:refund'], ['order_id' => (string)$order->getIncrementId(), 'amount' => $amount]);
             $this->messageManager->addErrorMessage(
                 __('Credit memo created, but the Aplazo refund could not be queued. Please check logs. %1', $e->getMessage())
             );

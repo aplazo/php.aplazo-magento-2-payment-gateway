@@ -11,16 +11,6 @@ class Data extends \Magento\Payment\Helper\Data
     const GENERAL_SECTION = 'payment/aplazo_gateway/';
     const APLAZO_WEBHOOK_RECEIVED = 'aplazo_webhook_received';
     const APLAZO_ORDER_CANCELLED = 'aplazo_order_cancelled';
-    const LOGS_SUBCATEGORY_AUTH = 'auth';
-    const LOGS_SUBCATEGORY_LOAN = 'loan';
-    const LOGS_SUBCATEGORY_REQUEST = 'request';
-    const LOGS_SUBCATEGORY_ORDER = 'order';
-    const LOGS_SUBCATEGORY_REFUND = 'refund';
-    const LOGS_SUBCATEGORY_WEBHOOK = 'webhook';
-    const LOGS_SUBCATEGORY_HEALTH_CHECK = 'health';
-    const LOGS_CATEGORY_ERROR = 'error';
-    const LOGS_CATEGORY_WARNING = 'warning';
-    const LOGS_CATEGORY_INFO = 'info';
     const LOGS_VVV = 2;
     private const DEFAULT_TRACKING_BASE_URL_STG = 'https://core.aplazo.net';
     private const DEFAULT_TRACKING_BASE_URL_PROD = 'https://core.aplazo.mx';
@@ -139,6 +129,24 @@ class Data extends \Magento\Payment\Helper\Data
         return $this->getConfigData(self::GENERAL_SECTION . 'merchantid');
     }
 
+    public function getStoreBaseUrl(): string
+    {
+        try {
+            return rtrim((string)$this->storeManager->getStore()->getBaseUrl(\Magento\Framework\UrlInterface::URL_TYPE_WEB), '/');
+        } catch (\Exception $e) {
+            return '';
+        }
+    }
+
+    public function getStoreName(): string
+    {
+        try {
+            return (string)$this->storeManager->getStore()->getName();
+        } catch (\Exception $e) {
+            return '';
+        }
+    }
+
     public function getApiToken(){
         return $this->encryptor->decrypt($this->getConfigData(self::GENERAL_SECTION . 'apitoken'));
     }
@@ -170,10 +178,6 @@ class Data extends \Magento\Payment\Helper\Data
 
     public function getServiceUrl(){
         return $this->getConfigFlag(self::GENERAL_SECTION . 'sanbox_mode') ? 'https://api.aplazo.net' : 'https://api.aplazo.mx';
-    }
-
-    public function getServiceLogUrl(){
-        return $this->getConfigFlag(self::GENERAL_SECTION . 'sanbox_mode') ? 'https://posbifrost.aplazo.net/api/v1/merchant/tagging' : 'https://posbifrost.aplazo.mx/api/v1/merchant/tagging';
     }
 
     public function getUrl($route, $params = []){

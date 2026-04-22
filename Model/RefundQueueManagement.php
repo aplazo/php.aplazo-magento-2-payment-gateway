@@ -7,6 +7,7 @@ use Aplazo\AplazoPayment\Api\RefundRequestRepositoryInterface;
 use Aplazo\AplazoPayment\Helper\Data;
 use Aplazo\AplazoPayment\Model\ResourceModel\RefundRequest\CollectionFactory;
 use Aplazo\AplazoPayment\Service\ApiService;
+use Aplazo\AplazoPayment\Service\LogService;
 use Magento\Sales\Api\OrderRepositoryInterface;
 
 class RefundQueueManagement implements RefundQueueManagementInterface
@@ -18,7 +19,8 @@ class RefundQueueManagement implements RefundQueueManagementInterface
         private ApiService $apiService,
         private RefundLock $refundLock,
         private Data $data,
-        private OrderRepositoryInterface $orderRepository
+        private OrderRepositoryInterface $orderRepository,
+        private LogService $logService
     ) {
     }
 
@@ -60,6 +62,7 @@ class RefundQueueManagement implements RefundQueueManagementInterface
             $response = $this->apiService->createRefund($payload, $request->getIdempotencyKey());
             $this->handleRefundResponse($request, $response);
         } catch (\Throwable $e) {
+            $this->logService->send('error', 'Refund queue processing error: ' . $e->getMessage(), ['module:refund'], ['order_id' => $request->getOrderIncrementId(), 'attempt' => $request->getRetries() + 1]);
             $this->scheduleRetry($request, $e->getMessage(), $this->computeBackoffMinutes($request->getRetries()));
         } finally {
             $this->refundLock->release($lockKey);
@@ -83,6 +86,7 @@ class RefundQueueManagement implements RefundQueueManagementInterface
             $request->setAplazoRefundStatus((string)$refundStatus);
             $request->setResponseJson(json_encode($response, JSON_UNESCAPED_SLASHES));
             $this->refundRequestRepository->save($request);
+            $this->logService->send('error', 'Refund rejected by Aplazo', ['module:refund'], ['order_id' => $request->getOrderIncrementId(), 'refund_id' => (string)$refundId]);
 
             $this->appendOrderHistory($request, __('Aplazo refund rejected. RefundId: %1', (string)$refundId));
             return;
@@ -98,6 +102,7 @@ class RefundQueueManagement implements RefundQueueManagementInterface
         $request->setAplazoRefundStatus((string)$refundStatus);
         $request->setResponseJson(json_encode($response, JSON_UNESCAPED_SLASHES));
         $this->refundRequestRepository->save($request);
+        $this->logService->send('info', 'Refund processed successfully', ['module:refund'], ['order_id' => $request->getOrderIncrementId(), 'refund_id' => (string)$refundId]);
 
         if ($request->getType() === 'rma') {
             $this->applyRmaQtyRefunded($request);
@@ -117,6 +122,7 @@ class RefundQueueManagement implements RefundQueueManagementInterface
             $request->setLastError($error);
             $request->setResponseJson($response ? json_encode($response, JSON_UNESCAPED_SLASHES) : null);
             $this->refundRequestRepository->save($request);
+            $this->logService->send('error', 'Refund failed permanently after max retries', ['module:refund'], ['order_id' => $request->getOrderIncrementId(), 'retries' => self::MAX_RETRIES, 'error' => $error]);
             $this->appendOrderHistory(
                 $request,
                 __('Aplazo refund failed permanently after %1 retries. %2', (string)self::MAX_RETRIES, $error)

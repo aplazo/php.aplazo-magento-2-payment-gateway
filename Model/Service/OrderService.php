@@ -16,6 +16,7 @@ use Magento\Sales\Model\Order;
 use \Magento\Sales\Model\ResourceModel\Order\CollectionFactory as OrderCollectionFactory;
 use Aplazo\AplazoPayment\Model\Ui\ConfigProvider;
 use Aplazo\AplazoPayment\Service\ApiService as AplazoService;
+use Aplazo\AplazoPayment\Service\LogService;
 use Magento\Sales\Model\Service\InvoiceService;
 
 class OrderService
@@ -53,6 +54,8 @@ class OrderService
      */
     private $manager;
 
+    private LogService $logService;
+
     /**
      * @param OrderCollectionFactory $orderCollectionFactory
      * @param OrderRepositoryInterface $orderRepository
@@ -62,6 +65,7 @@ class OrderService
      * @param TransactionFactory $transactionFactory
      * @param CartRepositoryInterface $quoteRepository
      * @param Manager $manager
+     * @param LogService $logService
      */
     public function __construct
     (
@@ -72,7 +76,8 @@ class OrderService
         InvoiceService                      $invoiceService,
         TransactionFactory                  $transactionFactory,
         CartRepositoryInterface             $quoteRepository,
-        Manager                             $manager
+        Manager                             $manager,
+        LogService                          $logService
     )
     {
         $this->orderCollectionFactory = $orderCollectionFactory;
@@ -83,6 +88,7 @@ class OrderService
         $this->transactionFactory = $transactionFactory;
         $this->quoteRepository = $quoteRepository;
         $this->manager = $manager;
+        $this->logService = $logService;
     }
 
     /**
@@ -91,14 +97,15 @@ class OrderService
      */
     public function reservingStockUntilPayment($order, $type = SalesEventInterface::EVENT_ORDER_PLACED)
     {
-        if ($this->aplazoHelper->getReserveStock()) {
+        $reserveStockEnabled = $this->aplazoHelper->getReserveStock();
+        if ($reserveStockEnabled) {
             try {
                 $this->isMsiOrInventory($order, true, 'aplazo_item_reserved');
             } catch (\Exception $e) {
                 $message = 'Webhook error inventory: Al crear pedido no se recupero la reserva de stock. Increment_id ' . $order->getIncrementId();
                 $this->aplazoHelper->log($message);
                 $this->aplazoHelper->log($e->getMessage());
-                $this->aplazoService->sendLog($message, AplazoHelper::LOGS_CATEGORY_ERROR, AplazoHelper::LOGS_SUBCATEGORY_ORDER, ['error' => $e->getMessage()]);
+                $this->logService->send('error', $message, ['module:checkout', 'action:stock'], ['order_id' => $order->getIncrementId(), 'error' => $e->getMessage()]);
             }
         }
     }
@@ -108,31 +115,31 @@ class OrderService
      */
     public function decreasingStockAfterPaymentSuccess($order, $type = SalesEventInterface::EVENT_ORDER_CANCELED)
     {
-        if ($this->aplazoHelper->getReserveStock()) {
+        $reserveStockEnabled = $this->aplazoHelper->getReserveStock();
+        if ($reserveStockEnabled) {
             try {
                 $this->isMsiOrInventory($order, false, $type);
             } catch (\Exception $e) {
                 $message = 'Webhook error inventory: Al crear invoice no se pudo reservar stock. Increment_id ' . $order->getIncrementId();
                 $this->aplazoHelper->log($message);
                 $this->aplazoHelper->log($e->getMessage());
-                $this->aplazoService->sendLog($message, AplazoHelper::LOGS_CATEGORY_ERROR,AplazoHelper::LOGS_SUBCATEGORY_ORDER, ['error' => $e->getMessage()]);
+                $this->logService->send('error', $message, ['module:webhook', 'action:stock'], ['order_id' => $order->getIncrementId(), 'error' => $e->getMessage()]);
             }
         }
     }
 
     public function isMsiOrInventory($order, $plus, $type = ''){
-        if($this->manager->isEnabled("Magento_Inventory") && $this->manager->isEnabled("Magento_InventoryCatalogApi")){
+        $msiEnabled = $this->manager->isEnabled("Magento_Inventory") && $this->manager->isEnabled("Magento_InventoryCatalogApi");
+        if($msiEnabled){
             try{
-                /** @var \Aplazo\AplazoPayment\Model\Product\MSIStock $msiStock */
                 $msiStock = \Magento\Framework\App\ObjectManager::getInstance()->get(\Aplazo\AplazoPayment\Model\Product\MSIStock::class);
                 $msiStock->updateQty($order, $plus, $type);
             } catch (\Exception $e){
-                /** @var \Aplazo\AplazoPayment\Model\Product\MSIStock $msiStock */
+                $this->logService->send('warn', 'MSI stock failed, falling back to legacy inventory: ' . $e->getMessage(), ['module:checkout', 'action:stock'], ['order_id' => $order->getIncrementId()]);
                 $inventoryStock = \Magento\Framework\App\ObjectManager::getInstance()->get(\Aplazo\AplazoPayment\Model\Product\InventoryStock::class);
                 $inventoryStock->updateQtyNotMSI($order, $plus);
             }
         } else {
-            /** @var \Aplazo\AplazoPayment\Model\Product\MSIStock $msiStock */
             $inventoryStock = \Magento\Framework\App\ObjectManager::getInstance()->get(\Aplazo\AplazoPayment\Model\Product\InventoryStock::class);
             $inventoryStock->updateQtyNotMSI($order, $plus);
         }
@@ -198,7 +205,7 @@ class OrderService
             }
         } catch (\Exception $exception) {
             $result['message'] = $exception->getMessage();
-            $this->aplazoService->sendLog('getOrderByAttribute failed: ' . $exception->getMessage(), AplazoHelper::LOGS_CATEGORY_ERROR, AplazoHelper::LOGS_SUBCATEGORY_ORDER);
+            $this->logService->send('error', 'getOrderByAttribute failed: ' . $exception->getMessage(), ['module:checkout'], ['attribute' => $attribute_code, 'value' => $value]);
         }
         return $result;
     }
@@ -269,14 +276,17 @@ class OrderService
                 "totalPrice" => $order->getBaseGrandTotal(),
                 "webHookUrl" => $this->aplazoHelper->getUrl('rest/V1/aplazo') . 'callback'
             ];
+            $this->logService->send('info', 'Creating loan', ['module:checkout'], ['order_id' => $order->getIncrementId(), 'loan_payload' => $orderData]);
             $this->aplazoHelper->log('OrderService->createLoan: Se manda a llamar el token de autorizacion', AplazoHelper::LOGS_VVV);
             $tokenBearer = $this->aplazoService->getAuthorizationToken();
             $this->aplazoHelper->log('OrderService->createLoan: Token de auth - '. $tokenBearer .'. Se creara el loan', AplazoHelper::LOGS_VVV);
-            return $this->aplazoService->createLoan($orderData, $tokenBearer);
+            $loanResult = $this->aplazoService->createLoan($orderData, $tokenBearer);
+            $this->logService->send('info', 'Loan created successfully', ['module:checkout'], ['order_id' => $order->getIncrementId(), 'loan_response' => $loanResult]);
+            return $loanResult;
 
         } catch (\Exception $exception) {
             $this->aplazoHelper->log('createLoan error ' . $exception->getMessage());
-            $this->aplazoService->sendLog('createLoan error ' . $exception->getMessage(), AplazoHelper::LOGS_CATEGORY_ERROR, AplazoHelper::LOGS_SUBCATEGORY_LOAN);
+            $this->logService->send('error', 'createLoan error: ' . $exception->getMessage(), ['module:checkout'], ['order_id' => $order->getIncrementId()]);
             return [];
         }
     }
@@ -289,14 +299,17 @@ class OrderService
     {
         $order = $this->orderRepository->get($orderId);
         $message = '';
+        $orderData = $this->aplazoService->getOrderImportantDataToLog($order);
         $this->decreasingStockAfterPaymentSuccess($order, 'order_placed_aplazo');
         if (!$this->invoiceOrder($order)) {
             $message = 'Orden no se puede hacer invoice ' . $order->getIncrementId();
             $this->aplazoHelper->log($message);
-            $this->aplazoService->sendLog($message, Data::LOGS_CATEGORY_ERROR, Data::LOGS_SUBCATEGORY_ORDER, $this->aplazoService->getOrderImportantDataToLog($order));
+            $this->logService->send('error', $message, ['module:webhook'], $orderData);
             $order->setStatus(AplazoHelper::APLAZO_WEBHOOK_RECEIVED);
         } else {
-            $order->setStatus($this->aplazoHelper->getApprovedOrderStatus());
+            $approvedStatus = $this->aplazoHelper->getApprovedOrderStatus();
+            $order->setStatus($approvedStatus);
+            $this->logService->send('info', 'Order invoiced and approved', ['module:webhook'], array_merge($orderData, ['new_status' => $approvedStatus]));
         }
         $order->setState(Order::STATE_PROCESSING);
 
@@ -324,11 +337,12 @@ class OrderService
             } catch (\Exception $e) {
                 $message = 'Error al crear el invoice de la orden ' . $order->getIncrementId() . ' mensaje de error > ' . $e->getMessage();
                 $this->aplazoHelper->log($message);
-                $this->aplazoService->sendLog($message, AplazoHelper::LOGS_CATEGORY_ERROR, AplazoHelper::LOGS_SUBCATEGORY_ORDER);
+                $this->logService->send('error', $message, ['module:webhook'], ['order_id' => $order->getIncrementId()]);
                 return false;
             }
             return true;
         }
+        $this->logService->send('warn', 'Order cannot be invoiced', ['module:webhook'], ['order_id' => $order->getIncrementId(), 'state' => $order->getState(), 'status' => $order->getStatus()]);
         return false;
     }
 
@@ -351,6 +365,7 @@ class OrderService
                     $result['message'] = __("Order already canceled");
                 } else {
                     $result['message'] = __("Can not cancel this orden");
+                    $this->logService->send('warn', 'Order cannot be cancelled', ['module:cancel'], ['order_id' => $order->getIncrementId(), 'state' => $order->getState(), 'status' => $order->getStatus()]);
                 }
             }
             $order->addCommentToStatusHistory(__('Aplazo info: ') . $result['message']);
@@ -359,9 +374,10 @@ class OrderService
             return $result;
         } catch (NoSuchEntityException $entityException) {
             $result['message'] = $entityException->getMessage();
-            $this->aplazoService->sendLog("Order id not found $orderId: " . $entityException->getMessage(), AplazoHelper::LOGS_CATEGORY_ERROR, AplazoHelper::LOGS_SUBCATEGORY_ORDER);
+            $this->logService->send('error', "Order id not found $orderId: " . $entityException->getMessage(), ['module:cancel']);
         } catch (\Exception $exception) {
             $result['message'] = $exception->getMessage();
+            $this->logService->send('error', 'cancelOrder exception: ' . $exception->getMessage(), ['module:cancel'], ['entity_id' => $orderId]);
             $order->setStatus(AplazoHelper::APLAZO_ORDER_CANCELLED);
             $this->saveOrder($order);
         }

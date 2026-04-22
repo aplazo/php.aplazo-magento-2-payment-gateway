@@ -126,18 +126,16 @@ class Operations extends \Magento\Framework\App\Action\Action
         $incrementId = $this->getRequest()->getParam('incrementid');
         $token = $this->getRequest()->getParam('token');
         $result = $this->orderService->getOrderByIncrementId($incrementId);
-        if (!empty($aplazoCheckout = $result['order']->getAplazoCheckoutUrl())) {
+        if ($result['success'] && !empty($aplazoCheckout = $result['order']->getAplazoCheckoutUrl())) {
             if (strpos($aplazoCheckout, "||") !== false) {
                 $aplazoCheckout = explode("||", $aplazoCheckout)[1];
                 if ($token == $aplazoCheckout){
-                    // Exploding cancel token and checkout Url
                     $response = $this->checkoutNotPaidManagement->postCheckoutNotPaid($incrementId);
                     if (!empty($response->getMessage())) {
                         $this->messageManager->addWarningMessage($response->getMessage());
                     }
                 }
             }
-
         }
         return $this->resultRedirectFactory->create()->setPath('checkout/cart');
     }

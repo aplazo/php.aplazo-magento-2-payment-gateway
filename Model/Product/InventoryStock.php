@@ -36,11 +36,13 @@ class InventoryStock
             }
 
             $stockItem = $this->stockRegistry->getStockItem($item->getProductId());
+            $stockBefore = (float)$stockItem->getQty();
+            $qtyOrdered = (float)$item->getQtyOrdered();
             if($plus){
-                $stockItem->setQty($stockItem->getQty() + $item->getQtyOrdered());
+                $stockItem->setQty($stockBefore + $qtyOrdered);
                 $stockItem->setIsInStock(true);
             } else {
-                $stockItem->setQty($stockItem->getQty() - $item->getQtyOrdered());
+                $stockItem->setQty($stockBefore - $qtyOrdered);
                 if($stockItem->getQty() < 1){
                     $stockItem->setIsInStock(false);
                 } else {

@@ -4,6 +4,7 @@ namespace Aplazo\AplazoPayment\Observer;
 
 use Aplazo\AplazoPayment\Helper\Data as AplazoHelper;
 use Aplazo\AplazoPayment\Service\ApiService as AplazoService;
+use Aplazo\AplazoPayment\Service\LogService;
 use Magento\Framework\Event\ObserverInterface;
 use Magento\Framework\Event\Observer;
 use Magento\Framework\App\Config\Storage\WriterInterface;
@@ -26,6 +27,7 @@ class HealthySite implements ObserverInterface
     private $authAplazoBearerToken;
     private $authAplazoBearerToken2;
     private $configWriter;
+    private LogService $logService;
     private $tests = [
         self::TEST_LOG,
         self::TEST_AUTH,
@@ -37,12 +39,14 @@ class HealthySite implements ObserverInterface
     public function __construct(
         AplazoService   $aplazoService,
         AplazoHelper    $aplazoHelper,
-        WriterInterface $configWriter
+        WriterInterface $configWriter,
+        LogService      $logService
     )
     {
         $this->aplazoService = $aplazoService;
         $this->aplazoHelper = $aplazoHelper;
         $this->configWriter = $configWriter;
+        $this->logService = $logService;
     }
 
     public function execute(Observer $observer)
@@ -123,10 +127,10 @@ class HealthySite implements ObserverInterface
         }
     }
 
-    private function logInBoth($message, $secondChance = false)
+    private function logInBoth($message)
     {
         $this->aplazoHelper->log($message);
-        return $this->aplazoService->sendLog($message, AplazoHelper::LOGS_CATEGORY_INFO, AplazoHelper::LOGS_SUBCATEGORY_HEALTH_CHECK, [], $secondChance);
+        $this->logService->send('info', $message, ['module:config']);
     }
 
     private function getLoanDummyData($secondLoan = null)
