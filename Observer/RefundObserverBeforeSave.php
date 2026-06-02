@@ -81,7 +81,9 @@ class RefundObserverBeforeSave implements ObserverInterface
             return;
         }
 
-        $amountRefund = $creditMemo->getGrandTotal();
+        $amountRefund = $this->_data->shouldUseDisplayAmounts($order)
+            ? $creditMemo->getGrandTotal()
+            : $creditMemo->getBaseGrandTotal();
 
         $reason = '';
         foreach($creditMemo->getComments() as $index => $comment){

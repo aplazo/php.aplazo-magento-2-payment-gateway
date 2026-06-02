@@ -11,6 +11,7 @@ use Magento\Framework\Event\ObserverInterface;
 use Magento\Framework\Exception\AlreadyExistsException;
 use Magento\Framework\Message\ManagerInterface;
 use Magento\Sales\Api\OrderItemRepositoryInterface;
+use Magento\Sales\Api\OrderRepositoryInterface;
 
 class RmaObserverAfterSave implements ObserverInterface
 {
@@ -22,6 +23,7 @@ class RmaObserverAfterSave implements ObserverInterface
         private RefundRequestFactory $refundRequestFactory,
         private RefundRequestRepositoryInterface $refundRequestRepository,
         private OrderItemRepositoryInterface $orderItemRepository,
+        private OrderRepositoryInterface $orderRepository,
         private ManagerInterface $messageManager,
         private Data $data
     ) {
@@ -48,7 +50,20 @@ class RmaObserverAfterSave implements ObserverInterface
         /** @var \Magento\Rma\Model\ItemFactory $itemFactory */
         $itemFactory = \Magento\Framework\App\ObjectManager::getInstance()->get('Magento\\Rma\\Model\\ItemFactory');
 
-        $currency = ''; // RMA does not always carry currency; keep optional.
+        // Aplazo always settles in MXN; resolve whether to send display or base amounts
+        // from the order's currencies. Falls back to display (previous behavior) if the
+        // order cannot be loaded.
+        $useDisplayAmounts = true;
+        $currency = '';
+        try {
+            $order = $this->orderRepository->get((int)$rma->getOrderId());
+            $useDisplayAmounts = $this->data->shouldUseDisplayAmounts($order);
+            $currency = $useDisplayAmounts
+                ? (string)($order->getOrderCurrencyCode() ?: '')
+                : (string)($order->getBaseCurrencyCode() ?: '');
+        } catch (\Throwable $e) {
+            // Could not resolve order currency; keep display amounts and empty currency.
+        }
 
         foreach ((array)$rma->getItems() as $item) {
             if (
@@ -73,7 +88,8 @@ class RmaObserverAfterSave implements ObserverInterface
             $orderItemId = (int)$item->getOrderItemId();
             $orderItem = $this->orderItemRepository->get($orderItemId);
 
-            $amount = (float)$orderItem->getPrice() * $qtyToSend;
+            $unitPrice = (float)($useDisplayAmounts ? $orderItem->getPrice() : $orderItem->getBasePrice());
+            $amount = $unitPrice * $qtyToSend;
             $amountCents = (int)round($amount * 100);
 
             $reason = (string)$item->getReason();
@@ -83,7 +99,7 @@ class RmaObserverAfterSave implements ObserverInterface
                 'rmaItemId' => (int)$item->getEntityId(),
                 'orderItemId' => $orderItemId,
                 'qtyToSend' => (float)$qtyToSend,
-                'unitPriceCents' => (int)round(((float)$orderItem->getPrice()) * 100),
+                'unitPriceCents' => (int)round($unitPrice * 100),
             ];
 
             $idempotencyKey = hash('sha256', json_encode([
