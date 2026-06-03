@@ -3,6 +3,7 @@
 namespace Aplazo\AplazoPayment\Helper;
 
 use Magento\Framework\View\LayoutFactory;
+use Magento\Sales\Api\Data\OrderInterface;
 use Magento\Store\Model\StoreManagerInterface;
 use Aplazo\AplazoPayment\Service\ApiService as AplazoService;
 
@@ -12,6 +13,7 @@ class Data extends \Magento\Payment\Helper\Data
     const APLAZO_WEBHOOK_RECEIVED = 'aplazo_webhook_received';
     const APLAZO_ORDER_CANCELLED = 'aplazo_order_cancelled';
     const LOGS_VVV = 2;
+    const APLAZO_CURRENCY = 'MXN';
     private const DEFAULT_TRACKING_BASE_URL_STG = 'https://core.aplazo.net';
     private const DEFAULT_TRACKING_BASE_URL_PROD = 'https://core.aplazo.mx';
     private const PLATFORM_CODE = 'MGT';
@@ -174,6 +176,31 @@ class Data extends \Magento\Payment\Helper\Data
         /** @var \Magento\Store\Model\Store $store */
         $store = $this->storeManager->getStore();
         return $store->getCurrentCurrency()->getCode();
+    }
+
+    /**
+     * Aplazo always settles in MXN and ignores the currency code, so every amount
+     * we send must already be expressed in pesos. This decides whether to read the
+     * order/display amounts (getX) or the base amounts (getBaseX):
+     *  - base == order currency (typical MXN/MXN): display equals base, default to display.
+     *  - they differ: send whichever side is actually MXN. If neither is MXN the store is
+     *    unsupported (the admin currency check already warns); default to display.
+     *
+     * @param OrderInterface $order
+     * @return bool true to use display (order-currency) amounts, false to use base amounts
+     */
+    public function shouldUseDisplayAmounts(OrderInterface $order): bool
+    {
+        $orderCurrency = (string)$order->getOrderCurrencyCode();
+        $baseCurrency = (string)$order->getBaseCurrencyCode();
+
+        if ($orderCurrency === '' || $orderCurrency === $baseCurrency) {
+            return true;
+        }
+        if ($baseCurrency === self::APLAZO_CURRENCY) {
+            return false;
+        }
+        return true;
     }
 
     public function getServiceUrl(){

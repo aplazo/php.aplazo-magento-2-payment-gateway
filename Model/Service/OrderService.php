@@ -218,10 +218,13 @@ class OrderService
     {
         $result = ['success' => false, 'data' => '', 'message' => ''];
         try {
+            $useDisplayAmounts = $this->aplazoHelper->shouldUseDisplayAmounts($order);
             try{
                 $quote = $this->quoteRepository->get($order->getQuoteId());
                 $shippingMethod = $quote->getShippingAddress()->getShippingDescription();
-                $taxAmount = $quote->getShippingAddress()->getTaxAmount();
+                $taxAmount = $useDisplayAmounts
+                    ? $quote->getShippingAddress()->getTaxAmount()
+                    : $quote->getShippingAddress()->getBaseTaxAmount();
                 $extOrderId = $quote->getId();
             }catch (\Magento\Framework\Exception\NoSuchEntityException $e){
                 $shippingMethod = 'No info rate';
@@ -238,7 +241,7 @@ class OrderService
                         "description" => $item->getDescription(),
                         "id" => $item->getProductId(),
                         "imageUrl" => '',
-                        "price" => $item->getRowTotal() ?? 0,
+                        "price" => ($useDisplayAmounts ? $item->getRowTotal() : $item->getBaseRowTotal()) ?? 0,
                         "title" => $item->getName()
                     ];
                 }
@@ -257,13 +260,13 @@ class OrderService
                 "cartId" => $order->getIncrementId(),
                 "cartUrl" => $cartUrl,
                 "discount" => [
-                    "price" => abs($order->getBaseDiscountAmount()),
+                    "price" => abs($useDisplayAmounts ? $order->getDiscountAmount() : $order->getBaseDiscountAmount()),
                     "title" => $order->getShippingAddress()->getDiscountDescription()
                 ],
                 "errorUrl" => $this->aplazoHelper->getUrl('aplazo/order/operations', ['operation' => 'redirect_to_onepage', 'onepage' => 'failure', 'orderid' => $order->getIncrementId()]),
                 "products" => $products,
                 "shipping" => [
-                    "price" => abs($order->getBaseShippingAmount()),
+                    "price" => abs($useDisplayAmounts ? $order->getShippingAmount() : $order->getBaseShippingAmount()),
                     "title" => $shippingMethod
                 ],
                 "shopId" => $order->getIncrementId(),
@@ -273,10 +276,10 @@ class OrderService
                     "title" => __('Tax'),
                 ],
                 "extOrderId" => $extOrderId,
-                "totalPrice" => $order->getBaseGrandTotal(),
+                "totalPrice" => $useDisplayAmounts ? $order->getGrandTotal() : $order->getBaseGrandTotal(),
                 "webHookUrl" => $this->aplazoHelper->getUrl('rest/V1/aplazo') . 'callback'
             ];
-            $this->logService->send('info', 'Creating loan', ['module:checkout'], ['order_id' => $order->getIncrementId(), 'loan_payload' => $orderData]);
+            $this->logService->send('info', 'Creating loan', ['module:checkout'], ['order_id' => $order->getIncrementId(), 'loan_payload' => $orderData, 'base_currency' => $order->getBaseCurrencyCode(), 'order_currency' => $order->getOrderCurrencyCode(), 'use_display_amounts' => $useDisplayAmounts]);
             $this->aplazoHelper->log('OrderService->createLoan: Se manda a llamar el token de autorizacion', AplazoHelper::LOGS_VVV);
             $tokenBearer = $this->aplazoService->getAuthorizationToken();
             $this->aplazoHelper->log('OrderService->createLoan: Token de auth - '. $tokenBearer .'. Se creara el loan', AplazoHelper::LOGS_VVV);

@@ -57,9 +57,12 @@ class RefundObserverAfterSave implements ObserverInterface
             return;
         }
 
-        $amount = (float)$creditMemo->getGrandTotal();
+        $useDisplayAmounts = $this->data->shouldUseDisplayAmounts($order);
+        $amount = (float)($useDisplayAmounts ? $creditMemo->getGrandTotal() : $creditMemo->getBaseGrandTotal());
         $amountCents = (int)round($amount * 100);
-        $currency = (string)($order->getOrderCurrencyCode() ?: $order->getBaseCurrencyCode() ?: '');
+        $currency = $useDisplayAmounts
+            ? (string)($order->getOrderCurrencyCode() ?: $order->getBaseCurrencyCode() ?: '')
+            : (string)($order->getBaseCurrencyCode() ?: $order->getOrderCurrencyCode() ?: '');
 
         $reason = '';
         foreach ($creditMemo->getComments() as $index => $comment) {
