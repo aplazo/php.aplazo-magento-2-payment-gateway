@@ -1,0 +1,15 @@
+name: Auto assign to author
+
+on:
+  pull_request:
+    types: [ opened ]
+    branches: [ master, main, develop ]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  auto-assign:
+    name: Auto-assign PR to author
+    uses: aplazo/.github/.github/workflows/auto-assign-author.yml@v.1.2.0
