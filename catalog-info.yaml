@@ -1,0 +1,36 @@
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: aplazo-magento-2-payment-gateway
+  title: Aplazo Payment Gateway for Magento 2
+  description: |
+    Magento 2 (Adobe Commerce) payment method that lets shoppers pay with Aplazo
+    (Buy Now, Pay Later — "en quincenas"). Handles loan creation at checkout,
+    redirect to the Aplazo hosted checkout, order confirmation via a JWT-signed
+    webhook, cancellation of unpaid orders, and a resilient refund/RMA queue.
+  tags:
+    - plugin
+    - payment-gateway
+    - magento
+    - php
+    - bnpl
+    - ecommerce
+  annotations:
+    backstage.io/techdocs-ref: dir:./docs
+    github.com/project-slug: aplazo/php.aplazo-magento-2-payment-gateway
+    # NOTE: add these once available for this repo (PHP plugin repos are not in Sonar today):
+    # sonarqube.org/project-key: <KEY>
+    # aws.amazon.com/amazon-ecs-service-arn: <ARN>
+    # jenkins.io/job-full-name: <JOB>
+  links:
+    - url: https://web.aplazo.mx/merchant-registration/become-merchant/company-info
+      title: Become an Aplazo merchant
+      icon: web
+spec:
+  type: library          # Distributed as a Composer module (magento2-module), not a running service
+  lifecycle: production
+  # TODO: verify against https://github.com/aplazo/yaml.aplazo-platform-catalog
+  # Current squad is "merchant-growth"; ownership is expected to move to the new
+  # "bnpl-online" squad after the engineering restructure.
+  owner: group:default/merchant-growth
+  system: system:default/bnpl-online

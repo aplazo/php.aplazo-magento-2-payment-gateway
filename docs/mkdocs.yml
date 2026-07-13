@@ -1,0 +1,39 @@
+site_name: Aplazo Payment Gateway for Magento 2
+site_description: Documentation for the Aplazo Payment Gateway Magento 2 module
+site_url: https://backstage.aplazo.dev/catalog/default/component/aplazo-magento-2-payment-gateway
+repo_url: https://github.com/aplazo/php.aplazo-magento-2-payment-gateway
+repo_name: aplazo/php.aplazo-magento-2-payment-gateway
+docs_dir: ./src
+
+nav:
+  - Home: index.md
+  - Getting Started: getting-started.md
+  - Configuration: configuration.md
+  - Checkout Flow: checkout-flow.md
+  - Webhook & Callbacks: webhooks.md
+  - API Reference: api-reference.md
+  - Refunds & RMA: refunds.md
+  - Cron & CLI: cron-and-cli.md
+  - Data Model: data-model.md
+  - Observability: observability.md
+  - Troubleshooting: troubleshooting.md
+
+plugins:
+  - search
+  - techdocs-core
+
+markdown_extensions:
+  - toc:
+      permalink: true
+  - codehilite
+  - tables
+  - admonition
+  - pymdownx.superfences
+  - pymdownx.tabbed
+  - pymdownx.details
+  - pymdownx.emoji
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
