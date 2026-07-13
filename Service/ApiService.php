@@ -67,6 +67,7 @@ class ApiService
      */
     public function createRefund($orderData, ?string $idempotencyKey = null)
     {
+        $this->logService->send('info', 'API createRefund request', ['module:refund'], ['cart_id' => $orderData['cartId'] ?? '', 'amount' => $orderData['totalAmount'] ?? '', 'has_idempotency' => !empty($idempotencyKey)]);
         $response = $this->requestService(
             $this->getRefundLoanUrl(),
             json_encode($orderData),
@@ -74,6 +75,7 @@ class ApiService
             false,
             $idempotencyKey ? ['X-Idempotency-Key' => $idempotencyKey] : []
         );
+        $this->logService->send('info', 'API createRefund response received', ['module:refund'], ['cart_id' => $orderData['cartId'] ?? '']);
 
         return $response;
     }
@@ -85,10 +87,12 @@ class ApiService
      */
     public function cancelLoan($orderData)
     {
+        $this->logService->send('info', 'API cancelLoan request', ['module:cancel'], ['cart_id' => $orderData['cartId'] ?? '', 'reason' => $orderData['reason'] ?? '']);
         $response = $this->requestService(
             $this->getCancelLoanUrl(),
             json_encode($orderData)
         );
+        $this->logService->send('info', 'API cancelLoan response received', ['module:cancel'], ['cart_id' => $orderData['cartId'] ?? '']);
 
         return $response;
     }
@@ -132,15 +136,19 @@ class ApiService
 
     public function shouldCancelOrder($cartId)
     {
+        $this->logService->send('info', 'Checking loan status for cancel decision', ['module:cron'], ['cart_id' => $cartId]);
         $response = $this->getLoanStatus($cartId);
         if(is_array($response)){
+            $this->logService->send('info', 'Loan status response received', ['module:cron'], ['cart_id' => $cartId, 'loans_count' => count($response)]);
             foreach ($response as $index => $loan) {
                 if (isset($loan['status'])) {
                     if ($loan['status'] === self::LOAN_SUCCESS_STATUS) {
                         $this->aplazoHelper->log("Loan status for index [$index] is OUTSTANDING. Cart ID $cartId must not be cancelled.");
+                        $this->logService->send('info', "Loan [$index] is OUTSTANDING, order should NOT be cancelled", ['module:cron'], ['cart_id' => $cartId, 'loan_status' => $loan['status']]);
                         return true;
                     }
                     $this->aplazoHelper->log("Loan status is for index [$index] " . $loan['status'] . ". Cart ID $cartId must be cancelled.");
+                    $this->logService->send('info', "Loan [$index] status: " . $loan['status'], ['module:cron'], ['cart_id' => $cartId, 'loan_status' => $loan['status']]);
                 } else {
                     $this->aplazoHelper->log("Loan not found. Cart ID $cartId must be cancelled.");
                     $this->logService->send('warn', "Loan [$index] has no status field", ['module:cron'], ['cart_id' => $cartId]);

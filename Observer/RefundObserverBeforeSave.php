@@ -90,6 +90,7 @@ class RefundObserverBeforeSave implements ObserverInterface
             $reason .=  $index . '. ' . $comment->getComment() . '.  ';
         }
 
+        $this->_logService->send('info', 'Credit memo refund started', ['module:refund'], ['order_id' => $order->getIncrementId(), 'amount' => $amountRefund, 'order_total' => $order->getGrandTotal()]);
         $response = $this->_aplazoService->createRefund([
             "cartId"        => $order->getIncrementId(),
             "totalAmount"   => $amountRefund,

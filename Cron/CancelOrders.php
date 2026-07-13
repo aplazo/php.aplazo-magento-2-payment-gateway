@@ -61,6 +61,7 @@ class CancelOrders
         $this->logService->resetRequestId();
         if($minutes = $this->aplazoHelper->getCancelTime()){
             $this->aplazoHelper->log('------ Cancelando ordenes ------');
+            $this->logService->send('info', 'Cron cancel orders: starting', ['module:cron'], ['cancel_time_minutes' => $minutes]);
             $orderCollection = $this->orderService->getOrderToCancelCollection($minutes);
             $counter = $ordersCanceledCount = 0;
             $ordersWithErrors = [];
@@ -74,6 +75,7 @@ class CancelOrders
                  }
                 $message = 'Total de ordenes encontradas: ' . $orderCollectionCount;
                 $this->aplazoHelper->log($message);
+                $this->logService->send('info', 'Cron cancel orders started', ['module:cron'], ['total_orders' => $orderCollectionCount]);
 
                 foreach ($orderCollection as $order) {
                     $store_id = $order->getStoreId();
@@ -103,6 +105,7 @@ class CancelOrders
                                 $order->addCommentToStatusHistory($message);
                                 $order = $this->orderService->saveOrder($order);
                                 $this->aplazoHelper->log("Order $incrementId is OUTSTANDING in Aplazo. Message > " . $message );
+                                $this->logService->send('info', 'Cron: order recovered (OUTSTANDING)', ['module:cron'], $this->apiService->getOrderImportantDataToLog($order));
                                 $recoveredIds[] = $incrementId;
                             } else {
                                 $message = 'Order incrementId not found ' . $incrementId;
@@ -119,6 +122,7 @@ class CancelOrders
                         if($cancelResponse['success']){
                             $message = "Aplazo Cancel Orders: StoreId $store_id - $counter/$orderCollectionCount - #$incrementId - Cancelada exitosamente";
                             $this->aplazoHelper->log($message);
+                            $this->logService->send('info', 'Cron: order cancelled', ['module:cron'], $this->apiService->getOrderImportantDataToLog($order));
                             $ordersCanceledCount++;
                             $cancelledIds[] = $incrementId;
                         } else {
@@ -138,33 +142,21 @@ class CancelOrders
 
     private function finish($ordersCanceledCount, $ordersWithErrors, $cancelledIds = [], $recoveredIds = [])
     {
-        $cancelledCount = $ordersCanceledCount;
-        $recoveredCount = count($recoveredIds);
-
-        if($cancelledCount == 0 && count($ordersWithErrors) == 0 && $recoveredCount == 0){
+        if($ordersCanceledCount == 0 && count($ordersWithErrors) == 0 && count($recoveredIds) == 0){
             $this->aplazoHelper->log("<comment>No se encontraron ordenes de Aplazo para cancelar</comment>");
-        } else {
+            $this->logService->send('info', 'Cron cancel orders finished: no orders to process', ['module:cron']);
+        }
+        else {
             $this->aplazoHelper->log('');
             $this->aplazoHelper->log("<info>Total cancelados: $ordersCanceledCount.</info>");
-
-            if ($cancelledCount > 0 && $recoveredCount > 0) {
-                $this->logService->send('info', 'Se cancelaron y recuperaron ordenes', ['module:cron'], [
-                    'cancelled_count' => $cancelledCount,
-                    'recovered_count' => $recoveredCount,
-                    'cancelled_orders' => $cancelledIds,
-                    'recovered_orders' => $recoveredIds,
-                ]);
-            } elseif ($cancelledCount > 0) {
-                $this->logService->send('info', 'Se cancelaron ordenes', ['module:cron'], [
-                    'cancelled_count' => $cancelledCount,
-                    'cancelled_orders' => $cancelledIds,
-                ]);
-            } elseif ($recoveredCount > 0) {
-                $this->logService->send('info', 'Se recuperaron ordenes', ['module:cron'], [
-                    'recovered_count' => $recoveredCount,
-                    'recovered_orders' => $recoveredIds,
-                ]);
-            }
+            $this->logService->send('info', 'Cron cancel orders finished', ['module:cron'], [
+                'total_cancelled' => $ordersCanceledCount,
+                'total_recovered' => count($recoveredIds),
+                'total_errors' => count($ordersWithErrors),
+                'cancelled_orders' => $cancelledIds,
+                'recovered_orders' => $recoveredIds,
+                'error_orders' => $ordersWithErrors
+            ]);
         }
 
         if(count($ordersWithErrors) > 0){
