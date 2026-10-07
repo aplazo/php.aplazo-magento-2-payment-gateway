@@ -152,7 +152,11 @@ class Notifications implements NotificationsInterface
     {
         try{
             $jwt = trim(str_replace(self::BEARER_STRING, '', $_SERVER[self::HEADER_BEARER]));
-            $apiToken = $this->aplazoHelper->getApiToken();
+            $apiToken = (string)$this->aplazoHelper->getApiToken();
+            if ($apiToken === '') {
+                // Both derived and padded keys of an empty token are publicly computable: fail closed.
+                throw new \UnexpectedValueException('Aplazo API token is not configured');
+            }
             try {
                 return (array) JWT::decode($jwt, new Key(self::deriveWebhookKey($apiToken), self::JWT_ALGORITHM));
             } catch (SignatureInvalidException $e) {
@@ -160,7 +164,7 @@ class Notifications implements NotificationsInterface
             }
         } catch (\Exception $e) {
             $this->aplazoHelper->log("JWT Validation error: " . $e->getMessage());
-            $this->validationMessageError = 'Something went wrong '. $e->getTrace()[0]['line'] . $e->getLine();
+            $this->validationMessageError = 'Something went wrong '. ($e->getTrace()[0]['line'] ?? '') . $e->getLine();
             $this->logService->send('error', 'JWT validation error: ' . $e->getMessage(), ['module:webhook'], ['trace' => $this->validationMessageError]);
             return false;
         }
