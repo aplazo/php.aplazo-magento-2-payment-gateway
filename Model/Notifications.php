@@ -11,6 +11,7 @@ use Aplazo\AplazoPayment\Service\LogService;
 use Aplazo\AplazoPayment\Service\TrackingService;
 use Firebase\JWT\JWT;
 use Firebase\JWT\Key;
+use Firebase\JWT\SignatureInvalidException;
 
 class Notifications implements NotificationsInterface
 {
@@ -20,6 +21,9 @@ class Notifications implements NotificationsInterface
     const APLAZO_PAYLOAD_LOAN_ID_INDEX = 'loanId';
     const APLAZO_PAYLOAD_STATUS_INDEX = 'status';
     const APLAZO_PAYLOAD_ORDER_ID_INDEX = 'cartId';
+    const JWT_ALGORITHM = 'HS512';
+    const HS512_MIN_KEY_BYTES = 64;
+    const WEBHOOK_KEY_LABEL = 'aplazo-webhook-v1';
 
 
     /**
@@ -148,12 +152,43 @@ class Notifications implements NotificationsInterface
     {
         try{
             $jwt = trim(str_replace(self::BEARER_STRING, '', $_SERVER[self::HEADER_BEARER]));
-            return (array) JWT::decode($jwt, new Key($this->aplazoHelper->getApiToken(), 'HS512'));
+            $apiToken = (string)$this->aplazoHelper->getApiToken();
+            if ($apiToken === '') {
+                // Both derived and padded keys of an empty token are publicly computable: fail closed.
+                throw new \UnexpectedValueException('Aplazo API token is not configured');
+            }
+            try {
+                return (array) JWT::decode($jwt, new Key(self::deriveWebhookKey($apiToken), self::JWT_ALGORITHM));
+            } catch (SignatureInvalidException $e) {
+                return (array) JWT::decode($jwt, new Key(self::padHmacKey($apiToken), self::JWT_ALGORITHM));
+            }
         } catch (\Exception $e) {
             $this->aplazoHelper->log("JWT Validation error: " . $e->getMessage());
-            $this->validationMessageError = 'Something went wrong '. $e->getTrace()[0]['line'] . $e->getLine();
+            $this->validationMessageError = 'Something went wrong '. ($e->getTrace()[0]['line'] ?? '') . $e->getLine();
             $this->logService->send('error', 'JWT validation error: ' . $e->getMessage(), ['module:webhook'], ['trace' => $this->validationMessageError]);
             return false;
         }
+    }
+
+    /**
+     * Webhook signing key v2: HMAC-SHA512(key = apiToken, data = WEBHOOK_KEY_LABEL), 64 raw bytes.
+     * Aplazo only signs with it for merchants that have it enabled; everyone else gets the legacy key.
+     */
+    public static function deriveWebhookKey($apiToken)
+    {
+        return hash_hmac('sha512', self::WEBHOOK_KEY_LABEL, (string)$apiToken, true);
+    }
+
+    /**
+     * Legacy key: the raw apiToken. firebase/php-jwt >= 7 rejects HS512 keys shorter than 64 bytes,
+     * and HMAC zero-pads short keys to the block size (RFC 2104), so padding with NUL bytes yields
+     * the exact same signature while passing the length check.
+     */
+    public static function padHmacKey($apiToken)
+    {
+        $apiToken = (string)$apiToken;
+        return strlen($apiToken) < self::HS512_MIN_KEY_BYTES
+            ? str_pad($apiToken, self::HS512_MIN_KEY_BYTES, "\0")
+            : $apiToken;
     }
 }

@@ -170,3 +170,6 @@
 * Console command to exec refunds and orders pending cancel
 ## 4.0.9
 * 5 events added
+## 4.0.12
+* Webhook JWT validation compatible with firebase/php-jwt 7 (Magento 2.4.8-p5+): HS512 key padded to 64 bytes, same signature
+* Accept the v2 webhook signing key (derived from the apiToken) when Aplazo enables it per merchant
