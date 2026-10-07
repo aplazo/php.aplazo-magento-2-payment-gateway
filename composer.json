@@ -2,13 +2,13 @@
   "name": "aplazo/aplazopayment",
   "description": "Aplazo Payment Gateway for Magento 2",
   "type": "magento2-module",
-  "version": "4.0.11",
+  "version": "4.0.12",
   "license": [
     "OSL-3.0",
     "AFL-3.0"
   ],
   "require": {
-    "firebase/php-jwt": "^6.0.0"
+    "firebase/php-jwt": "^6.0.0 || ^7.0"
   },
   "autoload": {
     "files": [ "registration.php" ],
