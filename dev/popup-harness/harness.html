@@ -1,0 +1,439 @@
+<!doctype html>
+<html lang="es">
+<head><meta charset="utf-8"><title>BNPL-1607 popup harness</title></head>
+<body>
+<pre id="out">running…</pre>
+<script src="/lib/jquery.js"></script>
+<script src="/lib/knockout.js"></script>
+<script>
+'use strict';
+/* ---- minimal AMD loader: test only ---- */
+var registry = { jquery: window.jQuery, ko: window.ko };
+window.define = function (deps, factory) {
+  var name = window.__defining;
+  registry[name] = factory.apply(null, deps.map(function (d) {
+    if (!(d in registry)) { throw new Error('missing dep ' + d); }
+    return registry[d];
+  }));
+};
+function load(name, src) {
+  return new Promise(function (resolve, reject) {
+    window.__defining = name;
+    var s = document.createElement('script');
+    s.src = src + '?t=' + Date.now();
+    s.onload = function () { resolve(registry[name]); };
+    s.onerror = reject;
+    document.head.appendChild(s);
+  });
+}
+
+/* ---- uiClass-like extend with _super ---- */
+function wrap(parentFn, fn) {
+  return function () {
+    var prev = this._super;
+    this._super = parentFn;
+    try { return fn.apply(this, arguments); } finally { this._super = prev; }
+  };
+}
+function extend(parent, props) {
+  var child = Object.create(parent);
+  Object.keys(props).forEach(function (k) {
+    child[k] = (typeof props[k] === 'function' && typeof parent[k] === 'function') ? wrap(parent[k], props[k]) : props[k];
+  });
+  child.extend = function (p) { return extend(child, p); };
+  return child;
+}
+
+/* ---- stubs ---- */
+var $ = window.jQuery, ko = window.ko;
+var T = { validate: true, deferreds: [], placeOrderActionCalls: 0, successRedirects: 0, scenario: '' };
+registry['mage/url'] = { build: function (p) { return p; } };
+registry['Magento_Checkout/js/model/quote'] = { getQuoteId: function () { return T.scenario; } };
+registry['Magento_Checkout/js/model/totals'] = {};
+registry['Magento_Catalog/js/price-utils'] = {};
+registry['Magento_Checkout/js/action/redirect-on-success'] = { execute: function () { T.successRedirects++; } };
+var placeOrderAction = function () {
+  T.placeOrderActionCalls++;
+  var d = $.Deferred();
+  T.deferreds.push(d);
+  return d.promise();
+};
+/* Body of placeOrder/getPlaceOrderDeferredObject copied from Magento 2.4.8
+   vendor/magento/module-checkout/view/frontend/web/js/view/payment/default.js:129-170 */
+var Base = {
+  redirectAfterPlaceOrder: true,
+  initialize: function () { this.isPlaceOrderActionAllowed = ko.observable(true); return this; },
+  validate: function () { return T.validate; },
+  getData: function () { return {}; },
+  messageContainer: null,
+  afterPlaceOrder: function () {},
+  placeOrder: function (data, event) {
+    var self = this;
+    if (event) { event.preventDefault(); }
+    if (this.validate() && /* additionalValidators.validate() */ true && this.isPlaceOrderActionAllowed() === true) {
+      this.isPlaceOrderActionAllowed(false);
+      this.getPlaceOrderDeferredObject()
+        .done(function () {
+          self.afterPlaceOrder();
+          if (self.redirectAfterPlaceOrder) { registry['Magento_Checkout/js/action/redirect-on-success'].execute(); }
+        }).always(function () { self.isPlaceOrderActionAllowed(true); });
+      return true;
+    }
+    return false;
+  },
+  getPlaceOrderDeferredObject: function () {
+    return $.when(placeOrderAction(this.getData(), this.messageContainer));
+  }
+};
+Base.extend = function (p) { return extend(Base, p); };
+registry['Magento_Checkout/js/view/payment/default'] = Base;
+
+/* ---- window.open spy ---- */
+var realOpen = window.open.bind(window);
+var openLog = [];
+window.open = function () {
+  if (T.openThrows) { openLog.push({ args: [], threw: true }); throw new Error('blocked by test'); }
+  if (T.fakeNavThrow) {
+    var fake = { closed: false, focus: function () {}, close: function () { this.closed = true; } };
+    fake.location = {}; Object.defineProperty(fake.location, 'href', { set: function () { throw new Error('navigation blocked by test'); } });
+    openLog.push({ args: Array.prototype.slice.call(arguments), returnedNull: false }); T.lastPopup = fake; return fake;
+  }
+  var w = realOpen.apply(null, arguments);
+  openLog.push({ args: Array.prototype.slice.call(arguments), returnedNull: !w });
+  T.lastPopup = w || null;
+  return w;
+};
+
+/* ---- helpers ---- */
+var sleep = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
+var MOCK = 'http://localhost:8099', MOCK_COOP = 'http://localhost:8100';
+function cfg(overrides) {
+  return Object.assign({ active: true, title: 't', banner: '', checkoutMode: 'popup', aplazoOrigin: MOCK,
+    actionUrl: MOCK + '/mock-checkout.html' }, overrides || {});
+}
+var Renderer;
+function newRenderer(config) {
+  window.checkoutConfig = { payment: { aplazo_gateway: config }, defaultSuccessPageUrl: 'checkout/onepage/success/' };
+  var inst = Object.create(Renderer);
+  Object.assign(inst, JSON.parse(JSON.stringify(Renderer.defaults || {})));
+  inst.initialize();
+  inst.redirectCalls = [];
+  inst.redirectToPurchase = function (u) { this.redirectCalls.push(u); };
+  return inst;
+}
+async function hits(sc) {
+  var all = await (await fetch('/hits')).json();
+  return {
+    purchase: all.filter(function (h) { return h.path === '/mock-checkout.html' && h.query.quoteid === sc; }).length,
+    mocklog: all.filter(function (h) { return h.path === '/mocklog' && h.query.sc === sc; }).map(function (h) { return h.query; })
+  };
+}
+function reset(sc) {
+  if (T.lastPopup && !T.lastPopup.closed) { T.lastPopup.close(); }
+  T.validate = true; T.openThrows = false; T.fakeNavThrow = false; T.deferreds = []; T.placeOrderActionCalls = 0; T.successRedirects = 0; T.scenario = sc; T.lastPopup = null;
+  openLog.length = 0;
+}
+function snapshot(r) {
+  var s = r.popupSession;
+  return {
+    openCalls: openLog.length, openReturnedNull: openLog.some(function (o) { return o.returnedNull; }),
+    placeOrderActionCalls: T.placeOrderActionCalls, redirectCalls: r.redirectCalls.slice(),
+    successRedirects: T.successRedirects, notice: r.popupNotice(), orderPlaced: r.popupOrderPlaced(),
+    popupClosed: T.lastPopup ? T.lastPopup.closed : null,
+    listenerActive: !!(s && s.listener), watcherActive: !!(s && s.watcher), canReopen: r.popupCanReopen()
+  };
+}
+var results = [];
+function check(name, obs, expect) {
+  var failures = [];
+  Object.keys(expect).forEach(function (k) {
+    var a = JSON.stringify(obs[k]), e = JSON.stringify(expect[k]);
+    if (a !== e) { failures.push(k + ': got ' + a + ' expected ' + e); }
+  });
+  results.push({ name: name, ok: failures.length === 0, failures: failures, observed: obs });
+}
+var N = {
+  closedBeforeCheckout: 'La ventana de Aplazo se cerró antes de cargar el checkout. Tu pedido quedó registrado.',
+  lost: 'La ventana de Aplazo se cerró o perdió comunicación con esta página, así que no podemos mostrar aquí el resultado.',
+  lostPending: 'Tu pago estaba en proceso cuando la ventana de Aplazo se cerró o perdió comunicación con esta página. No podemos mostrar aquí el resultado.',
+  pending: 'Tu pago está en proceso en Aplazo. Mantén esta página abierta.',
+  failure: 'Aplazo indicó que el pago no se completó.',
+  close: 'Saliste de la ventana de Aplazo. Aún no podemos confirmar aquí el resultado de tu pago.',
+  reopenBlocked: 'Tu navegador bloqueó la ventana de Aplazo. Permite las ventanas emergentes de este sitio y vuelve a intentarlo.',
+  navigationFailed: 'No pudimos cargar Aplazo en su ventana. Puedes volver a intentarlo.'
+};
+function purchaseUrl(base, sc, popup) { return base + '/mock-checkout.html?operation=purchase&quoteid=' + sc + (popup ? '&mode=popup' : ''); }
+
+/* ---- scenarios ---- */
+async function placeAndResolve(r, ajax) {
+  var ret = r.placeOrder({}, null);
+  if (T.deferreds[0]) { ajax === 'reject' ? T.deferreds[0].reject({}) : T.deferreds[0].resolve(1); }
+  await sleep(50); // jQuery 3 settles $.when() asynchronously
+  return ret;
+}
+async function terminal(sc, mockSc, waitMs, expect) {
+  reset(mockSc);
+  var r = newRenderer(cfg());
+  var ret = await placeAndResolve(r);
+  await sleep(waitMs);
+  var o = snapshot(r);
+  o.placeOrderReturned = ret;
+  o.retryReturned = r.placeOrder({}, null);
+  o.placeOrderActionCallsAfterRetry = T.placeOrderActionCalls;
+  var h = await hits(mockSc);
+  o.purchaseHits = h.purchase; o.mockMode = h.mocklog.length ? h.mocklog[0].mode : null;
+  check(sc, o, expect);
+}
+
+async function runMain() {
+  Renderer = await load('Aplazo_AplazoPayment/js/model/popup-checkout', '/module/js/model/popup-checkout.js')
+    .then(function () { return load('renderer', '/module/js/view/payment/method-renderer/aplazo-gateway.js'); });
+
+  // 1. redirect mode is untouched
+  reset('redirect_mode');
+  var r = newRenderer(cfg({ checkoutMode: 'redirect', actionUrl: 'https://magento.test/aplazo/order/operations' }));
+  var ret = await placeAndResolve(r);
+  var o = snapshot(r); o.placeOrderReturned = ret;
+  check('redirect_mode', o, { placeOrderReturned: true, openCalls: 0, placeOrderActionCalls: 1,
+    redirectCalls: ['https://magento.test/aplazo/order/operations?operation=purchase&quoteid=redirect_mode'],
+    notice: '', orderPlaced: false });
+
+  // 2. popup configured with an invalid origin falls back to redirect
+  reset('invalid_origin');
+  r = newRenderer(cfg({ aplazoOrigin: 'http://evil.example', actionUrl: 'https://magento.test/x' }));
+  ret = await placeAndResolve(r);
+  o = snapshot(r);
+  check('invalid_origin_config', o, { openCalls: 0, redirectCalls: ['https://magento.test/x?operation=purchase&quoteid=invalid_origin'] });
+
+  // 3. validation fails: no window, no request
+  reset('validation_fail');
+  T.validate = false;
+  r = newRenderer(cfg());
+  ret = r.placeOrder({}, null);
+  o = snapshot(r); o.placeOrderReturned = ret;
+  check('validation_fail', o, { placeOrderReturned: false, openCalls: 0, placeOrderActionCalls: 0, redirectCalls: [] });
+
+  // 4. AJAX fails: the blank window is closed, retry is still possible
+  reset('ajax_fail');
+  r = newRenderer(cfg());
+  ret = await placeAndResolve(r, 'reject');
+  await sleep(100);
+  o = snapshot(r); o.placeOrderReturned = ret;
+  o.retryReturned = r.placeOrder({}, null);
+  check('ajax_fail', o, { placeOrderReturned: true, openCalls: 1, openReturnedNull: false, popupClosed: true,
+    redirectCalls: [], notice: '', orderPlaced: false, retryReturned: true });
+  if (T.deferreds[1]) { T.deferreds[1].reject({}); }
+
+  // 5. double click while the request is in flight
+  reset('stay');
+  r = newRenderer(cfg());
+  var first = r.placeOrder({}, null), second = r.placeOrder({}, null);
+  o = snapshot(r); o.first = first; o.second = second;
+  check('double_click', o, { first: true, second: false, openCalls: 1, placeOrderActionCalls: 1 });
+  T.deferreds[0].resolve(1);
+  await sleep(600);
+  // wrong origin: a message from this page itself is ignored
+  window.postMessage({ type: 'aplazo:checkout:success', version: 1 }, '*');
+  await sleep(300);
+  o = snapshot(r);
+  check('wrong_origin_ignored', o, { successRedirects: 0, notice: '', listenerActive: true, watcherActive: true });
+  // closed after Checkout opened: neutral notice, no redirect, no cancel, no new purchase
+  T.lastPopup.close();
+  await sleep(900);
+  o = snapshot(r); o.retryReturned = r.placeOrder({}, null);
+  var h = await hits('stay'); o.purchaseHits = h.purchase;
+  check('closed_after_open', o, { notice: N.lost, redirectCalls: [], successRedirects: 0, listenerActive: false,
+    watcherActive: false, retryReturned: false, placeOrderActionCalls: 1, purchaseHits: 1 });
+
+  // 6. closed while the order is being created
+  reset('closed_during_creation');
+  r = newRenderer(cfg());
+  r.placeOrder({}, null);
+  T.lastPopup.close();
+  await sleep(50);
+  T.deferreds[0].resolve(1);
+  await sleep(300);
+  o = snapshot(r); o.retryReturned = r.placeOrder({}, null);
+  h = await hits('closed_during_creation'); o.purchaseHits = h.purchase;
+  check('closed_during_creation', o, { notice: N.closedBeforeCheckout, redirectCalls: [], orderPlaced: true,
+    purchaseHits: 0, retryReturned: false, placeOrderActionCalls: 1 });
+
+  // 7. terminal states from the mock
+  await terminal('success', 'success', 1200, { successRedirects: 1, notice: '', popupClosed: true, redirectCalls: [],
+    listenerActive: false, watcherActive: false, purchaseHits: 1, mockMode: 'popup', retryReturned: false, placeOrderActionCallsAfterRetry: 1 });
+  h = await fetch('/hits').then(function (x) { return x.json(); });
+  var successHit = h.filter(function (x) { return x.path === '/mock-checkout.html' && x.query.quoteid === 'success'; })[0] || { query: {} };
+  check('popup_purchase_carries_order_id', { order: successHit.query.order, mode: successHit.query.mode }, { order: '1', mode: 'popup' });
+  await terminal('success_twice_ignored_after_terminal', 'success_twice', 1200, { successRedirects: 1, listenerActive: false });
+  await terminal('failure', 'failure', 1200, { notice: N.failure, successRedirects: 0, redirectCalls: [], popupClosed: true,
+    listenerActive: false, watcherActive: false, purchaseHits: 1, retryReturned: false, placeOrderActionCallsAfterRetry: 1 });
+  await terminal('close', 'close', 1200, { notice: N.close, successRedirects: 0, redirectCalls: [], popupClosed: true,
+    listenerActive: false, watcherActive: false, purchaseHits: 1, retryReturned: false, placeOrderActionCallsAfterRetry: 1 });
+  await terminal('pending_then_success', 'pending_then_success', 1800, { successRedirects: 1, notice: '', popupClosed: true });
+  await terminal('bad_version_then_close', 'bad_version_then_close', 1500, { successRedirects: 0, notice: N.close });
+  await terminal('bad_shape_then_close', 'bad_shape_then_close', 1600, { successRedirects: 0, notice: N.close });
+  await terminal('wrong_source_then_close', 'wrong_source_then_close', 1700, { successRedirects: 0, notice: N.close });
+
+  // 8. pending is not terminal; losing the window keeps listening and reports neutrally
+  reset('pending_stay');
+  r = newRenderer(cfg());
+  await placeAndResolve(r);
+  await sleep(800);
+  o = snapshot(r);
+  check('pending_not_terminal', o, { notice: N.pending, listenerActive: true, watcherActive: true, successRedirects: 0 });
+  T.lastPopup.close();
+  await sleep(900);
+  o = snapshot(r);
+  check('pending_then_lost', o, { notice: N.lostPending, listenerActive: true, watcherActive: false, redirectCalls: [], successRedirects: 0 });
+  r.popupSession.dispose();
+
+
+  // 10. window.open throws: submission is not left blocked and only one order is placed
+  reset('open_throws');
+  T.openThrows = true;
+  r = newRenderer(cfg());
+  ret = await placeAndResolve(r);
+  o = snapshot(r); o.placeOrderReturned = ret; o.allowedAfter = r.isPlaceOrderActionAllowed();
+  check('open_throws', o, { placeOrderReturned: true, placeOrderActionCalls: 1, allowedAfter: true, orderPlaced: false,
+    redirectCalls: [purchaseUrl(MOCK, 'open_throws', false)], notice: '' });
+  T.openThrows = false;
+
+  // 11. two instances: separate windows, a message for one does not touch the other
+  reset('stay');
+  var a = newRenderer(cfg());
+  a.placeOrder({}, null); var popupA = T.lastPopup; T.deferreds[0].resolve(1);
+  await sleep(100);
+  T.scenario = 'success';
+  var b = newRenderer(cfg());
+  b.placeOrder({}, null); var popupB = T.lastPopup; T.deferreds[1].resolve(1);
+  await sleep(1200);
+  o = { differentWindows: popupA !== popupB, names: openLog.map(function (x) { return x.args[1]; }),
+        aNotice: a.popupNotice(), aListening: !!(a.popupSession && a.popupSession.listener), aPopupClosed: popupA.closed,
+        bSuccessRedirects: T.successRedirects, bPopupClosed: popupB.closed, bListening: !!(b.popupSession && b.popupSession.listener) };
+  o.namesDistinct = o.names.length === 2 && o.names[0] !== o.names[1] && o.names.every(function (n) { return n.indexOf('aplazo_checkout_') === 0; });
+  check('two_instances_isolated', o, { differentWindows: true, namesDistinct: true, aNotice: '', aListening: true, aPopupClosed: false,
+    bSuccessRedirects: 1, bPopupClosed: true, bListening: false });
+
+  // 12. pagehide disposes only the active session's own listener/interval
+  window.dispatchEvent(new Event('pagehide'));
+  await sleep(50);
+  o = { aListening: !!(a.popupSession && a.popupSession.listener), aWatching: !!(a.popupSession && a.popupSession.watcher) };
+  check('pagehide_cleanup', o, { aListening: false, aWatching: false });
+  popupA.close();
+
+  // 13. reopen after close: same order, new window, one more purchase request, no placeOrder
+  reset('reopen_close');
+  r = newRenderer(cfg());
+  await placeAndResolve(r);
+  await sleep(1200);
+  o = snapshot(r);
+  check('close_reopen_disabled', o, { notice: N.close, canReopen: false, placeOrderActionCalls: 1 });
+  var opensBefore = openLog.length;
+  r.reopenPopup();
+  o = snapshot(r);
+  o.newWindows = openLog.length - opensBefore;
+  check('reopen_call_does_nothing_while_disabled', o, { newWindows: 0, canReopen: false, notice: N.close, placeOrderActionCalls: 1, redirectCalls: [] });
+  // a second click while the window is open only focuses it
+  r.reopenPopup();
+  o = { newWindows: openLog.length - opensBefore };
+  check('reopen_second_call_does_nothing', o, { newWindows: 0 });
+  await sleep(1200);
+  o = snapshot(r);
+  h = await hits('reopen_close'); o.purchaseHits = h.purchase; o.lastMockMode = h.mocklog.length ? h.mocklog[h.mocklog.length - 1].mode : null;
+  check('reopen_disabled_no_extra_purchase', o, { purchaseHits: 1, lastMockMode: 'popup', notice: N.close, canReopen: false,
+    placeOrderActionCalls: 1, successRedirects: 0, redirectCalls: [] });
+
+  // 14. reopen blocked: recovery stays, nothing navigates
+  T.openThrows = true;
+  r.reopenPopup();
+  T.openThrows = false;
+  await sleep(100);
+  o = snapshot(r);
+  h = await hits('reopen_close'); o.purchaseHits = h.purchase;
+  check('reopen_disabled_even_if_blocked', o, { notice: N.close, canReopen: false, redirectCalls: [], purchaseHits: 1, placeOrderActionCalls: 1 });
+
+  // 15. closed during order creation, then reopen: the first purchase happens on the explicit click
+  reset('closed_then_reopen');
+  T.scenario = 'close';
+  r = newRenderer(cfg());
+  r.placeOrder({}, null);
+  T.lastPopup.close();
+  await sleep(50);
+  T.deferreds[0].resolve(1);
+  await sleep(300);
+  o = snapshot(r);
+  check('closed_during_creation_no_reopen', o, { notice: N.closedBeforeCheckout, canReopen: false, redirectCalls: [] });
+
+  // 16. navigate() throws: resources released, neutral recovery, no redirect, no new order
+  reset('nav_throws');
+  T.fakeNavThrow = true;
+  r = newRenderer(cfg());
+  await placeAndResolve(r);
+  T.fakeNavThrow = false;
+  o = snapshot(r);
+  o.sessionCleared = r.popupSession === null;
+  o.retryReturned = r.placeOrder({}, null);
+  check('navigate_throws', o, { notice: N.navigationFailed, canReopen: false, sessionCleared: true, popupClosed: true,
+    redirectCalls: [], successRedirects: 0, retryReturned: false, placeOrderActionCalls: 1 });
+  // 9. COOP same-origin on the checkout page (observation, not a pass/fail on the contract)
+  reset('success');
+  r = newRenderer(cfg({ aplazoOrigin: MOCK_COOP, actionUrl: MOCK_COOP + '/mock-checkout.html' }));
+  T.scenario = 'coop_success';
+  await placeAndResolve(r);
+  await sleep(1500);
+  o = snapshot(r);
+  h = await hits('coop_success'); o.mocklog = h.mocklog; o.purchaseHits = h.purchase;
+  results.push({ name: 'coop_same_origin_observation', ok: true, observation: true, observed: o });
+  if (r.popupSession) { r.popupSession.close(); }
+}
+
+async function runBlocked() {
+  Renderer = await load('Aplazo_AplazoPayment/js/model/popup-checkout', '/module/js/model/popup-checkout.js')
+    .then(function () { return load('renderer', '/module/js/view/payment/method-renderer/aplazo-gateway.js'); });
+  reset('popup_blocked');
+  var r = newRenderer(cfg());
+  var ret = await placeAndResolve(r);
+  var o = snapshot(r); o.placeOrderReturned = ret;
+  check('popup_blocked', o, { placeOrderReturned: true, openCalls: 1, openReturnedNull: true,
+    redirectCalls: [purchaseUrl(MOCK, 'popup_blocked', false)], notice: '', orderPlaced: false });
+}
+
+
+async function runClick(name) {
+  Renderer = await load('Aplazo_AplazoPayment/js/model/popup-checkout', '/module/js/model/popup-checkout.js')
+    .then(function () { return load('renderer', '/module/js/view/payment/method-renderer/aplazo-gateway.js'); });
+  reset('success');
+  T.scenario = 'click_' + name;
+  var r = newRenderer(cfg());
+  var btn = document.createElement('button');
+  btn.id = 'pay'; btn.textContent = 'Pagar con Aplazo'; btn.style.cssText = 'font-size:24px;padding:24px;margin:40px';
+  document.body.appendChild(btn);
+  var clicked = new Promise(function (resolve) {
+    btn.addEventListener('click', function (e) {
+      var ret = r.placeOrder({}, e);  // same call path as the KO click binding
+      setTimeout(function () { if (T.deferreds[0]) { T.deferreds[0].resolve(1); } }, 150);  // async, like the real AJAX
+      resolve({ ret: ret, isTrusted: e.isTrusted, userActivation: navigator.userActivation ? navigator.userActivation.isActive : null });
+    });
+  });
+  document.title = 'ready';
+  var c = await clicked;
+  await sleep(2000);
+  var o = snapshot(r);
+  o.clickTrusted = c.isTrusted; o.userActivationAtClick = c.userActivation; o.placeOrderReturned = c.ret;
+  var h = await hits('click_' + name); o.purchaseHits = h.purchase; o.mocklog = h.mocklog;
+  results.push({ name: 'click_' + name, ok: true, observation: true, observed: o });
+}
+(async function () {
+  var suite = new URLSearchParams(location.search).get('suite') || 'main';
+  try {
+    if (suite.indexOf('click-') === 0) { await runClick(suite.slice(6)); }
+    else { await (suite === 'blocked' ? runBlocked() : runMain()); }
+  } catch (e) {
+    results.push({ name: 'harness_error', ok: false, failures: [String(e && e.stack || e)] });
+  }
+  document.getElementById('out').textContent = JSON.stringify(results, null, 2);
+  await fetch('/results?suite=' + suite, { method: 'POST', body: JSON.stringify(results) });
+})();
+</script>
+</body>
+</html>

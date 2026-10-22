@@ -16,6 +16,11 @@ class LogService
 
     private ?string $requestId = null;
 
+    /** While > 0, send() queues the request instead of posting it (no HTTP while holding database locks). */
+    private int $deferDepth = 0;
+
+    private array $deferred = [];
+
     public function __construct(
         private CurlFactory $curlFactory,
         private Data $aplazoHelper,
@@ -56,14 +61,53 @@ class LogService
 
             $url = rtrim($this->aplazoHelper->getTrackingBaseUrl(), '/') . self::LOG_PATH;
 
-            $curl = $this->curlFactory->create();
-            $curl->setOption(CURLOPT_CONNECTTIMEOUT, self::CONNECT_TIMEOUT);
-            $curl->setOption(CURLOPT_TIMEOUT, self::TIMEOUT);
-            $curl->setHeaders(['Content-Type' => 'application/json']);
-            $curl->post($url, json_encode($payload, JSON_UNESCAPED_SLASHES));
+            if ($this->deferDepth > 0) {
+                $this->deferred[] = [$url, $payload];
+                return;
+            }
+            $this->post($url, $payload);
         } catch (\Throwable $e) {
             // Fire-and-forget: never block commerce flows
         }
+    }
+
+    /**
+     * Queues every send() until the matching flush(). Calls nest.
+     */
+    public function defer(): void
+    {
+        $this->deferDepth++;
+    }
+
+    /**
+     * Ends one defer() level; the outermost one posts the queued requests. Never throws.
+     */
+    public function flush(): void
+    {
+        if ($this->deferDepth > 0) {
+            $this->deferDepth--;
+        }
+        if ($this->deferDepth > 0) {
+            return;
+        }
+        $queued = $this->deferred;
+        $this->deferred = [];
+        foreach ($queued as [$url, $payload]) {
+            try {
+                $this->post($url, $payload);
+            } catch (\Throwable $e) {
+                // Fire-and-forget: never block commerce flows
+            }
+        }
+    }
+
+    private function post(string $url, array $payload): void
+    {
+        $curl = $this->curlFactory->create();
+        $curl->setOption(CURLOPT_CONNECTTIMEOUT, self::CONNECT_TIMEOUT);
+        $curl->setOption(CURLOPT_TIMEOUT, self::TIMEOUT);
+        $curl->setHeaders(['Content-Type' => 'application/json']);
+        $curl->post($url, json_encode($payload, JSON_UNESCAPED_SLASHES));
     }
 
     public function resetRequestId(): void

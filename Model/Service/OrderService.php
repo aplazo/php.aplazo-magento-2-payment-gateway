@@ -4,6 +4,8 @@ namespace Aplazo\AplazoPayment\Model\Service;
 
 use Aplazo\AplazoPayment\Helper\Data;
 use Aplazo\AplazoPayment\Helper\Data as AplazoHelper;
+use Magento\Framework\App\ObjectManager;
+use Magento\Framework\App\ResourceConnection;
 use Magento\Framework\DB\TransactionFactory;
 use Magento\Framework\Exception\LocalizedException;
 use Magento\Framework\Exception\NoSuchEntityException;
@@ -56,6 +58,16 @@ class OrderService
 
     private LogService $logService;
 
+    private ResourceConnection $resourceConnection;
+
+    /** payment.additional_information: "pending" when the order is placed, "done" once compensated in purchase */
+    const STOCK_COMPENSATION_KEY = 'aplazo_stock_compensation';
+    const STOCK_COMPENSATION_PENDING = 'pending';
+    const STOCK_COMPENSATION_DONE = 'done';
+    const PURCHASE_READY = 'ready';
+    const PURCHASE_NOT_ELIGIBLE = 'not_eligible';
+    const PURCHASE_STOCK_FAILED = 'stock_failed';
+
     /**
      * @param OrderCollectionFactory $orderCollectionFactory
      * @param OrderRepositoryInterface $orderRepository
@@ -77,9 +89,11 @@ class OrderService
         TransactionFactory                  $transactionFactory,
         CartRepositoryInterface             $quoteRepository,
         Manager                             $manager,
-        LogService                          $logService
+        LogService                          $logService,
+        ?ResourceConnection                 $resourceConnection = null
     )
     {
+        $this->resourceConnection = $resourceConnection ?? ObjectManager::getInstance()->get(ResourceConnection::class);
         $this->orderCollectionFactory = $orderCollectionFactory;
         $this->orderRepository = $orderRepository;
         $this->aplazoService = $aplazoService;
@@ -114,6 +128,178 @@ class OrderService
                 $this->aplazoHelper->log($e->getMessage());
                 $this->logService->send('error', $message, ['module:checkout', 'action:stock'], ['order_id' => $order->getIncrementId(), 'error' => $e->getMessage()]);
             }
+        }
+    }
+
+    /**
+     * Marks a new Aplazo order as waiting for the purchase stock compensation. Called while the order is placed,
+     * before it is saved, so the marker is persisted with the order itself.
+     */
+    public function markStockCompensationPending(Order $order): void
+    {
+        $order->getPayment()->setAdditionalInformation(self::STOCK_COMPENSATION_KEY, self::STOCK_COMPENSATION_PENDING);
+    }
+
+    /**
+     * Checks that the order can (re)open Aplazo checkout and applies the purchase stock compensation at most once.
+     *
+     * Concurrency: the order and payment rows are read with SELECT ... FOR UPDATE, so concurrent requests for the
+     * same order, and the webhook's order save, wait for this transaction.
+     * Atomicity: the compensation (MSI reservation or legacy stock item, never one after the other failed) and the
+     * marker are written on the transaction's own connection; this is checked at run time and the compensation is
+     * refused, not applied outside the transaction, when the inventory tables use another connection.
+     * Only orders marked "pending" when they were placed are compensated: an order without the marker (placed before
+     * it existed) has an unknown history, so nothing is inferred or added for it.
+     * Remote logs are queued during the transaction and sent after it ends; logging never changes the result.
+     *
+     * @return string self::PURCHASE_READY, self::PURCHASE_NOT_ELIGIBLE or self::PURCHASE_STOCK_FAILED
+     */
+    public function preparePurchase(Order $order): string
+    {
+        $connection = $this->resourceConnection->getConnection('sales');
+        $outcome = null;
+        $state = null;
+        $error = null;
+
+        $this->logService->defer();
+        try {
+            $pdo = $connection->getConnection();
+            $outermost = $connection->getTransactionLevel() === 0;
+            try {
+                $connection->beginTransaction();
+                $row = $connection->fetchRow(
+                    $connection->select()
+                        ->from(['o' => $this->resourceConnection->getTableName('sales_order')], ['state'])
+                        ->join(
+                            ['p' => $this->resourceConnection->getTableName('sales_order_payment')],
+                            'p.parent_id = o.entity_id',
+                            ['payment_id' => 'entity_id', 'method', 'additional_information']
+                        )
+                        ->where('o.entity_id = ?', (int)$order->getEntityId())
+                        ->forUpdate(true)
+                );
+                $state = $row['state'] ?? null;
+                if (!$row || $row['method'] !== ConfigProvider::CODE || $row['state'] !== Order::STATE_NEW) {
+                    $outcome = 'not_eligible';
+                } else {
+                    $additionalInformation = json_decode((string)$row['additional_information'], true) ?: [];
+                    $compensation = $additionalInformation[self::STOCK_COMPENSATION_KEY] ?? null;
+                    if ($compensation === null) {
+                        $outcome = 'unknown';
+                    } elseif ($compensation === self::STOCK_COMPENSATION_PENDING && $this->aplazoHelper->getReserveStock()) {
+                        $this->compensateForPurchase($order, $connection);
+                        $additionalInformation[self::STOCK_COMPENSATION_KEY] = self::STOCK_COMPENSATION_DONE;
+                        $this->markStockCompensated($connection, (int)$row['payment_id'], $additionalInformation);
+                        $outcome = 'compensated';
+                    } else {
+                        $outcome = 'ready';
+                    }
+                }
+                $connection->commit();
+            } catch (\Throwable $e) {
+                $error = $e->getMessage();
+                try {
+                    $this->rollBackOwnTransaction($connection, $pdo, $outermost);
+                } catch (\Throwable $rollbackError) {
+                    $error .= ' | rollback: ' . $rollbackError->getMessage();
+                }
+            }
+
+            // Business result is final here: nothing below can turn a commit into a failure.
+            try {
+                if ($error !== null) {
+                    $this->aplazoHelper->log('preparePurchase: rolled back. Increment_id ' . $order->getIncrementId() . ': ' . $error);
+                    $this->logService->send('error', 'Purchase stock compensation rolled back', ['module:checkout', 'action:stock'], [
+                        'order_id' => $order->getIncrementId(), 'error' => $error
+                    ]);
+                } elseif ($outcome === 'not_eligible') {
+                    $this->logService->send('info', 'Purchase rejected: order not eligible', ['module:checkout'], [
+                        'order_id' => $order->getIncrementId(), 'state' => $state
+                    ]);
+                } elseif ($outcome === 'unknown') {
+                    $this->aplazoHelper->log('preparePurchase: no stock compensation marker, nothing applied. Increment_id ' . $order->getIncrementId());
+                    $this->logService->send('warn', 'Purchase without stock compensation: marker missing (order placed before it existed)', ['module:checkout', 'action:stock'], [
+                        'order_id' => $order->getIncrementId()
+                    ]);
+                } elseif ($outcome === 'compensated') {
+                    $this->logService->send('info', 'Purchase stock compensation applied', ['module:checkout', 'action:stock'], [
+                        'order_id' => $order->getIncrementId()
+                    ]);
+                }
+            } catch (\Throwable $logError) {
+                // Logging never changes the purchase result.
+            }
+        } finally {
+            $this->logService->flush();
+        }
+
+        if ($error !== null) {
+            return self::PURCHASE_STOCK_FAILED;
+        }
+        return $outcome === 'not_eligible' ? self::PURCHASE_NOT_ELIGIBLE : self::PURCHASE_READY;
+    }
+
+    /**
+     * One inventory path, chosen like isMsiOrInventory(), but without falling back to the other one: a failure must
+     * reach the caller's rollback instead of writing elsewhere (possibly after the database already rolled back).
+     */
+    protected function compensateForPurchase(Order $order, $connection): void
+    {
+        $objectManager = ObjectManager::getInstance();
+        if ($this->manager->isEnabled('Magento_Inventory') && $this->manager->isEnabled('Magento_InventoryCatalogApi')) {
+            // MSI writes reservations through ResourceConnection::getConnection() (Inventory SaveMultiple).
+            $this->assertSameConnection($connection, $this->resourceConnection->getConnection(), 'inventory_reservation');
+            $objectManager->get(\Aplazo\AplazoPayment\Model\Product\MSIStock::class)->updateQty($order, true, 'aplazo_item_reserved');
+            return;
+        }
+        $stockItemConnection = $objectManager->get(\Magento\CatalogInventory\Model\ResourceModel\Stock\Item::class)->getConnection();
+        $this->assertSameConnection($connection, $stockItemConnection, 'cataloginventory_stock_item');
+        $objectManager->get(\Aplazo\AplazoPayment\Model\Product\InventoryStock::class)->updateQtyNotMSI($order, true);
+    }
+
+    /**
+     * After a deadlock or lock timeout the server has already rolled the transaction back, and PDO::rollBack()
+     * then throws before Magento's adapter lowers its transaction level, leaving the shared connection "inside" a
+     * transaction for the rest of the request. When this transaction is the outermost one, an empty PDO transaction
+     * is opened so the adapter's rollBack() completes and the level returns to 0. Nested transactions only mark the
+     * rollback, as Magento does.
+     */
+    private function rollBackOwnTransaction($connection, $pdo, bool $outermost): void
+    {
+        if ($outermost && $pdo instanceof \PDO && !$pdo->inTransaction()) {
+            $pdo->beginTransaction();
+        }
+        $connection->rollBack();
+    }
+
+    private function assertSameConnection($expected, $actual, string $table): void
+    {
+        if ($expected !== $actual) {
+            throw new LocalizedException(__('%1 is not on the sales database connection; the compensation cannot be atomic.', $table));
+        }
+    }
+
+    /**
+     * Written directly on the locked row, inside the caller's transaction (no payment save, no save events).
+     */
+    protected function markStockCompensated($connection, int $paymentId, array $additionalInformation): void
+    {
+        $connection->update(
+            $this->resourceConnection->getTableName('sales_order_payment'),
+            ['additional_information' => json_encode($additionalInformation)],
+            ['entity_id = ?' => $paymentId]
+        );
+    }
+
+    /**
+     * @return Order|null
+     */
+    public function getOrderByEntityId($orderId)
+    {
+        try {
+            return $this->orderRepository->get((int)$orderId);
+        } catch (NoSuchEntityException $e) {
+            return null;
         }
     }
 

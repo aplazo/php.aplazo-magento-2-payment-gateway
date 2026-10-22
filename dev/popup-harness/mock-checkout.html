@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="es">
+<head><meta charset="utf-8"><title>Mock Aplazo checkout (popup)</title></head>
+<body>
+<p>Mock Aplazo checkout — test only (BNPL-1607).</p>
+<script>
+/*
+ * Provisional popup contract, until Checkout confirms it:
+ *   window.opener.postMessage({ type: 'aplazo:checkout:<state>', version: 1 }, MERCHANT_ORIGIN)
+ *   states: success | failure | close (terminal), pending (not terminal)
+ * The mock never navigates to successUrl/cartUrl and never cancels anything.
+ */
+var MERCHANT_ORIGIN = 'http://localhost:8098'; // explicit test origin, not a wildcard
+var params = new URLSearchParams(location.search);
+var scenario = params.get('quoteid');
+
+fetch('/mocklog?sc=' + encodeURIComponent(scenario) + '&opener=' + (window.opener ? 'present' : 'null') +
+      '&mode=' + encodeURIComponent(params.get('mode') || ''));
+
+function send(msg) {
+  if (window.opener) {
+    window.opener.postMessage(msg, MERCHANT_ORIGIN);
+  }
+}
+function msg(state, extra) {
+  return Object.assign({ type: 'aplazo:checkout:' + state, version: 1 }, extra || {});
+}
+function at(ms, fn) { setTimeout(fn, ms); }
+
+var plans = {
+  success: function () { at(300, function () { send(msg('success', { redirectUrl: 'https://evil.example/steal' })); }); },
+  success_twice: function () {
+    at(300, function () { send(msg('success')); });
+    at(450, function () { send(msg('success')); });
+  },
+  failure: function () { at(300, function () { send(msg('failure', { reason: 'rejected' })); }); },
+  close: function () { at(300, function () { send(msg('close', { reason: 'user_cancel' })); }); },
+  pending_then_success: function () {
+    at(300, function () { send(msg('pending')); });
+    at(1000, function () { send(msg('success')); });
+  },
+  pending_stay: function () { at(300, function () { send(msg('pending')); }); },
+  stay: function () {},
+  bad_version_then_close: function () {
+    at(300, function () { send({ type: 'aplazo:checkout:success', version: 2 }); });
+    at(900, function () { send(msg('close')); });
+  },
+  bad_shape_then_close: function () {
+    at(200, function () { send('aplazo:checkout:success'); });
+    at(300, function () { send({ type: 'aplazo:checkout:success' }); });
+    at(400, function () { send({ version: 1 }); });
+    at(500, function () { send({ type: 'other:success', version: 1 }); });
+    at(600, function () { send(msg('paid')); });
+    at(1000, function () { send(msg('close')); });
+  },
+  wrong_source_then_close: function () {
+    var f = document.createElement('iframe');
+    f.src = '/forger.html';
+    document.body.appendChild(f);
+    at(1000, function () { send(msg('close')); });
+  }
+};
+plans.coop_success = plans.success;
+plans.reopen_close = plans.close;
+if (scenario && scenario.indexOf('click_') === 0) { plans[scenario] = plans.success; }
+(plans[scenario] || plans.stay)();
+</script>
+</body>
+</html>

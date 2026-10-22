@@ -18,17 +18,22 @@ class SalesOrderPlaceAfterCreateLoan implements ObserverInterface
     private TrackingService $trackingService;
     private LogService $logService;
 
+    private \Aplazo\AplazoPayment\Model\PlacedOrders $placedOrders;
+
     public function __construct(
         AplazoHelper $aplazoHelper,
         OrderService $orderService,
         TrackingService $trackingService,
-        LogService $logService
+        LogService $logService,
+        ?\Aplazo\AplazoPayment\Model\PlacedOrders $placedOrders = null
     )
     {
         $this->aplazoHelper = $aplazoHelper;
         $this->orderService = $orderService;
         $this->trackingService = $trackingService;
         $this->logService = $logService;
+        $this->placedOrders = $placedOrders
+            ?? \Magento\Framework\App\ObjectManager::getInstance()->get(\Aplazo\AplazoPayment\Model\PlacedOrders::class);
     }
 
     public function execute(\Magento\Framework\Event\Observer $observer)
@@ -36,6 +41,9 @@ class SalesOrderPlaceAfterCreateLoan implements ObserverInterface
         $order = $observer->getEvent()->getOrder();
         if($order->getPayment()->getMethod() === ConfigProvider::CODE){
             $this->aplazoHelper->log('Observer sales_order_place_after pagando con Aplazo.', AplazoHelper::LOGS_VVV);
+            // Saved together with the order: purchase() compensates the stock once, only for marked orders.
+            $this->orderService->markStockCompensationPending($order);
+            $this->placedOrders->remember($order);
             try {
                 $randomToken = $this->generateRandomString();
             } catch (RandomException $e) {

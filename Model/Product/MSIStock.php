@@ -117,7 +117,10 @@ class MSIStock
         $websiteCode = $this->websiteRepository->getById($websiteId)->getCode();
         $stockId = (int)$this->stockByWebsiteIdResolver->execute((int)$websiteId)->getStockId();
 
-        $this->checkItemsQuantity->execute($itemsBySku, $stockId);
+        // Giving stock back must not depend on what is salable now (it is 0 when the order took the last unit).
+        if (!$plus) {
+            $this->checkItemsQuantity->execute($itemsBySku, $stockId);
+        }
 
         $salesEventExtension = $this->salesEventExtensionFactory->create([
             'data' => ['objectIncrementId' => (string)$order->getIncrementId()]

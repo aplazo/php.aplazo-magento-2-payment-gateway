@@ -12,3 +12,7 @@
 "We cannot retrieve the products of your order. Please add them again to the cart","No pudimos recuperar los productos de tu orden. Por favor agrégalos nuevamente a tu carrito."
 "Communication with Aplazo Failed. Try again later","La comunicación con Aplazo falló. Intenta más tarde."
 "Check Healthy Site","Revisar salud de sitio"
+"This order is no longer waiting for payment, so Aplazo cannot be opened again.","Este pedido ya no está pendiente de pago, así que no podemos volver a abrir Aplazo."
+"Close this window","Cerrar esta ventana"
+"We could not find this order in your session.","No encontramos este pedido en tu sesión."
+"%1 is not on the sales database connection; the compensation cannot be atomic.","%1 no está en la conexión de base de datos de ventas; la compensación no puede ser atómica."

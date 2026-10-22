@@ -35,12 +35,28 @@
             <!--/ko-->
         </div>
 
+        <!-- ko if: popupNotice() -->
+        <div class="message notice aplazo-popup-notice" role="status" aria-live="polite">
+            <span data-bind="text: popupNotice()"></span>
+        </div>
+        <!-- /ko -->
+        <!-- ko if: popupCanReopen() -->
+        <div class="actions-toolbar aplazo-popup-reopen">
+            <div class="primary">
+                <button class="action secondary" type="button" data-bind="click: reopenPopup">
+                    <span>Reabrir Aplazo</span>
+                </button>
+            </div>
+        </div>
+        <!-- /ko -->
+
         <div class="actions-toolbar">
             <div class="primary">
                 <button class="action primary checkout"
                         type="submit"
                         data-bind="
                         click: placeOrder,
+                        enable: !popupOrderPlaced(),
                         attr: {title: $t('Place Order')}
                         ">
                     <span data-bind="i18n: 'Place Order'"></span>
