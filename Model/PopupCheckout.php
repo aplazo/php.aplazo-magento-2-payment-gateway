@@ -15,6 +15,7 @@ use Magento\Framework\Phrase;
 use Magento\Framework\View\Helper\SecureHtmlRenderer;
 use Magento\Sales\Api\Data\OrderInterface;
 use Magento\Sales\Api\OrderRepositoryInterface;
+use Magento\Store\Model\StoreManagerInterface;
 
 /**
  * Server side of the popup checkout mode (BNPL-1664). Kept out of the Operations controller because the controller
@@ -28,6 +29,7 @@ class PopupCheckout
     private RawFactory $rawFactory;
     private Escaper $escaper;
     private SecureHtmlRenderer $secureRenderer;
+    private StoreManagerInterface $storeManager;
 
     public function __construct(
         AplazoHelper $aplazoHelper,
@@ -35,7 +37,8 @@ class PopupCheckout
         OrderRepositoryInterface $orderRepository,
         RawFactory $rawFactory,
         Escaper $escaper,
-        SecureHtmlRenderer $secureRenderer
+        SecureHtmlRenderer $secureRenderer,
+        StoreManagerInterface $storeManager
     ) {
         $this->aplazoHelper = $aplazoHelper;
         $this->placedOrders = $placedOrders;
@@ -43,6 +46,7 @@ class PopupCheckout
         $this->rawFactory = $rawFactory;
         $this->escaper = $escaper;
         $this->secureRenderer = $secureRenderer;
+        $this->storeManager = $storeManager;
     }
 
     /**
@@ -55,25 +59,45 @@ class PopupCheckout
     }
 
     /**
-     * The Aplazo order with this entity id, only when it was placed in the buyer's own checkout session.
-     * An order id taken from the request is never trusted on its own.
+     * For showing an order's status only (popup_return): the Aplazo order with this entity id, when it was placed in
+     * the buyer's own checkout session and belongs to the current store. An id from the request is never trusted on
+     * its own. This does not allow running purchase for the order: see isPurchaseTarget().
      */
     public function getSessionOrder(string $orderId): ?OrderInterface
     {
-        if ($orderId === '' || !ctype_digit($orderId)) {
+        $entityId = PlacedOrders::normalizeId($orderId);
+        if ($entityId === null) {
             return null;
         }
         try {
-            $order = $this->orderRepository->get((int)$orderId);
+            $order = $this->orderRepository->get($entityId);
         } catch (NoSuchEntityException $e) {
             return null;
         }
         $payment = $order->getPayment();
-        if ($payment === null || $payment->getMethod() !== ConfigProvider::CODE || !$this->placedOrders->contains($order)) {
+        if ($payment === null || $payment->getMethod() !== ConfigProvider::CODE
+            || (int)$order->getStoreId() !== (int)$this->storeManager->getStore()->getId()
+            || !$this->placedOrders->contains($order)
+        ) {
             return null;
         }
 
         return $order;
+    }
+
+    /**
+     * Whether purchase may run for the order the popup names. Purchase keeps master's scope: only the checkout
+     * session's last order (getLastRealOrder(), resolved by Magento for the current store). The id sent by the popup
+     * must name that same order, so neither an older order of the session history nor another tab's newer order is
+     * opened, and no stock compensation runs for them.
+     */
+    public function isPurchaseTarget(OrderInterface $lastRealOrder, string $requestedOrderId): bool
+    {
+        $requested = PlacedOrders::normalizeId($requestedOrderId);
+
+        return $requested !== null
+            && PlacedOrders::normalizeId($lastRealOrder->getEntityId()) === $requested
+            && $this->placedOrders->contains($lastRealOrder);
     }
 
     /**

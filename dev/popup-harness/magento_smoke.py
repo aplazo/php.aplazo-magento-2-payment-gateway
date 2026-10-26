@@ -10,9 +10,9 @@ Environment:
   MAGENTO_PRODUCT_SKU   its SKU (default APLAZO-TEST-001)
   CHROME                Chrome/Chromium binary
 """
-import json, os, shutil, subprocess, sys, tempfile, time, urllib.request
+import json, os, shutil, subprocess, sys, tempfile, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from cdp import WS, evaluate, wait_for
+from cdp import WS, devtools_json, evaluate, wait_for
 
 BASE_URL = os.environ.get('MAGENTO_BASE_URL', 'https://magento.test').rstrip('/')
 PRODUCT_PATH = os.environ.get('MAGENTO_PRODUCT_PATH', 'aplazo-producto-prueba.html').lstrip('/')
@@ -30,7 +30,7 @@ chrome = subprocess.Popen([CHROME, '--headless=new', '--disable-gpu', '--no-firs
 try:
     for _ in range(40):
         try:
-            targets = json.load(urllib.request.urlopen('http://127.0.0.1:%d/json' % PORT))
+            targets = devtools_json(PORT)
             page = [t for t in targets if t['type'] == 'page'][0]
             break
         except Exception:

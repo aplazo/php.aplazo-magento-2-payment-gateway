@@ -58,7 +58,8 @@ exercised in these runs.
    ```
 
    Reservations per order: `bin/clinotty php -- APLAZO-TEST-001 <increment_id> < dev/popup-harness/magento-e2e/snapshot.php`
-   (read only).
+   (read only). Session authorization checks, with in-memory fakes and no orders:
+   `bin/clinotty php < dev/popup-harness/magento-e2e/session_orders_check.php`.
 7. **Restore** afterwards: delete the `checkout_mode` row of `websites/1` and the stub URL file, stop the mock, mount
    the previous checkout with `local.sh mount`, recreate `phpfpm-xdebug`, add the network block again and clear
    `generated/`. Test orders are kept.
@@ -82,6 +83,9 @@ The browser-only suites (`run.sh`, `click_test.py`) are described in `README.md`
 | `pending` is not terminal; losing the window afterwards shows the "payment in progress" notice | Pass |
 | `close`, `failure`, closed window: neutral notice and "Go to cart"; order stays `new`, no `cancelLoan`, reservations unchanged | Pass |
 | "Go to cart": only an order of the same checkout session shows its notice; the cart is empty and the order, loan and reservations do not change | Pass |
+| Session authorization by entity id (`session_orders_check.php`, in-memory fakes): session order accepted; other session rejected; same increment id in another store rejected; malformed ids (`0`, `-1`, `0101`, `+101`, spaces, `1e3`, `10.0`, increment ids, overflow, non-strings) rejected; old increment-id session data ignored; two tabs of one session both known; list bounded to ten | Pass, 35 checks |
+| Purchase keeps master's scope: two orders in one session, then `order` pointed at the older one and at malformed ids (leading zero, `+`, suffix, negative, increment id) | Pass: all six rejected with the popup page before any compensation; reservations of both orders unchanged; no stub API call; six rejections logged. `popup_return` still shows the older order's status |
+| Two tabs, delayed `purchase` of the older order (`popup_tabs_race`) | Pass: the newer order is never processed by the older popup; the older one is rejected before any compensation or Aplazo call. Limitation described below |
 | Reopen button never rendered (`POPUP_REOPEN_ENABLED=false`) | Pass |
 | Translations (`es_MX`) of the notices, the link and the cart message | Pass in the browser for the notices and the link. The current cart message was rendered in English only; its `es_MX` row was checked in the CSV |
 | `purchaseUnavailable` page: no inline handler or style attribute (SecureHtmlRenderer); its button closes the window | Pass |
@@ -94,13 +98,30 @@ The storefront sends `Content-Security-Policy-Report-Only`, and the `script-src`
 (with a full cache flush) did not switch this installation to an enforced header, so the page has not been run under an
 enforced policy. The inline attributes were removed anyway, so the page does not depend on `'unsafe-inline'` for them.
 
+## Checkout review observations (Gus)
+
+Sources: the summary of Checkout's technical review (Gustavo, 16 Oct 2026) in the description of BNPL-1607; the
+follow-up points relayed in the BNPL-1664 work on 26 Oct 2026 (the original Slack thread was not accessible for this
+note); the Buildable Spec for Phase 1 (23 Jul 2026, PIPE-209) for the load timeout, OQ1 and device segmentation.
+"Pending" means no agreement yet; assigning a ticket does not resolve a row.
+
+| Observation | Current behaviour and evidence | Decision pending | Ticket |
+|---|---|---|---|
+| The pilot does not depend on the Universal Checkout launch or on 9.x | The plugin loads no Checkout SDK; it opens the URL returned by `createLoan` and adds the provisional `mode=popup`. Popup is limited to sandbox (`https://checkout.aplazo.net`) | Which Checkout release serves `mode=popup` and the message contract, and on what date; other Checkout dependencies stay open | BNPL-1666 |
+| Staging URLs and headers, including COOP | STG origin hard-coded for sandbox; production origin `null`, so production falls back to redirect. With COOP `same-origin` on the mock the opener is lost and the page shows the "lost communication" notice (harness observation `coop_same_origin_observation`). Real staging headers not checked | Exact staging and production origins; COOP on Checkout and on merchant pages (`unsafe-none` or `same-origin-allow-popups`) | BNPL-1666 |
+| Acknowledgement, timeout and fallback | **Initial fallback** when the browser blocks the window: implemented and tested (redirect without `mode=popup`). **Recovery when no message arrives:** no acknowledgement and no timeout; only a closed window is detected (`lost` notice); an open but silent window waits indefinitely | Whether Checkout sends a ready/ack message, the timeout and what the store does when it expires | BNPL-1666, then BNPL-1664 for the plugin side |
+| Who closes the window on terminal messages | The store page closes the popup on `success`, `failure` and `close` (`popup-checkout.js` `onMessage`); evidence: harness `success`/`failure`/`close`, Magento E2E with no window left open | Whether Checkout closes itself, or the store closes it, and when | BNPL-1666 |
+| Querying the order until `processing` | Not implemented: `success` goes straight to the success page; the webhook confirms the payment asynchronously | Whether polling (or another wait) is part of this iteration (spec OQ1, BNPL-1666 criterion 5) | BNPL-1666 |
+| Desktop / mobile participation and the conversion hypothesis | Desktop opens a window; mobile browsers are expected to open a tab. Only desktop Chrome with mobile emulation and Safari desktop (blocked case) were run; no device split, telemetry or A/B switch in the plugin | Whether popup is enabled on mobile, and how the conversion hypothesis of BNPL-1028 is measured (device segmentation, A/B) | BNPL-1667, with Product |
+
 ## Known defects
 
 ### Existing on `master`: repeated stock compensation when `purchase` is visited again
 
 Every GET of the `purchase` URL adds another `+1 aplazo_item_reserved`. Reproduced locally in redirect on `master` and
 on this branch, and in popup mode by requesting the purchase URL again. Reloading the popup reloads the Checkout page
-and does not repeat `purchase`; `history.back()` did not repeat it either. Mike's decision (relayed on 26 Oct 2026):
+and does not repeat `purchase`; `history.back()` did not repeat it either. This branch keeps master's scope: only the
+session's last order can be selected (see "PR #131 automated review"), so the defect is not extended to older orders. Mike's decision (relayed on 26 Oct 2026):
 the fix for this redirect defect goes in its own ticket and PR, and it does not block the popup while reopening stays
 disabled.
 
@@ -111,10 +132,44 @@ cancellation the net is `-1`: observed on the BNPL-1607 discovery tree, not repe
 webhook is deduced from the code (the approval adds another `-1`); it has not been reproduced. This risk has not been
 accepted; it stays open in BNPL-1665.
 
+## PR #131 automated review
+
+| Finding | Change | Evidence | Status |
+|---|---|---|---|
+| XHawk: `PlacedOrders` keyed by increment id, which is not unique across stores | The session list holds positive integer entity ids under a new key, compared strictly; ids are normalized explicitly (`PlacedOrders::normalizeId`). Orders are remembered on `checkout_submit_all_after` (`Observer/RememberPlacedOrder`), once the entity id exists, so `SalesOrderPlaceAfterCreateLoan` is back to master. Showing an order (`popup_return`) also requires the current store | `session_orders_check.php` (35 checks); Magento E2E: the first popup of each order still opens | Fixed |
+| XHawk: a request-selected `order` lets `purchase` repeat the compensation for any of the last ten session orders | Showing an order and running `purchase` are authorized separately. `purchase` keeps master's scope (`getLastRealOrder()`); the popup's `order` must name that same order, checked before any compensation (`PopupCheckout::isPurchaseTarget`). Older session orders can only be shown | Magento E2E `popup_order_manipulation` | Fixed: the extension is removed. Master's own defect (repeating `purchase` for the last order) stays, see Known defects |
+| XHawk: closing the window before `purchase` leaves the order without compensation | No change here (inventory) | Reproduced earlier | Open in BNPL-1665, not accepted |
+| Semgrep `dynamic-urllib-use-detected` (`magento_smoke.py`, `click_test.py`, `magento-e2e/run.py`) | All tool HTTP goes through `cdp.local_request` / `cdp.devtools_json`: fixed host `127.0.0.1`, checked port, path and method, DevTools paths on an allow list, an opener with only HTTP/HTTPS handlers (no `file://`) that does not follow redirects | Guard checks: twelve invalid targets rejected, a 302 is not followed; `run.sh` 30/30 and `click_test.py` through the new client | Fixed in code; the scan is re-run by CI on the next push |
+| Semgrep `detect-insecure-websocket` (`cdp.py`) | The DevTools socket is accepted only as `ws` on loopback (`127.0.0.1` / `localhost`); other hosts, `wss` and other schemes are rejected. Chrome's DevTools socket has no TLS, and it never leaves the machine | Guard checks | Fixed in code; the scan is re-run by CI on the next push |
+
+## Limitation: popup with several tabs of one session
+
+Run (`popup_tabs_race`, orders 60 and 61): tab A placed order A and its popup's `purchase` request was held at the
+browser; tab B, same session, placed order B and completed its own `purchase`; then A's request was released.
+
+- `purchase` did not process B: B kept `-1 order_placed` / `+1 aplazo_item_reserved` from its own popup and nothing more.
+- A's request was rejected before any compensation: A kept only `-1 order_placed`; Checkout (the mock) was never
+  loaded for A; no Aplazo (stub) call; one rejection logged.
+- The buyer sees, in A's window: "We could not open Aplazo for this order from this window." with a close button.
+  Tab A shows no notice while that window stays open; once it is closed it shows the "lost communication" notice and
+  "Go to cart" (which only shows A's status).
+- Order A stays pending with no compensation until it is paid or cancelled by the existing paths.
+
+This rejection comes from the current protection (purchase keeps master's last-order scope). It is a limitation of the
+popup with several tabs, not an accepted risk, and it is distinct from:
+
+- the **early manual close** (BNPL-1665): the buyer closes the window before `purchase`; nothing is rejected, `purchase`
+  simply never runs;
+- the **repeatable master defect**: each extra visit to `purchase` for the last order adds another compensation.
+
+Letting tab A open its own order (for example with a one-time purchase token per order) is not implemented; it needs a
+decision together with the inventory fix.
+
 ## Pending by ticket
 
-- **BNPL-1664:** review and PR; run the validation-failure case with a capture of the field error; restrictive CSP on
-  an installation where it can be enforced.
+- **BNPL-1664:** human review of PR #131 (draft); push these fixes and answer the automated findings; run the
+  validation-failure case with a capture of the field error, and restrictive CSP on an installation where it can be
+  enforced.
 - **Separate redirect ticket and PR (repeated compensation):** to be created.
 - **BNPL-1665:** the early-close risk above; reproduce the paid-webhook case before stating its net.
 - **BNPL-1666:** real Checkout contract and states; `mode=popup` kept by Checkout through login and every redirect;

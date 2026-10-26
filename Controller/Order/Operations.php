@@ -111,11 +111,11 @@ class Operations extends \Magento\Framework\App\Action\Action
         $popup = $this->popupCheckout->isPopupRequest($this->getRequest());
         $order = $this->checkoutSession->getLastRealOrder();
         if ($popup && ($requestedOrderId = (string)$this->getRequest()->getParam('order', '')) !== '') {
-            // The popup names the order it was opened for, so another tab's later order is never opened in it.
-            $order = $this->popupCheckout->getSessionOrder($requestedOrderId);
-            if ($order === null) {
-                $this->aplazoHelper->log('Operations>purchase: orden no pertenece a la sesion', AplazoHelper::LOGS_VVV);
-                return $this->popupCheckout->unavailablePage(__('We could not find this order in your session.'));
+            // Purchase keeps master's scope (the session's last order); the popup's order id must name that order.
+            // Checked before any stock compensation or redirect.
+            if (!$this->popupCheckout->isPurchaseTarget($order, $requestedOrderId)) {
+                $this->aplazoHelper->log('Operations>purchase: la orden solicitada no es la ultima orden de la sesion', AplazoHelper::LOGS_VVV);
+                return $this->popupCheckout->unavailablePage(__('We could not open Aplazo for this order from this window.'));
             }
         }
         $this->aplazoHelper->log('Operations>purchase: Orden ' . $order->getEntityId() . ' debe redireccionar al checkout de aplazo.', AplazoHelper::LOGS_VVV);

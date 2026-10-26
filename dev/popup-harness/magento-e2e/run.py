@@ -9,11 +9,11 @@ the API, and the popup lands on mock_https.py through Chrome's --host-resolver-r
 Environment: MAGENTO_DIR (docker-magento directory with bin/), MAGENTO_BASE_URL (https://magento.test),
 MAGENTO_PRODUCT_PATH (aplazo-producto-prueba.html), MAGENTO_PRODUCT_SKU (APLAZO-TEST-001), CHROME, OUT.
 """
-import json, os, shutil, ssl, subprocess, sys, tempfile, time, urllib.request
+import json, os, shutil, ssl, subprocess, sys, tempfile, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
-from cdp import WS, evaluate, wait_for  # noqa: E402
+from cdp import WS, devtools_json, evaluate, local_request, wait_for  # noqa: E402
 
 M = os.path.expanduser(os.environ.get('MAGENTO_DIR', ''))
 BASE = os.environ.get('MAGENTO_BASE_URL', 'https://magento.test').rstrip('/')
@@ -64,8 +64,7 @@ def set_delay(seconds):
 
 # ---------- mock ----------
 def mock(path, method='GET'):
-    with urllib.request.urlopen(urllib.request.Request('https://127.0.0.1:8443' + path, method=method), context=CTX) as r:
-        body = r.read()
+    body = local_request(8443, path, method=method, https=True, context=CTX)
     return json.loads(body) if body else None
 
 
@@ -100,7 +99,7 @@ class Browser:
         self.ws = self.attach(page)
 
     def targets(self):
-        return json.load(urllib.request.urlopen('http://127.0.0.1:%d/json' % self.port))
+        return devtools_json(self.port)
 
     def attach(self, target):
         ws = WS(target['webSocketDebuggerUrl'])
@@ -113,7 +112,7 @@ class Browser:
 
     def close_others(self):
         for t in self.others():
-            urllib.request.urlopen('http://127.0.0.1:%d/json/close/%s' % (self.port, t['id']))
+            devtools_json(self.port, '/json/close/%s' % t['id'])
         time.sleep(1.5)
 
     def quit(self):
@@ -466,6 +465,139 @@ def t_unavailable_page():
     record('popup_unavailable_page', res)
 
 
+def t_order_manipulation():
+    """Two orders in one session, then the popup purchase URL pointed at the older one and at malformed ids: each must be
+    rejected before any stock compensation or Aplazo call. popup_return may still show the older order's status."""
+    scenario('stay')
+    before = last_order_id()
+    b = Browser(9540, flags=['--disable-popup-blocking'])
+    try:
+        ok_a, _ = start_checkout(b, 'popup_manipulation_a@example.invalid')
+        click_place_order(b)
+        first = wait_new_order(before)
+        time.sleep(4)
+        b.close_others()
+        ok_b, _ = start_checkout(b, 'popup_manipulation_b@example.invalid')
+        click_place_order(b)
+        second = wait_new_order(int(first[0]['entity_id'])) if first else []
+        time.sleep(4)
+        b.close_others()
+        a, latest = first[0], second[0]
+        res = {'reached_payment': [ok_a, ok_b], 'older': a, 'latest': latest,
+               'before': {a['increment_id']: reservations(a['increment_id']), latest['increment_id']: reservations(latest['increment_id'])}}
+        api_lines_before = len(in_container('cat var/log/localdev_aplazo_stub.log 2>/dev/null').splitlines())
+        rejected_log_before = in_container("grep -c 'no es la ultima orden de la sesion' var/log/aplazo_payment/info.log 2>/dev/null").strip()
+        attempts = {}
+        for label, value in (('older order', a['entity_id']), ('leading zero', '0' + latest['entity_id']),
+                             ('plus sign', '%2B' + latest['entity_id']), ('suffix', latest['entity_id'] + 'abc'),
+                             ('negative', '-' + latest['entity_id']), ('increment id', latest['increment_id'])):
+            url = BASE + '/aplazo/order/operations?operation=purchase&quoteid=x&order=%s&mode=popup' % value
+            evaluate(b.ws, "window.open(%s, 'aplazo_manipulation'); true" % json.dumps(url))
+            time.sleep(3)
+            page = b.others()
+            text = evaluate(b.attach(page[0]), 'document.body.innerText') if page else None
+            attempts[label] = {'order_param': value, 'window_url': page[0]['url'][:110] if page else None, 'text': text}
+            b.close_others()
+        res['attempts'] = attempts
+        res['after'] = {a['increment_id']: reservations(a['increment_id']), latest['increment_id']: reservations(latest['increment_id'])}
+        res['api_calls_during_attempts'] = len(in_container('cat var/log/localdev_aplazo_stub.log 2>/dev/null').splitlines()) - api_lines_before
+        res['rejections_logged'] = int(in_container("grep -c 'no es la ultima orden de la sesion' var/log/aplazo_payment/info.log 2>/dev/null").strip() or 0) \
+            - int(rejected_log_before or 0)
+        b.ws.send('Page.navigate', {'url': BASE + '/aplazo/order/operations?operation=popup_return&order=%s' % a['entity_id']}); time.sleep(3)
+        res['popup_return_older_order'] = evaluate(b.ws, "Array.from(document.querySelectorAll('.messages .message')).map(m => m.innerText.trim())")
+    finally:
+        b.quit()
+    record('popup_order_manipulation', res)
+
+
+def t_tabs_race():
+    """Tab A places order A; its popup's purchase request is held. Tab B, same session, places order B and completes its
+    own purchase. Then A's request is released: it must not process B, and must be rejected before any compensation."""
+    import threading
+    scenario('stay')
+    before = last_order_id()
+    b = Browser(9541)
+    browser_ws = WS(devtools_json(b.port, '/json/version')['webSocketDebuggerUrl'])
+    browser_ws.s.settimeout(None)
+    state_ = {'held': None, 'popup_a': None, 'attached': [], 'released': False}
+    lock = threading.Lock()
+
+    def reader():
+        while True:
+            try:
+                msg = browser_ws.recv()
+            except Exception:
+                return
+            method, params = msg.get('method'), msg.get('params', {})
+            if method == 'Target.attachedToTarget':
+                info, sid = params['targetInfo'], params['sessionId']
+                with lock:
+                    state_['attached'].append({'type': info.get('type'), 'opener': info.get('openerId'), 'id': info['targetId']})
+                    hold = state_['popup_a'] is None and info.get('openerId') == b.main_id
+                    if hold:
+                        state_['popup_a'] = {'targetId': info['targetId'], 'sessionId': sid}
+                if hold:
+                    browser_ws.post('Fetch.enable', {'patterns': [{'urlPattern': '*operation=purchase*', 'requestStage': 'Request'}]}, sid)
+                browser_ws.post('Runtime.runIfWaitingForDebugger', {}, sid)
+            elif method == 'Fetch.requestPaused':
+                with lock:
+                    if state_['held'] is None:
+                        state_['held'] = {'requestId': params['requestId'], 'url': params['request']['url'],
+                                          'sessionId': msg.get('sessionId')}
+                    else:
+                        browser_ws.post('Fetch.continueRequest', {'requestId': params['requestId']}, msg.get('sessionId'))
+
+    threading.Thread(target=reader, daemon=True).start()
+    browser_ws.post('Target.setAutoAttach', {'autoAttach': True, 'waitForDebuggerOnStart': True, 'flatten': True})
+    res = {}
+    try:
+        ok_a, _ = start_checkout(b, 'popup_tabs_a@example.invalid')
+        click_place_order(b)
+        first = wait_new_order(before)
+        for _ in range(40):
+            if state_['held']:
+                break
+            time.sleep(0.25)
+        a = first[0]
+        res['order_a'] = a
+        res['held_request'] = state_['held']['url'].split('?', 1)[1] if state_['held'] else None
+        res['a_reservations_while_held'] = reservations(a['increment_id'])
+
+        browser_ws.post('Target.createTarget', {'url': 'about:blank'})
+        time.sleep(1.5)
+        tab_b = [t for t in b.others() if t['url'] == 'about:blank' and t['id'] != (state_['popup_a'] or {}).get('targetId')]
+        page_b = type('Tab', (), {})()
+        page_b.ws = b.attach(tab_b[0])
+        ok_b, _ = start_checkout(page_b, 'popup_tabs_b@example.invalid')
+        click_place_order(page_b)
+        second = wait_new_order(int(a['entity_id']))
+        time.sleep(5)
+        latest = second[0]
+        res['order_b'] = latest
+        res['b_reservations_after_its_purchase'] = reservations(latest['increment_id'])
+        res['b_mock_hits'] = len(hits_for(latest['increment_id']))
+
+        api_before = len(in_container('cat var/log/localdev_aplazo_stub.log 2>/dev/null').splitlines())
+        rejected_before = int(in_container("grep -c 'no es la ultima orden de la sesion' var/log/aplazo_payment/info.log 2>/dev/null").strip() or 0)
+        held = state_['held']
+        browser_ws.post('Fetch.continueRequest', {'requestId': held['requestId']}, held['sessionId'])
+        time.sleep(4)
+        popup_a = next(t for t in b.targets() if t['id'] == state_['popup_a']['targetId'])
+        res['a_popup_after_release'] = {'url': popup_a['url'][:110], 'text': evaluate(b.attach(popup_a), 'document.body.innerText')}
+        res['a_page_while_popup_open'] = state(b)
+        res['after_release'] = {a['increment_id']: reservations(a['increment_id']), latest['increment_id']: reservations(latest['increment_id'])}
+        res['mock_hits_a'] = len(hits_for(a['increment_id']))
+        res['api_calls_after_release'] = len(in_container('cat var/log/localdev_aplazo_stub.log 2>/dev/null').splitlines()) - api_before
+        res['rejections_logged'] = int(in_container("grep -c 'no es la ultima orden de la sesion' var/log/aplazo_payment/info.log 2>/dev/null").strip() or 0) - rejected_before
+        devtools_json(b.port, '/json/close/%s' % state_['popup_a']['targetId'])
+        time.sleep(2)
+        res['a_page_after_closing_popup'] = state(b)
+        res['reached_payment'] = [ok_a, ok_b]
+    finally:
+        b.quit()
+    record('popup_tabs_race', res)
+
+
 TESTS = {
     'redirect_default': t_redirect,
     'popup_success': t_terminal('success'),
@@ -481,6 +613,8 @@ TESTS = {
     'popup_ajax_error': t_ajax_error,
     'popup_validation_agreement': t_validation_agreement,
     'popup_unavailable_page': t_unavailable_page,
+    'popup_order_manipulation': t_order_manipulation,
+    'popup_tabs_race': t_tabs_race,
 }
 
 if __name__ == '__main__':

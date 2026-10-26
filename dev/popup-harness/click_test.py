@@ -6,9 +6,9 @@ Runs (all by default, or pass names): allowed  untrusted  blocked
   blocked    trusted mouse click, profile with pop-ups blocked for http://localhost:8098
 Starts its own server.py. Environment: CHROME, MAGENTO_SRC / OUT / MODULE_JS as in run.sh.
 """
-import json, os, shutil, subprocess, sys, tempfile, time, urllib.request
+import json, os, shutil, subprocess, sys, tempfile, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from cdp import WS, evaluate, wait_for
+from cdp import WS, devtools_json, evaluate, wait_for
 
 H = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.abspath(os.environ.get('OUT', os.path.join(H, '.out')))
@@ -35,7 +35,7 @@ def run(name, click, block_site, port=9444):
     try:
         for _ in range(60):
             try:
-                page = [t for t in json.load(urllib.request.urlopen('http://127.0.0.1:%d/json' % port)) if t['type'] == 'page'][0]
+                page = [t for t in devtools_json(port) if t['type'] == 'page'][0]
                 break
             except Exception:
                 time.sleep(0.25)
