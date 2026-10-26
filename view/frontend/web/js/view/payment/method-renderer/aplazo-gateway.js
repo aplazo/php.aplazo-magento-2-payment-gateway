@@ -150,11 +150,15 @@ define(
                 var self = this,
                     origin = this.getPopupOrigin();
 
+                // A new attempt replaces any earlier session; its listener and watcher are released first.
+                if (this.popupSession !== null) {
+                    this.popupSession.dispose();
+                }
                 this.popupSession = null;
                 if (origin !== null) {
                     this.popupNotice('');
                     this.popupCartUrl('');
-                    this.popupSession = popupCheckout.create(origin, this.getPopupHandlers());
+                    this.popupSession = this.createPopupSession(origin);
                     if (!this.popupSession.open()) {
                         this.popupSession = null;
                     }
@@ -178,10 +182,24 @@ define(
              * or the reference cut by COOP, indistinguishable here) only change what this page shows. None of them
              * cancels the order or proves the payment state: the webhook confirms the payment.
              */
-            getPopupHandlers: function () {
-                var self = this;
+            /**
+             * A session whose handlers act only while it is this renderer's current session, so an event from an
+             * earlier session never changes what a later one shows.
+             */
+            createPopupSession: function (origin) {
+                var holder = {},
+                    session = popupCheckout.create(origin, this.getPopupHandlers(holder));
 
-                return {
+                holder.session = session;
+
+                return session;
+            },
+
+            getPopupHandlers: function (holder) {
+                var self = this,
+                    handlers;
+
+                handlers = {
                     pending: function () {
                         self.popupNotice(popupNotices.pending());
                     },
@@ -208,6 +226,18 @@ define(
                         self.showPopupRecovery(detail.pending ? popupNotices.lostPending() : popupNotices.lost());
                     }
                 };
+
+                Object.keys(handlers).forEach(function (state) {
+                    var handler = handlers[state];
+
+                    handlers[state] = function (detail) {
+                        if (holder && holder.session !== undefined && self.popupSession === holder.session) {
+                            handler(detail);
+                        }
+                    };
+                });
+
+                return handlers;
             },
 
             /**
@@ -261,7 +291,7 @@ define(
                     this.popupSession.dispose();
                     this.popupSession = null;
                 }
-                session = popupCheckout.create(origin, this.getPopupHandlers());
+                session = this.createPopupSession(origin);
                 if (!session.open()) {
                     this.showPopupRecovery(popupNotices.reopenBlocked());
 

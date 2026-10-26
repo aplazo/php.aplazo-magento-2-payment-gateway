@@ -35,6 +35,7 @@ var plans = {
   },
   failure: function () { at(300, function () { send(msg('failure', { reason: 'rejected' })); }); },
   close: function () { at(300, function () { send(msg('close', { reason: 'user_cancel' })); }); },
+  success_then_close: function () { at(300, function () { send(msg('success')); window.close(); }); },
   pending_then_success: function () {
     at(300, function () { send(msg('pending')); });
     at(1000, function () { send(msg('success')); });

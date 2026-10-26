@@ -51,6 +51,8 @@ define([], function () {
         this.listener = null;
         this.watcher = null;
         this.pending = false;
+        this.lost = false;
+        this.finished = false;
         this.disposeOnPageHide = this.dispose.bind(this);
     }
 
@@ -108,11 +110,16 @@ define([], function () {
         window.addEventListener('pagehide', this.disposeOnPageHide);
     };
 
+    /**
+     * Only this session's own window, from the checkout origin, with the versioned shape. The first terminal message
+     * ends the session; nothing after it is processed. A message that arrives after the window was seen closed is still
+     * this window's message (postMessage is delivered asynchronously), so it is handled the same way.
+     */
     PopupCheckout.prototype.onMessage = function (event) {
         var data = event.data,
             state;
 
-        if (event.origin !== this.origin || this.popup === null || event.source !== this.popup) {
+        if (this.finished || event.origin !== this.origin || this.popup === null || event.source !== this.popup) {
             return;
         }
         if (!data || typeof data !== 'object' || data.version !== MESSAGE_VERSION ||
@@ -124,20 +131,24 @@ define([], function () {
 
         if (state === 'pending') {
             this.pending = true;
-            this.notify('pending');
+            // Once the window is gone, a late "pending" only refines the lost notice.
+            this.notify(this.lost ? 'lost' : 'pending', {pending: true});
 
             return;
         }
         if (TERMINAL_STATES.indexOf(state) === -1) {
             return;
         }
+        this.finished = true;
         this.close();
         this.notify(state);
     };
 
     /**
-     * popup.closed may also mean the opener lost its reference (for example COOP on the checkout page),
-     * so it is reported as lost communication, never as a cancellation.
+     * Detects the window closing; it does not end message handling. popup.closed may also mean the opener lost its
+     * reference (for example COOP on the checkout page), so it is reported as lost communication, never as a
+     * cancellation. The listener stays until a terminal message, pagehide or dispose(), so a terminal message that was
+     * already posted when the window closed is not discarded.
      */
     PopupCheckout.prototype.watch = function () {
         var self = this;
@@ -146,9 +157,7 @@ define([], function () {
         this.watcher = window.setInterval(function () {
             if (self.popup !== null && self.popup.closed) {
                 self.stopWatching();
-                if (!self.pending) {
-                    self.stopListening();
-                }
+                self.lost = true;
                 self.notify('lost', {pending: self.pending});
             }
         }, WATCH_INTERVAL);

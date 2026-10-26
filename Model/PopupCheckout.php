@@ -110,13 +110,68 @@ class PopupCheckout
 
     /**
      * Whether Magento's standard success page would show this order: it renders the session's last order, so it is
-     * only used when that is this same order. Reads the session, never writes it.
+     * only used when that is this same order. Only compares; it changes nothing.
      */
     public function isLastSessionOrder(OrderInterface $order, OrderInterface $lastRealOrder): bool
     {
         $entityId = PlacedOrders::normalizeId($order->getEntityId());
 
         return $entityId !== null && PlacedOrders::normalizeId($lastRealOrder->getEntityId()) === $entityId;
+    }
+
+    /**
+     * The URL the popup may navigate to for this order, with mode=popup, or null when it must not be opened.
+     *
+     * The URL is the one stored at order creation from the loan API response (without the cancel token). It is used
+     * only when it is an absolute https URL on the configured checkout origin (same scheme, host and effective port),
+     * without credentials. Everything is parsed and built here, before the caller runs any stock compensation.
+     */
+    public function getPopupCheckoutUrl(OrderInterface $order): ?string
+    {
+        $stored = (string)$order->getAplazoCheckoutUrl();
+        if ($stored === '') {
+            return null;
+        }
+        $url = explode('||', $stored, 2)[0];
+        $origin = $this->aplazoHelper->getCheckoutOrigin();
+        if ($origin === null || !$this->isOnOrigin($url, $origin)) {
+            return null;
+        }
+        try {
+            return $this->withPopupMode($url);
+        } catch (\Throwable $e) {
+            return null;
+        }
+    }
+
+    /**
+     * Strict origin check: absolute https URL, no user info, same host (case-insensitive, no suffix or subdomain
+     * match) and same effective port as the configured origin. Whitespace, control characters and backslashes are
+     * rejected before parsing, because browsers and parsers can read them differently.
+     */
+    public function isOnOrigin(string $url, string $origin): bool
+    {
+        if ($url === '' || preg_match('/[\x00-\x20\x7f\\\\]/', $url) === 1) {
+            return false;
+        }
+        try {
+            $uri = new HttpUri($url);
+            $expected = new HttpUri($origin);
+        } catch (\Throwable $e) {
+            return false;
+        }
+        if (!$uri->isValid() || !$uri->isAbsolute()
+            || strtolower((string)$uri->getScheme()) !== 'https' || strtolower((string)$expected->getScheme()) !== 'https'
+            || (string)$uri->getUserInfo() !== ''
+        ) {
+            return false;
+        }
+        $host = strtolower((string)$uri->getHost());
+        if ($host === '' || $host !== strtolower((string)$expected->getHost())) {
+            return false;
+        }
+
+        return ((int)$uri->getPort() ?: 443) === ((int)$expected->getPort() ?: 443);
     }
 
     /**

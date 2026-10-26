@@ -9,7 +9,7 @@ the API, and the popup lands on mock_https.py through Chrome's --host-resolver-r
 Environment: MAGENTO_DIR (docker-magento directory with bin/), MAGENTO_BASE_URL (https://magento.test),
 MAGENTO_PRODUCT_PATH (aplazo-producto-prueba.html), MAGENTO_PRODUCT_SKU (APLAZO-TEST-001), CHROME, OUT.
 """
-import json, os, shutil, ssl, subprocess, sys, tempfile, time
+import json, os, shlex, shutil, ssl, subprocess, sys, tempfile, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
@@ -704,6 +704,22 @@ def t_success_single():
     popup_flow('popup_success_single', 'success', after_open=act)
 
 
+DEFAULT_STUB_BASE = 'https://checkout.aplazo.net/mock'
+
+
+def t_checkout_url(name, base):
+    """The stub returns `base` as the loan's checkout URL. A URL off the configured origin must be rejected by purchase
+    before any compensation, and the popup must never navigate to it."""
+    in_container('echo %s > var/localdev_aplazo_stub_checkout_url' % shlex.quote(base))
+    try:
+        def act(b, inc):
+            pages = b.others()
+            return {'popup': [{'url': t['url'][:120], 'text': evaluate(b.attach(t), 'document.body.innerText')} for t in pages]}
+        popup_flow(name, 'stay', after_open=act)
+    finally:
+        in_container('echo %s > var/localdev_aplazo_stub_checkout_url' % shlex.quote(DEFAULT_STUB_BASE))
+
+
 TESTS = {
     'redirect_default': t_redirect,
     'popup_success': t_terminal('success'),
@@ -726,6 +742,10 @@ TESTS = {
     'popup_success_other_tab': t_success_other_tab,
     'popup_success_single': t_success_single,
     'redirect_check': lambda: t_redirect('redirect_check', repeat=False),
+    'popup_success_then_close': t_terminal('success_then_close'),
+    'popup_url_valid': lambda: t_checkout_url('popup_url_valid', DEFAULT_STUB_BASE),
+    'popup_url_suffix_host': lambda: t_checkout_url('popup_url_suffix_host', 'https://checkout.aplazo.net.evil.example/mock'),
+    'popup_url_credentials': lambda: t_checkout_url('popup_url_credentials', 'https://user:pass@checkout.aplazo.net/mock'),
 }
 
 if __name__ == '__main__':

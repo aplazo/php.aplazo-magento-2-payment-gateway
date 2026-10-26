@@ -26,6 +26,7 @@ var plans = {
   success: function () { at(400, function () { send('success', {redirectUrl: 'https://evil.example/steal'}); }); },
   failure: function () { at(400, function () { send('failure'); }); },
   close: function () { at(400, function () { send('close'); }); },
+  success_then_close: function () { at(400, function () { send('success'); window.close(); }); },
   pending_stay: function () { at(400, function () { send('pending'); }); },
   filter_then_close: function () {
     at(200, function () { window.opener.postMessage({type: 'aplazo:checkout:success', version: 2}, M); });

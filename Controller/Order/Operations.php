@@ -122,6 +122,16 @@ class Operations extends \Magento\Framework\App\Action\Action
                 $this->aplazoHelper->log('Operations>purchase: la orden solicitada no es la ultima orden de la sesion', AplazoHelper::LOGS_VVV);
                 return $this->popupCheckout->unavailablePage(__('We could not open Aplazo for this order from this window.'));
             }
+            // The checkout URL is validated against the configured origin and built with mode=popup (provisional
+            // contract, BNPL-1666) before the stock compensation; an unexpected URL is never opened in the popup.
+            $popupCheckoutUrl = $this->popupCheckout->getPopupCheckoutUrl($order);
+            if ($popupCheckoutUrl === null) {
+                $this->aplazoHelper->log('Operations>purchase: url de checkout ausente o fuera del origen configurado', AplazoHelper::LOGS_VVV);
+                return $this->popupCheckout->unavailablePage(__('Aplazo payment gateway is unavailable. Try again later.'));
+            }
+            $this->aplazoHelper->log('Operations>purchase: Orden ' . $order->getEntityId() . ' debe abrir el checkout de aplazo en la ventana popup.', AplazoHelper::LOGS_VVV);
+            $this->orderService->reservingStockUntilPayment($order, 'aplazo_item_reserved');
+            return $this->resultFactory->create(ResultFactory::TYPE_REDIRECT)->setUrl($popupCheckoutUrl);
         }
         $this->aplazoHelper->log('Operations>purchase: Orden ' . $order->getEntityId() . ' debe redireccionar al checkout de aplazo.', AplazoHelper::LOGS_VVV);
         $this->orderService->reservingStockUntilPayment($order, 'aplazo_item_reserved');
@@ -130,18 +140,10 @@ class Operations extends \Magento\Framework\App\Action\Action
             if (strpos($aplazoCheckout, "||") !== false) {
                 $aplazoCheckout = explode("||", $aplazoCheckout)[0];
             }
-            // Provisional contract (BNPL-1666): tell Checkout it was opened as a popup.
-            if ($popup) {
-                $aplazoCheckout = $this->popupCheckout->withPopupMode($aplazoCheckout);
-            }
             $this->aplazoHelper->log('Operations>purchase: redireccion a ' . $aplazoCheckout , AplazoHelper::LOGS_VVV);
             $response = $this->resultFactory->create(ResultFactory::TYPE_REDIRECT)->setUrl($aplazoCheckout);
         } else {
             $this->aplazoHelper->log('Operations>purchase: No se encontro url ', AplazoHelper::LOGS_VVV);
-            if ($popup) {
-                // Inside the popup the cart would load in Aplazo's window.
-                return $this->popupCheckout->unavailablePage(__('Aplazo payment gateway is unavailable. Try again later.'));
-            }
             $this->messageManager->addErrorMessage(__('Aplazo payment gateway is unavailable. Try again later.'));
             $response = $this->resultRedirectFactory->create()->setPath('checkout/cart');
         }
@@ -170,10 +172,11 @@ class Operations extends \Magento\Framework\App\Action\Action
     /**
      * Where the store page goes after the popup's success message, for the order that popup was opened for.
      *
-     * The message is a UI signal, never proof of payment: nothing is written to the order or the session here. Magento's
-     * success page renders the session's last order, so it is used only when that is this order. If another tab placed
-     * a newer order since, the success page would show that one; this order gets a neutral notice on the cart instead,
-     * and the session's last-order data is left as it is for the other tab.
+     * The message is a UI signal, never proof of payment: the order is not changed, and neither is the session's
+     * last-order data. Magento's success page renders the session's last order, so it is used only when that is this
+     * order. If another tab placed a newer order since, the success page would show that one; this order gets a neutral
+     * notice instead. The notice is a Magento session message, so it is shown by the next page of the session that
+     * renders messages, which may be in another tab.
      */
     public function popupSuccess()
     {

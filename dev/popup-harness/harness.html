@@ -247,8 +247,10 @@ async function runMain() {
   await sleep(900);
   o = snapshot(r); o.retryReturned = r.placeOrder({}, null);
   var h = await hits('stay'); o.purchaseHits = h.purchase;
-  check('closed_after_open', o, { notice: N.lost, redirectCalls: [], successRedirects: 0, listenerActive: false,
+  // The listener stays after "lost" (until a terminal message, pagehide or dispose), so a late terminal is not discarded.
+  check('closed_after_open', o, { notice: N.lost, redirectCalls: [], successRedirects: 0, listenerActive: true,
     watcherActive: false, retryReturned: false, placeOrderActionCalls: 1, purchaseHits: 1, cartUrl: CART_EXIT });
+  r.popupSession.dispose();
 
   // 6. closed while the order is being created
   reset('closed_during_creation');
@@ -293,6 +295,61 @@ async function runMain() {
   o = snapshot(r);
   check('pending_then_lost', o, { notice: N.lostPending, listenerActive: true, watcherActive: false, redirectCalls: [], successRedirects: 0, cartUrl: CART_EXIT });
   r.popupSession.dispose();
+
+  // 8b. terminal message followed by an immediate close of the window
+  await terminal('success_then_close', 'success_then_close', 1500, { successRedirects: 1, notice: '', redirectCalls: [],
+    successCalls: [MOCK + '/mock-checkout.html?operation=popup_success&order=1'], listenerActive: false, watcherActive: false });
+
+  // 8c. the watcher sees the window closed before the terminal message is delivered (deterministic, real windows)
+  var PC = registry['Aplazo_AplazoPayment/js/model/popup-checkout'];
+  var calls = [];
+  var rec = function (state) { return function (d) { calls.push(state + (d && d.pending ? ':pending' : '')); }; };
+  var handlers = { pending: rec('pending'), success: rec('success'), failure: rec('failure'), close: rec('close'), lost: rec('lost') };
+  var win = realOpen('about:blank', 'aplazo_race_a'), other = realOpen('about:blank', 'aplazo_race_b');
+  var s1 = PC.create(MOCK, handlers);
+  s1.popup = win; s1.listen(); s1.watch();
+  win.close();
+  await sleep(700);
+  var post = function (source, data, origin) { window.dispatchEvent(new MessageEvent('message', { data: data, origin: origin || MOCK, source: source })); };
+  var afterLost = calls.slice();
+  post(other, { type: 'aplazo:checkout:success', version: 1 });           // another window: ignored
+  post(win, { type: 'aplazo:checkout:success', version: 1 }, 'http://evil.example');  // wrong origin: ignored
+  post(win, { type: 'aplazo:checkout:success', version: 2 });             // wrong version: ignored
+  var afterIgnored = calls.slice();
+  post(win, { type: 'aplazo:checkout:pending', version: 1 });             // late pending refines the lost notice
+  post(win, { type: 'aplazo:checkout:success', version: 1 });             // late terminal from this window: handled
+  post(win, { type: 'aplazo:checkout:success', version: 1 });             // duplicate terminal: ignored
+  post(win, { type: 'aplazo:checkout:failure', version: 1 });             // anything after the terminal: ignored
+  check('watcher_before_terminal_message', { afterLost: afterLost, afterIgnored: afterIgnored, calls: calls.slice(),
+    listening: !!s1.listener, watching: !!s1.watcher },
+    { afterLost: ['lost'], afterIgnored: ['lost'], calls: ['lost', 'lost:pending', 'success'], listening: false, watching: false });
+  other.close();
+
+  // 8d. closed with no message at all: "lost" once; the listener stays until dispose (here: pagehide-equivalent)
+  calls.length = 0;
+  var win2 = realOpen('about:blank', 'aplazo_race_c');
+  var s2 = PC.create(MOCK, handlers);
+  s2.popup = win2; s2.listen(); s2.watch();
+  win2.close();
+  await sleep(1300);
+  var lostOnce = calls.slice();
+  s2.dispose();
+  post(win2, { type: 'aplazo:checkout:success', version: 1 });
+  check('closed_without_message', { lostOnce: lostOnce, afterDispose: calls.slice(), listening: !!s2.listener },
+    { lostOnce: ['lost'], afterDispose: ['lost'], listening: false });
+
+  // 8e. an event from an earlier session of the renderer never changes what the current one shows
+  reset('stay');
+  r = newRenderer(cfg());
+  await placeAndResolve(r);
+  await sleep(600);
+  var earlier = r.popupSession;
+  r.popupSession = null;  // what afterPlaceOrder/startPopupCheckout do when a session is replaced or released
+  earlier.notify('success');
+  earlier.notify('failure');
+  o = snapshot(r);
+  check('earlier_session_ignored', o, { successRedirects: 0, notice: '', cartUrl: '' });
+  earlier.close();
 
 
   // 10. window.open throws: submission is not left blocked and only one order is placed
