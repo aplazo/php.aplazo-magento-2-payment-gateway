@@ -1,0 +1,7 @@
+<?xml version="1.0"?>
+<!-- LOCAL TEST ONLY (BNPL-1607): the three classes of the Aplazo plugin that make HTTP calls. -->
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:framework:ObjectManager/etc/config.xsd">
+    <preference for="Aplazo\AplazoPayment\Service\ApiService" type="LocalDev\AplazoStub\Service\ApiService"/>
+    <preference for="Aplazo\AplazoPayment\Service\TrackingService" type="LocalDev\AplazoStub\Service\TrackingService"/>
+    <preference for="Aplazo\AplazoPayment\Service\LogService" type="LocalDev\AplazoStub\Service\LogService"/>
+</config>

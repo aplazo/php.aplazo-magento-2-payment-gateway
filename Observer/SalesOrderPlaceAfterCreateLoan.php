@@ -2,6 +2,7 @@
 
 namespace Aplazo\AplazoPayment\Observer;
 
+use Aplazo\AplazoPayment\Model\PlacedOrders;
 use Aplazo\AplazoPayment\Model\Ui\ConfigProvider;
 use Aplazo\AplazoPayment\Service\LogService;
 use Aplazo\AplazoPayment\Service\TrackingService;
@@ -17,18 +18,21 @@ class SalesOrderPlaceAfterCreateLoan implements ObserverInterface
     private $orderService;
     private TrackingService $trackingService;
     private LogService $logService;
+    private PlacedOrders $placedOrders;
 
     public function __construct(
         AplazoHelper $aplazoHelper,
         OrderService $orderService,
         TrackingService $trackingService,
-        LogService $logService
+        LogService $logService,
+        PlacedOrders $placedOrders
     )
     {
         $this->aplazoHelper = $aplazoHelper;
         $this->orderService = $orderService;
         $this->trackingService = $trackingService;
         $this->logService = $logService;
+        $this->placedOrders = $placedOrders;
     }
 
     public function execute(\Magento\Framework\Event\Observer $observer)
@@ -36,6 +40,8 @@ class SalesOrderPlaceAfterCreateLoan implements ObserverInterface
         $order = $observer->getEvent()->getOrder();
         if($order->getPayment()->getMethod() === ConfigProvider::CODE){
             $this->aplazoHelper->log('Observer sales_order_place_after pagando con Aplazo.', AplazoHelper::LOGS_VVV);
+            // Lets the popup flow name this order later; only orders placed in this checkout session are accepted.
+            $this->placedOrders->remember($order);
             try {
                 $randomToken = $this->generateRandomString();
             } catch (RandomException $e) {

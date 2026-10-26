@@ -5,6 +5,7 @@ namespace Aplazo\AplazoPayment\Controller\Order;
 use Aplazo\AplazoPayment\Api\CheckoutNotPaidManagementInterface;
 use Aplazo\AplazoPayment\Helper\Data;
 use Aplazo\AplazoPayment\Helper\Data as AplazoHelper;
+use Aplazo\AplazoPayment\Model\PopupCheckout;
 use Aplazo\AplazoPayment\Service\ApiService as AplazoService;
 use Magento\Checkout\Model\Session;
 use Magento\Framework\App\Action\Context;
@@ -14,6 +15,7 @@ use Magento\Quote\Api\CartRepositoryInterface;
 use Magento\Quote\Model\Quote\Item\OptionFactory;
 use Magento\Quote\Model\Quote\ItemFactory;
 use Magento\Quote\Model\QuoteFactory;
+use Magento\Sales\Model\Order;
 
 class Operations extends \Magento\Framework\App\Action\Action
 {
@@ -50,6 +52,7 @@ class Operations extends \Magento\Framework\App\Action\Action
     private $itemFactory;
     private $itemOptionFactory;
     private $checkoutNotPaidManagement;
+    private PopupCheckout $popupCheckout;
 
 
     public function __construct(
@@ -63,7 +66,8 @@ class Operations extends \Magento\Framework\App\Action\Action
         ItemFactory                        $itemFactory,
         OptionFactory                      $itemOptionFactory,
         ResultFactory                      $resultFactory,
-        CheckoutNotPaidManagementInterface $checkoutNotPaidManagement
+        CheckoutNotPaidManagementInterface $checkoutNotPaidManagement,
+        PopupCheckout                      $popupCheckout
     )
     {
         parent::__construct($context);
@@ -77,6 +81,7 @@ class Operations extends \Magento\Framework\App\Action\Action
         $this->itemOptionFactory = $itemOptionFactory;
         $this->cartRepository = $cartRepository;
         $this->checkoutNotPaidManagement = $checkoutNotPaidManagement;
+        $this->popupCheckout = $popupCheckout;
     }
 
 
@@ -103,7 +108,16 @@ class Operations extends \Magento\Framework\App\Action\Action
      */
     public function purchase()
     {
+        $popup = $this->popupCheckout->isPopupRequest($this->getRequest());
         $order = $this->checkoutSession->getLastRealOrder();
+        if ($popup && ($requestedOrderId = (string)$this->getRequest()->getParam('order', '')) !== '') {
+            // The popup names the order it was opened for, so another tab's later order is never opened in it.
+            $order = $this->popupCheckout->getSessionOrder($requestedOrderId);
+            if ($order === null) {
+                $this->aplazoHelper->log('Operations>purchase: orden no pertenece a la sesion', AplazoHelper::LOGS_VVV);
+                return $this->popupCheckout->unavailablePage(__('We could not find this order in your session.'));
+            }
+        }
         $this->aplazoHelper->log('Operations>purchase: Orden ' . $order->getEntityId() . ' debe redireccionar al checkout de aplazo.', AplazoHelper::LOGS_VVV);
         $this->orderService->reservingStockUntilPayment($order, 'aplazo_item_reserved');
         if (!empty($aplazoCheckout = $order->getAplazoCheckoutUrl())) {
@@ -111,14 +125,41 @@ class Operations extends \Magento\Framework\App\Action\Action
             if (strpos($aplazoCheckout, "||") !== false) {
                 $aplazoCheckout = explode("||", $aplazoCheckout)[0];
             }
+            // Provisional contract (BNPL-1666): tell Checkout it was opened as a popup.
+            if ($popup) {
+                $aplazoCheckout = $this->popupCheckout->withPopupMode($aplazoCheckout);
+            }
             $this->aplazoHelper->log('Operations>purchase: redireccion a ' . $aplazoCheckout , AplazoHelper::LOGS_VVV);
             $response = $this->resultFactory->create(ResultFactory::TYPE_REDIRECT)->setUrl($aplazoCheckout);
         } else {
             $this->aplazoHelper->log('Operations>purchase: No se encontro url ', AplazoHelper::LOGS_VVV);
+            if ($popup) {
+                // Inside the popup the cart would load in Aplazo's window.
+                return $this->popupCheckout->unavailablePage(__('Aplazo payment gateway is unavailable. Try again later.'));
+            }
             $this->messageManager->addErrorMessage(__('Aplazo payment gateway is unavailable. Try again later.'));
             $response = $this->resultRedirectFactory->create()->setPath('checkout/cart');
         }
         return $response;
+    }
+
+    /**
+     * "Go to cart" from the popup recovery notice, after an explicit click.
+     *
+     * It never cancels the order, cancels the loan or rebuilds the cart: the store page cannot know whether the buyer
+     * paid, because Checkout's messages and a closed window are UI signals only. The order keeps its normal lifecycle
+     * (the webhook, or the cancel cron when it is enabled), and the cart page says that the order may still be pending.
+     */
+    public function popupReturn()
+    {
+        $order = $this->popupCheckout->getSessionOrder((string)$this->getRequest()->getParam('order', ''));
+        if ($order !== null && $order->getState() === Order::STATE_NEW) {
+            $this->messageManager->addNoticeMessage(__(
+                'Your order %1 was placed and may still be pending while Aplazo confirms the payment, so your cart is empty. If you completed the payment, you will receive the confirmation. Before placing another order, wait until the result of this one is confirmed.',
+                $order->getIncrementId()
+            ));
+        }
+        return $this->resultRedirectFactory->create()->setPath('checkout/cart');
     }
 
     public function cancel()
