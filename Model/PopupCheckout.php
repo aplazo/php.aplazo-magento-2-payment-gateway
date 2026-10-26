@@ -50,12 +50,20 @@ class PopupCheckout
     }
 
     /**
-     * True only when the page asked for popup mode and popup mode is effective for this store.
+     * The request comes from the popup flow (mode=popup), whatever the current configuration says. Such a request is
+     * always validated as a popup request and is never handled as a redirect.
      */
-    public function isPopupRequest(RequestInterface $request): bool
+    public function isPopupRequested(RequestInterface $request): bool
     {
-        return $request->getParam('mode') === CheckoutMode::MODE_POPUP
-            && $this->aplazoHelper->getCheckoutMode() === CheckoutMode::MODE_POPUP;
+        return $request->getParam('mode') === CheckoutMode::MODE_POPUP;
+    }
+
+    /**
+     * Popup mode is effective for this store right now (configured, with a known checkout origin).
+     */
+    public function isPopupEnabled(): bool
+    {
+        return $this->aplazoHelper->getCheckoutMode() === CheckoutMode::MODE_POPUP;
     }
 
     /**
@@ -98,6 +106,17 @@ class PopupCheckout
         return $requested !== null
             && PlacedOrders::normalizeId($lastRealOrder->getEntityId()) === $requested
             && $this->placedOrders->contains($lastRealOrder);
+    }
+
+    /**
+     * Whether Magento's standard success page would show this order: it renders the session's last order, so it is
+     * only used when that is this same order. Reads the session, never writes it.
+     */
+    public function isLastSessionOrder(OrderInterface $order, OrderInterface $lastRealOrder): bool
+    {
+        $entityId = PlacedOrders::normalizeId($order->getEntityId());
+
+        return $entityId !== null && PlacedOrders::normalizeId($lastRealOrder->getEntityId()) === $entityId;
     }
 
     /**

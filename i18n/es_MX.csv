@@ -25,3 +25,5 @@
 "Close this window","Cerrar esta ventana"
 "We could not open Aplazo for this order from this window.","No pudimos abrir Aplazo para este pedido desde esta ventana."
 "Your order %1 was placed and may still be pending while Aplazo confirms the payment, so your cart is empty. If you completed the payment, you will receive the confirmation. Before placing another order, wait until the result of this one is confirmed.","Tu pedido %1 quedó registrado y puede seguir pendiente mientras Aplazo confirma el pago; por eso tu carrito está vacío. Si completaste el pago, recibirás la confirmación. Antes de hacer otro pedido, espera a que se confirme el resultado de este."
+"Aplazo cannot be opened in its own window right now. Please return to the store page.","Aplazo no se puede abrir en su propia ventana en este momento. Vuelve a la página de la tienda."
+"Aplazo reported the payment for your order %1 as completed. You will receive the order confirmation once Aplazo confirms it.","Aplazo informó que el pago de tu pedido %1 se completó. Recibirás la confirmación del pedido cuando Aplazo lo confirme."

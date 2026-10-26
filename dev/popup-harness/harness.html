@@ -120,6 +120,8 @@ function newRenderer(config) {
   inst.initialize();
   inst.redirectCalls = [];
   inst.redirectToPurchase = function (u) { this.redirectCalls.push(u); };
+  inst.successCalls = [];
+  inst.redirectToSuccess = function (u) { T.successRedirects++; this.successCalls.push(u); };
   return inst;
 }
 async function hits(sc) {
@@ -142,7 +144,7 @@ function snapshot(r) {
     successRedirects: T.successRedirects, notice: r.popupNotice(), orderPlaced: r.popupOrderPlaced(),
     popupClosed: T.lastPopup ? T.lastPopup.closed : null,
     listenerActive: !!(s && s.listener), watcherActive: !!(s && s.watcher), canReopen: r.popupCanReopen(),
-    cartUrl: r.popupCartUrl()
+    cartUrl: r.popupCartUrl(), successCalls: (r.successCalls || []).slice()
   };
 }
 var results = [];
@@ -263,7 +265,8 @@ async function runMain() {
 
   // 7. terminal states from the mock
   await terminal('success', 'success', 1200, { successRedirects: 1, notice: '', popupClosed: true, redirectCalls: [],
-    listenerActive: false, watcherActive: false, purchaseHits: 1, mockMode: 'popup', retryReturned: false, placeOrderActionCallsAfterRetry: 1, cartUrl: '' });
+    listenerActive: false, watcherActive: false, purchaseHits: 1, mockMode: 'popup', retryReturned: false, placeOrderActionCallsAfterRetry: 1, cartUrl: '',
+    successCalls: [MOCK + '/mock-checkout.html?operation=popup_success&order=1'] });
   h = await fetch('/hits').then(function (x) { return x.json(); });
   var successHit = h.filter(function (x) { return x.path === '/mock-checkout.html' && x.query.quoteid === 'success'; })[0] || { query: {} };
   check('popup_purchase_carries_order_id', { order: successHit.query.order, mode: successHit.query.mode, operation: successHit.query.operation },

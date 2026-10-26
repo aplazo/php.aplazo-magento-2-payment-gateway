@@ -108,12 +108,17 @@ class Operations extends \Magento\Framework\App\Action\Action
      */
     public function purchase()
     {
-        $popup = $this->popupCheckout->isPopupRequest($this->getRequest());
+        // A popup request (mode=popup) is always validated as one, even if popup mode was turned off meanwhile; it is never
+        // handled as a redirect. Both checks run before any stock compensation or redirect.
+        $popup = $this->popupCheckout->isPopupRequested($this->getRequest());
         $order = $this->checkoutSession->getLastRealOrder();
-        if ($popup && ($requestedOrderId = (string)$this->getRequest()->getParam('order', '')) !== '') {
+        if ($popup) {
+            if (!$this->popupCheckout->isPopupEnabled()) {
+                $this->aplazoHelper->log('Operations>purchase: peticion popup con el modo popup desactivado', AplazoHelper::LOGS_VVV);
+                return $this->popupCheckout->unavailablePage(__('Aplazo cannot be opened in its own window right now. Please return to the store page.'));
+            }
             // Purchase keeps master's scope (the session's last order); the popup's order id must name that order.
-            // Checked before any stock compensation or redirect.
-            if (!$this->popupCheckout->isPurchaseTarget($order, $requestedOrderId)) {
+            if (!$this->popupCheckout->isPurchaseTarget($order, (string)$this->getRequest()->getParam('order', ''))) {
                 $this->aplazoHelper->log('Operations>purchase: la orden solicitada no es la ultima orden de la sesion', AplazoHelper::LOGS_VVV);
                 return $this->popupCheckout->unavailablePage(__('We could not open Aplazo for this order from this window.'));
             }
@@ -159,6 +164,30 @@ class Operations extends \Magento\Framework\App\Action\Action
                 $order->getIncrementId()
             ));
         }
+        return $this->resultRedirectFactory->create()->setPath('checkout/cart');
+    }
+
+    /**
+     * Where the store page goes after the popup's success message, for the order that popup was opened for.
+     *
+     * The message is a UI signal, never proof of payment: nothing is written to the order or the session here. Magento's
+     * success page renders the session's last order, so it is used only when that is this order. If another tab placed
+     * a newer order since, the success page would show that one; this order gets a neutral notice on the cart instead,
+     * and the session's last-order data is left as it is for the other tab.
+     */
+    public function popupSuccess()
+    {
+        $order = $this->popupCheckout->getSessionOrder((string)$this->getRequest()->getParam('order', ''));
+        if ($order === null) {
+            return $this->resultRedirectFactory->create()->setPath('checkout/cart');
+        }
+        if ($this->popupCheckout->isLastSessionOrder($order, $this->checkoutSession->getLastRealOrder())) {
+            return $this->resultRedirectFactory->create()->setPath('checkout/onepage/success');
+        }
+        $this->messageManager->addNoticeMessage(__(
+            'Aplazo reported the payment for your order %1 as completed. You will receive the order confirmation once Aplazo confirms it.',
+            $order->getIncrementId()
+        ));
         return $this->resultRedirectFactory->create()->setPath('checkout/cart');
     }
 

@@ -286,7 +286,7 @@ def t_closed_before_checkout():
     record('popup_closed_before_checkout', res)
 
 
-def t_redirect(name='redirect_default'):
+def t_redirect(name='redirect_default', repeat=True):
     scenario('stay')
     before = last_order_id()
     b = Browser(9533)
@@ -298,7 +298,7 @@ def t_redirect(name='redirect_default'):
         time.sleep(5)
         res = {'reached_payment': ok, 'config': cfg, 'orders': orders, 'main_url': evaluate(b.ws, 'location.href'),
                'mock_hits': hits_for(inc) if inc else [], 'after_redirect': reservations(inc) if inc else None}
-        if inc:
+        if inc and repeat:
             b.ws.send('Page.navigate', {'url': BASE + '/aplazo/order/operations?operation=purchase&quoteid=x'}); time.sleep(3)
             res['after_repeat_get'] = reservations(inc)
             evaluate(b.ws, 'history.back(); true'); time.sleep(3)
@@ -510,9 +510,36 @@ def t_order_manipulation():
     record('popup_order_manipulation', res)
 
 
-def t_tabs_race():
+REJECTION_LOG = "grep -cE 'no es la ultima orden de la sesion|peticion popup con el modo popup desactivado' var/log/aplazo_payment/info.log 2>/dev/null"
+
+
+def magento_cli(*args):
+    subprocess.run(['bin/clinotty', 'bin/magento'] + list(args), cwd=M, capture_output=True, stdin=subprocess.DEVNULL)
+
+
+def website_config(path, value):
+    """Sets (or, with None, deletes) a websites/1 config row, then cleans the config cache. Local test only."""
+    if value is None:
+        sql("DELETE FROM core_config_data WHERE path='%s' AND scope='websites' AND scope_id=1" % path)
+    else:
+        magento_cli('config:set', '--scope=websites', '--scope-code=base', path, value)
+    magento_cli('cache:clean', 'config', 'full_page')
+
+
+def popup_off(apply):
+    website_config('payment/aplazo_gateway/checkout_mode', 'redirect' if apply else 'popup')
+    return 'websites/1 checkout_mode=%s' % ('redirect' if apply else 'popup')
+
+
+def sandbox_off(apply):
+    website_config('payment/aplazo_gateway/sanbox_mode', '0' if apply else None)
+    return 'websites/1 sanbox_mode=%s' % ('0' if apply else '(row deleted)')
+
+
+def t_tabs_race(name='popup_tabs_race', change=None):
     """Tab A places order A; its popup's purchase request is held. Tab B, same session, places order B and completes its
-    own purchase. Then A's request is released: it must not process B, and must be rejected before any compensation."""
+    own purchase. Optionally the configuration is changed (popup or sandbox off) before A's request is released: it must
+    not process B, and must be rejected before any compensation."""
     import threading
     scenario('stay')
     before = last_order_id()
@@ -578,7 +605,9 @@ def t_tabs_race():
         res['b_mock_hits'] = len(hits_for(latest['increment_id']))
 
         api_before = len(in_container('cat var/log/localdev_aplazo_stub.log 2>/dev/null').splitlines())
-        rejected_before = int(in_container("grep -c 'no es la ultima orden de la sesion' var/log/aplazo_payment/info.log 2>/dev/null").strip() or 0)
+        rejected_before = int(in_container(REJECTION_LOG).strip() or 0)
+        if change:
+            res['config_change'] = change(True)
         held = state_['held']
         browser_ws.post('Fetch.continueRequest', {'requestId': held['requestId']}, held['sessionId'])
         time.sleep(4)
@@ -588,14 +617,91 @@ def t_tabs_race():
         res['after_release'] = {a['increment_id']: reservations(a['increment_id']), latest['increment_id']: reservations(latest['increment_id'])}
         res['mock_hits_a'] = len(hits_for(a['increment_id']))
         res['api_calls_after_release'] = len(in_container('cat var/log/localdev_aplazo_stub.log 2>/dev/null').splitlines()) - api_before
-        res['rejections_logged'] = int(in_container("grep -c 'no es la ultima orden de la sesion' var/log/aplazo_payment/info.log 2>/dev/null").strip() or 0) - rejected_before
+        res['rejections_logged'] = int(in_container(REJECTION_LOG).strip() or 0) - rejected_before
         devtools_json(b.port, '/json/close/%s' % state_['popup_a']['targetId'])
         time.sleep(2)
         res['a_page_after_closing_popup'] = state(b)
         res['reached_payment'] = [ok_a, ok_b]
     finally:
         b.quit()
-    record('popup_tabs_race', res)
+        if change:
+            res['config_restored'] = change(False)
+    record(name, res)
+
+
+def _new_tab(b):
+    """A second tab of the same browser profile, so of the same checkout session."""
+    browser_ws = WS(devtools_json(b.port, '/json/version')['webSocketDebuggerUrl'])
+    target_id = browser_ws.send('Target.createTarget', {'url': 'about:blank'})['targetId']
+    time.sleep(1)
+    tab = type('Tab', (), {})()
+    tab.ws = b.attach(next(t for t in b.targets() if t['id'] == target_id))
+    tab.id = target_id
+    return tab
+
+
+def _page_summary(ws, *increments):
+    text = evaluate(ws, 'document.body ? document.body.innerText : ""') or ''
+    return {'href': evaluate(ws, 'location.href'),
+            'messages': evaluate(ws, "Array.from(document.querySelectorAll('.messages .message')).map(m => m.innerText.trim())"),
+            'mentions': {inc: (inc in text) for inc in increments}}
+
+
+def t_success_other_tab():
+    """A's popup is at Checkout; tab B (same session) places B; then A's popup posts success. Tab A must not show B's
+    confirmation, and nothing may change in the session, the orders or the reservations."""
+    scenario('stay')
+    before = last_order_id()
+    b = Browser(9542)
+    try:
+        ok_a, _ = start_checkout(b, 'popup_success_tabs_a@example.invalid')
+        click_place_order(b)
+        a = wait_new_order(before)[0]
+        time.sleep(4)
+        popup_a = [t for t in b.others() if 'checkout.aplazo.net' in t['url']]
+        tab_b = _new_tab(b)
+        ok_b, _ = start_checkout(tab_b, 'popup_success_tabs_b@example.invalid')
+        click_place_order(tab_b)
+        latest = wait_new_order(int(a['entity_id']))[0]
+        time.sleep(4)
+        ia, ib = a['increment_id'], latest['increment_id']
+        res = {'reached_payment': [ok_a, ok_b], 'order_a': a, 'order_b': latest, 'popup_a_open': bool(popup_a),
+               'before': {ia: reservations(ia), ib: reservations(ib)},
+               'states_before': sql("SELECT GROUP_CONCAT(CONCAT(increment_id,':',state,'/',status)) FROM sales_order WHERE entity_id IN (%s,%s)" % (a['entity_id'], latest['entity_id']))}
+        evaluate(b.attach(popup_a[0]), "window.opener.postMessage({type: 'aplazo:checkout:success', version: 1}, %s); true" % json.dumps(BASE))
+        wait_for(b.ws, "(location.pathname.indexOf('/checkout/cart') === 0 || location.pathname.indexOf('/checkout/onepage/success') === 0)"
+                       " && document.readyState === 'complete'", 30)
+        # Magento renders session messages client-side (customer-data); wait for them on this tab before moving on.
+        wait_for(b.ws, "document.querySelectorAll('.messages .message').length > 0", 15)
+        res['tab_a_after_success'] = _page_summary(b.ws, ia, ib)
+        res['after'] = {ia: reservations(ia), ib: reservations(ib)}
+        res['states_after'] = sql("SELECT GROUP_CONCAT(CONCAT(increment_id,':',state,'/',status)) FROM sales_order WHERE entity_id IN (%s,%s)" % (a['entity_id'], latest['entity_id']))
+        # Tab B's session data is intact: Magento's success page still shows B.
+        tab_b.ws.send('Page.navigate', {'url': BASE + '/checkout/onepage/success/'})
+        wait_for(tab_b.ws, "document.readyState === 'complete'", 30)
+        time.sleep(2)
+        res['tab_b_success_page'] = _page_summary(tab_b.ws, ia, ib)
+    finally:
+        b.quit()
+    record('popup_success_other_tab', res)
+
+
+def t_success_single():
+    """One order: success shows Magento's success page for it. Then popup_success with malformed or foreign ids, and a
+    popup purchase without an order id, in the same session."""
+    def act(b, inc):
+        out = {'after_success': _page_summary(b.ws, inc)}
+        foreign = sql("SELECT MIN(entity_id) FROM sales_order")
+        eid = sql("SELECT entity_id FROM sales_order WHERE increment_id='%s'" % inc)
+        for label, value in (('foreign order', foreign), ('leading zero', '0' + eid), ('suffix', eid + 'x'), ('empty', '')):
+            b.ws.send('Page.navigate', {'url': BASE + '/aplazo/order/operations?operation=popup_success&order=%s' % value}); time.sleep(3)
+            out['popup_success ' + label] = _page_summary(b.ws, inc)
+        r0 = reservations(inc)
+        b.ws.send('Page.navigate', {'url': BASE + '/aplazo/order/operations?operation=purchase&quoteid=x&mode=popup'}); time.sleep(3)
+        out['popup purchase without order'] = {'text': evaluate(b.ws, 'document.body.innerText'), 'reservations_before': r0,
+                                               'reservations_after': reservations(inc)}
+        return out
+    popup_flow('popup_success_single', 'success', after_open=act)
 
 
 TESTS = {
@@ -615,6 +721,11 @@ TESTS = {
     'popup_unavailable_page': t_unavailable_page,
     'popup_order_manipulation': t_order_manipulation,
     'popup_tabs_race': t_tabs_race,
+    'popup_tabs_race_popup_off': lambda: t_tabs_race('popup_tabs_race_popup_off', popup_off),
+    'popup_tabs_race_sandbox_off': lambda: t_tabs_race('popup_tabs_race_sandbox_off', sandbox_off),
+    'popup_success_other_tab': t_success_other_tab,
+    'popup_success_single': t_success_single,
+    'redirect_check': lambda: t_redirect('redirect_check', repeat=False),
 }
 
 if __name__ == '__main__':

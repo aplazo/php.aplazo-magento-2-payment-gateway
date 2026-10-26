@@ -189,8 +189,14 @@ define(
                         self.popupNotice('');
                         self.popupCanReopen(false);
                         self.popupCartUrl('');
-                        // Same success page as the redirect flow; the webhook still confirms the payment.
-                        redirectOnSuccessAction.execute();
+                        // A UI signal only; the webhook still confirms the payment. The server checks that this popup's
+                        // order belongs to the session before showing Magento's success page for it.
+                        if (self.popupOrderId === null || self.popupOrderId === undefined) {
+                            redirectOnSuccessAction.execute();
+
+                            return;
+                        }
+                        self.redirectToSuccess(self.getOperationUrl({operation: 'popup_success', order: String(self.popupOrderId)}));
                     },
                     failure: function () {
                         self.showPopupRecovery(popupNotices.failure());
@@ -280,8 +286,8 @@ define(
                 }
                 this.popupOrderPlaced(true);
                 params = {operation: 'purchase', quoteid: quoteid};
-                // Bound to this order: the server only opens it if it was placed in this checkout session.
-                // Without an id (unexpected response) purchase falls back to the session's last order, as redirect does.
+                // Bound to this order: the server only opens it if it is the checkout session's last order. Without an id
+                // (unexpected response) the server rejects the popup request instead of guessing the order.
                 if (this.popupOrderId !== null && this.popupOrderId !== undefined) {
                     params.order = String(this.popupOrderId);
                 }
@@ -299,6 +305,10 @@ define(
 
             redirectToPurchase: function (purchaseUrl) {
                 window.location = purchaseUrl;
+            },
+
+            redirectToSuccess: function (successUrl) {
+                window.location = successUrl;
             },
 
             getBannerUrl: function () {
