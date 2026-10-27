@@ -1,5 +1,5 @@
 <?php
-// Read-only snapshot for the BNPL-1607/1664 local tests. Usage: php -- <sku> [increment_id ...] < demo_snapshot.php
+// Read-only snapshot for the BNPL-1607/1664/1665 local tests. Usage: php -- <sku> [increment_id ...] < demo_snapshot.php
 require 'app/bootstrap.php';
 $om = \Magento\Framework\App\Bootstrap::create(BP, $_SERVER)->getObjectManager();
 $db = $om->get(\Magento\Framework\App\ResourceConnection::class)->getConnection();
@@ -14,7 +14,9 @@ $out = [
 ];
 foreach (array_slice($argv, 2) as $inc) {
     $o = $db->fetchRow(
-        "SELECT o.entity_id, o.state, o.status, JSON_UNQUOTE(JSON_EXTRACT(p.additional_information, '$.aplazo_stock_compensation')) AS marker
+        "SELECT o.entity_id, o.state, o.status, JSON_UNQUOTE(JSON_EXTRACT(p.additional_information, '$.aplazo_checkout_mode')) AS checkout_mode,
+            (SELECT COUNT(*) FROM sales_invoice i WHERE i.order_id = o.entity_id) AS invoices,
+            (SELECT COUNT(*) FROM sales_shipment s WHERE s.order_id = o.entity_id) AS shipments
          FROM sales_order o JOIN sales_order_payment p ON p.parent_id = o.entity_id WHERE o.increment_id = ?", [$inc]);
     $res = $db->fetchCol(
         "SELECT CONCAT(quantity, ' ', JSON_UNQUOTE(JSON_EXTRACT(metadata, '$.event_type'))) FROM inventory_reservation

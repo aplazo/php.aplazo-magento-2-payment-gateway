@@ -9,6 +9,9 @@
     <event name="checkout_submit_all_after">
         <observer name="aplazo_remember_placed_order" instance="Aplazo\AplazoPayment\Observer\RememberPlacedOrder" />
     </event>
+    <event name="payment_method_assign_data_aplazo_gateway">
+        <observer name="aplazo_assign_checkout_mode" instance="Aplazo\AplazoPayment\Observer\AssignCheckoutMode" />
+    </event>
     <event name="sales_order_creditmemo_save_after">
         <observer name="aplazo_creditmemo_after_save_enqueue_refund" instance="Aplazo\AplazoPayment\Observer\RefundObserverAfterSave"/>
     </event>

@@ -8,7 +8,7 @@ $om->get(\Magento\Framework\App\State::class)->setAreaCode('frontend');
 
 $helper = new class extends \Aplazo\AplazoPayment\Helper\Data {
     public function __construct() {}
-    public function getCheckoutOrigin(): ?string { return 'https://checkout.aplazo.net'; }
+    public function getCheckoutOrigin(?int $storeId = null): ?string { return 'https://checkout.aplazo.net'; }
 };
 $pc = $om->create(\Aplazo\AplazoPayment\Model\PopupCheckout::class, ['aplazoHelper' => $helper]);
 $order = function (string $stored) use ($om) {
@@ -57,7 +57,7 @@ foreach ($rejected as $label => $stored) {
 }
 $noOrigin = $om->create(\Aplazo\AplazoPayment\Model\PopupCheckout::class, ['aplazoHelper' => new class extends \Aplazo\AplazoPayment\Helper\Data {
     public function __construct() {}
-    public function getCheckoutOrigin(): ?string { return null; }
+    public function getCheckoutOrigin(?int $storeId = null): ?string { return null; }
 }]);
 $results[] = [$noOrigin->getPopupCheckoutUrl($order('https://checkout.aplazo.net/x')) === null ? 'PASS' : 'FAIL',
     'rejected: no configured origin (production)'];

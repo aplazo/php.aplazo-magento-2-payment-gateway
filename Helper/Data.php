@@ -211,18 +211,23 @@ class Data extends \Magento\Payment\Helper\Data
         return $this->getConfigFlag(self::GENERAL_SECTION . 'sanbox_mode') ? 'https://api.aplazo.net' : 'https://api.aplazo.mx';
     }
 
-    public function getCheckoutOrigin(): ?string
+    /**
+     * @param int|null $storeId null: the current store
+     */
+    public function getCheckoutOrigin(?int $storeId = null): ?string
     {
-        return $this->getConfigFlag(self::GENERAL_SECTION . 'sanbox_mode') ? self::CHECKOUT_ORIGIN_STG : null;
+        return $this->getConfigFlag(self::GENERAL_SECTION . 'sanbox_mode', $storeId) ? self::CHECKOUT_ORIGIN_STG : null;
     }
 
     /**
      * Effective checkout mode: popup only when it is configured and the checkout origin is known.
+     *
+     * @param int|null $storeId null: the current store
      */
-    public function getCheckoutMode(): string
+    public function getCheckoutMode(?int $storeId = null): string
     {
-        $mode = (string)$this->getConfigData(self::GENERAL_SECTION . 'checkout_mode');
-        if ($mode === CheckoutMode::MODE_POPUP && $this->getCheckoutOrigin() !== null) {
+        $mode = (string)$this->getConfigData(self::GENERAL_SECTION . 'checkout_mode', $storeId);
+        if ($mode === CheckoutMode::MODE_POPUP && $this->getCheckoutOrigin($storeId) !== null) {
             return CheckoutMode::MODE_POPUP;
         }
         return CheckoutMode::MODE_REDIRECT;
@@ -232,17 +237,19 @@ class Data extends \Magento\Payment\Helper\Data
         return $this->_getUrl($route, $params);
     }
 
-    private function getConfigFlag($path){
+    private function getConfigFlag($path, $storeId = null){
         return $this->scopeConfig->isSetFlag(
             $path,
-            \Magento\Store\Model\ScopeInterface::SCOPE_STORE
+            \Magento\Store\Model\ScopeInterface::SCOPE_STORE,
+            $storeId
         );
     }
 
-    private function getConfigData($path){
+    private function getConfigData($path, $storeId = null){
         return $this->scopeConfig->getValue(
             $path,
-            \Magento\Store\Model\ScopeInterface::SCOPE_STORE
+            \Magento\Store\Model\ScopeInterface::SCOPE_STORE,
+            $storeId
         );
     }
 

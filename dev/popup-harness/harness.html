@@ -53,8 +53,9 @@ registry['Magento_Checkout/js/model/quote'] = { getQuoteId: function () { return
 registry['Magento_Checkout/js/model/totals'] = {};
 registry['Magento_Catalog/js/price-utils'] = {};
 registry['Magento_Checkout/js/action/redirect-on-success'] = { execute: function () { T.successRedirects++; } };
-var placeOrderAction = function () {
+var placeOrderAction = function (data) {
   T.placeOrderActionCalls++;
+  T.lastData = data || null;
   var d = $.Deferred();
   T.deferreds.push(d);
   return d.promise();
@@ -133,7 +134,7 @@ async function hits(sc) {
 }
 function reset(sc) {
   if (T.lastPopup && !T.lastPopup.closed) { T.lastPopup.close(); }
-  T.validate = true; T.openThrows = false; T.fakeNavThrow = false; T.deferreds = []; T.placeOrderActionCalls = 0; T.successRedirects = 0; T.scenario = sc; T.lastPopup = null;
+  T.validate = true; T.openThrows = false; T.fakeNavThrow = false; T.deferreds = []; T.placeOrderActionCalls = 0; T.lastData = null; T.successRedirects = 0; T.scenario = sc; T.lastPopup = null;
   openLog.length = 0;
 }
 function snapshot(r) {
@@ -144,7 +145,8 @@ function snapshot(r) {
     successRedirects: T.successRedirects, notice: r.popupNotice(), orderPlaced: r.popupOrderPlaced(),
     popupClosed: T.lastPopup ? T.lastPopup.closed : null,
     listenerActive: !!(s && s.listener), watcherActive: !!(s && s.watcher), canReopen: r.popupCanReopen(),
-    cartUrl: r.popupCartUrl(), successCalls: (r.successCalls || []).slice()
+    cartUrl: r.popupCartUrl(), successCalls: (r.successCalls || []).slice(),
+    requestedMode: T.lastData && T.lastData.additional_data ? T.lastData.additional_data.aplazo_checkout_mode : null
   };
 }
 var results = [];
@@ -201,7 +203,7 @@ async function runMain() {
   var o = snapshot(r); o.placeOrderReturned = ret;
   check('redirect_mode', o, { placeOrderReturned: true, openCalls: 0, placeOrderActionCalls: 1,
     redirectCalls: ['https://magento.test/aplazo/order/operations?operation=purchase&quoteid=redirect_mode'],
-    notice: '', orderPlaced: false, cartUrl: '' });
+    notice: '', orderPlaced: false, cartUrl: '', requestedMode: null });
 
   // 2. popup configured with an invalid origin falls back to redirect
   reset('invalid_origin');
@@ -268,7 +270,7 @@ async function runMain() {
   // 7. terminal states from the mock
   await terminal('success', 'success', 1200, { successRedirects: 1, notice: '', popupClosed: true, redirectCalls: [],
     listenerActive: false, watcherActive: false, purchaseHits: 1, mockMode: 'popup', retryReturned: false, placeOrderActionCallsAfterRetry: 1, cartUrl: '',
-    successCalls: [MOCK + '/mock-checkout.html?operation=popup_success&order=1'] });
+    successCalls: [MOCK + '/mock-checkout.html?operation=popup_success&order=1'], requestedMode: 'popup' });
   h = await fetch('/hits').then(function (x) { return x.json(); });
   var successHit = h.filter(function (x) { return x.path === '/mock-checkout.html' && x.query.quoteid === 'success'; })[0] || { query: {} };
   check('popup_purchase_carries_order_id', { order: successHit.query.order, mode: successHit.query.mode, operation: successHit.query.operation },
@@ -359,7 +361,7 @@ async function runMain() {
   ret = await placeAndResolve(r);
   o = snapshot(r); o.placeOrderReturned = ret; o.allowedAfter = r.isPlaceOrderActionAllowed();
   check('open_throws', o, { placeOrderReturned: true, placeOrderActionCalls: 1, allowedAfter: true, orderPlaced: false,
-    redirectCalls: [purchaseUrl(MOCK, 'open_throws', false)], notice: '', cartUrl: '' });
+    redirectCalls: [purchaseUrl(MOCK, 'open_throws', false)], notice: '', cartUrl: '', requestedMode: null });
   T.openThrows = false;
 
   // 11. two instances: separate windows, a message for one does not touch the other
@@ -459,7 +461,7 @@ async function runBlocked() {
   var ret = await placeAndResolve(r);
   var o = snapshot(r); o.placeOrderReturned = ret;
   check('popup_blocked', o, { placeOrderReturned: true, openCalls: 1, openReturnedNull: true,
-    redirectCalls: [purchaseUrl(MOCK, 'popup_blocked', false)], notice: '', orderPlaced: false, cartUrl: '' });
+    redirectCalls: [purchaseUrl(MOCK, 'popup_blocked', false)], notice: '', orderPlaced: false, cartUrl: '', requestedMode: null });
 }
 
 

@@ -8,6 +8,7 @@ declare(strict_types=1);
 namespace Aplazo\AplazoPayment\Observer\Order;
 
 use Aplazo\AplazoPayment\Model\Service\OrderService;
+use Aplazo\AplazoPayment\Model\CheckoutModeMarker;
 use Aplazo\AplazoPayment\Model\Ui\ConfigProvider;
 use Aplazo\AplazoPayment\Service\ApiService as AplazoService;
 use Aplazo\AplazoPayment\Service\LogService;
@@ -53,7 +54,13 @@ class CancelAfter implements \Magento\Framework\Event\ObserverInterface
 
         if($order->getPayment()->getMethod() === ConfigProvider::CODE){
             $this->logService->send('info', 'Order cancel after: cancelling loan and updating stock', ['module:cancel'], ['order_id' => $order->getIncrementId(), 'state' => $order->getState(), 'status' => $order->getStatus()]);
-            $this->orderService->decreasingStockAfterPaymentSuccess($order, 'order_canceled_aplazo');
+            // Popup orders (marked at creation) keep Magento's native reservation, released by Magento's own cancel
+            // movement; the plugin adds no -1 (BNPL-1665). The loan is still cancelled below.
+            if (CheckoutModeMarker::isPopupOrder($order)) {
+                $this->logService->send('info', 'Order cancel after: popup order keeps the native reservation, no plugin stock movement', ['module:cancel', 'action:stock'], ['order_id' => $order->getIncrementId()]);
+            } else {
+                $this->orderService->decreasingStockAfterPaymentSuccess($order, 'order_canceled_aplazo');
+            }
             try{
                 $this->aplazoService->cancelLoan([
                     "cartId" => $order->getIncrementId(),

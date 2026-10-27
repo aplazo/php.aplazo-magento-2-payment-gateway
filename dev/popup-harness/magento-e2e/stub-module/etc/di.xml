@@ -4,4 +4,8 @@
     <preference for="Aplazo\AplazoPayment\Service\ApiService" type="LocalDev\AplazoStub\Service\ApiService"/>
     <preference for="Aplazo\AplazoPayment\Service\TrackingService" type="LocalDev\AplazoStub\Service\TrackingService"/>
     <preference for="Aplazo\AplazoPayment\Service\LogService" type="LocalDev\AplazoStub\Service\LogService"/>
+    <!-- BNPL-1665: confine the cancel cron to the orders of a test run (see Plugin/CronAllowlist.php). -->
+    <type name="Aplazo\AplazoPayment\Model\Service\OrderService">
+        <plugin name="localdev_aplazo_cron_allowlist" type="LocalDev\AplazoStub\Plugin\CronAllowlist"/>
+    </type>
 </config>

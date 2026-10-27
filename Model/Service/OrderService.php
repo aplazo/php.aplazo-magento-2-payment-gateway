@@ -14,6 +14,7 @@ use Magento\Sales\Api\Data\OrderInterface;
 use Magento\Sales\Api\OrderRepositoryInterface;
 use Magento\Sales\Model\Order;
 use \Magento\Sales\Model\ResourceModel\Order\CollectionFactory as OrderCollectionFactory;
+use Aplazo\AplazoPayment\Model\CheckoutModeMarker;
 use Aplazo\AplazoPayment\Model\Ui\ConfigProvider;
 use Aplazo\AplazoPayment\Service\ApiService as AplazoService;
 use Aplazo\AplazoPayment\Service\LogService;
@@ -329,7 +330,12 @@ class OrderService
         $message = '';
         $orderData = $this->aplazoService->getOrderImportantDataToLog($order);
         $this->logService->send('info', 'approveOrder started', ['module:webhook'], $orderData);
-        $this->decreasingStockAfterPaymentSuccess($order, 'order_placed_aplazo');
+        // Popup orders (marked at creation) keep Magento's native reservation, so the plugin adds no -1 (BNPL-1665).
+        if (CheckoutModeMarker::isPopupOrder($order)) {
+            $this->logService->send('info', 'approveOrder: popup order keeps the native reservation, no plugin stock movement', ['module:webhook', 'action:stock'], $orderData);
+        } else {
+            $this->decreasingStockAfterPaymentSuccess($order, 'order_placed_aplazo');
+        }
         if (!$this->invoiceOrder($order)) {
             $message = 'Orden no se puede hacer invoice ' . $order->getIncrementId();
             $this->aplazoHelper->log($message);

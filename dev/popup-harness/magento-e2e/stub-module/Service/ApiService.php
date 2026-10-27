@@ -46,16 +46,16 @@ class ApiService extends \Aplazo\AplazoPayment\Service\ApiService
         return ['status' => false, 'message' => 'stub: refunds are not simulated'];
     }
 
+    /**
+     * var/localdev_aplazo_stub_loan_status holds the loan status to answer (for example OUTSTANDING); without it the
+     * loan is reported as not found. The plugin's own shouldCancelOrder() decides from this answer (BNPL-1665).
+     */
     public function getLoanStatus($cartId)
     {
-        StubLog::write('api', 'getLoanStatus', ['cartId' => (string)$cartId]);
-        return false;
-    }
-
-    public function shouldCancelOrder($cartId)
-    {
-        StubLog::write('api', 'shouldCancelOrder', ['cartId' => (string)$cartId]);
-        return false;
+        $file = BP . '/var/localdev_aplazo_stub_loan_status';
+        $status = is_file($file) ? trim((string)@file_get_contents($file)) : '';
+        StubLog::write('api', 'getLoanStatus', ['cartId' => (string)$cartId, 'answer' => $status === '' ? 'not found' : $status]);
+        return $status === '' ? false : [['status' => $status]];
     }
 
     public function requestMagentoCurl($url, $body, $method, $bearer, array $extraHeaders = [])

@@ -5,6 +5,7 @@ namespace Aplazo\AplazoPayment\Controller\Order;
 use Aplazo\AplazoPayment\Api\CheckoutNotPaidManagementInterface;
 use Aplazo\AplazoPayment\Helper\Data;
 use Aplazo\AplazoPayment\Helper\Data as AplazoHelper;
+use Aplazo\AplazoPayment\Model\CheckoutModeMarker;
 use Aplazo\AplazoPayment\Model\PopupCheckout;
 use Aplazo\AplazoPayment\Service\ApiService as AplazoService;
 use Magento\Checkout\Model\Session;
@@ -130,11 +131,18 @@ class Operations extends \Magento\Framework\App\Action\Action
                 return $this->popupCheckout->unavailablePage(__('Aplazo payment gateway is unavailable. Try again later.'));
             }
             $this->aplazoHelper->log('Operations>purchase: Orden ' . $order->getEntityId() . ' debe abrir el checkout de aplazo en la ventana popup.', AplazoHelper::LOGS_VVV);
-            $this->orderService->reservingStockUntilPayment($order, 'aplazo_item_reserved');
+            // Popup orders (marked at creation) keep Magento's native reservation: no plugin compensation (BNPL-1665).
+            // Orders without the mark keep the previous behaviour.
+            if (!CheckoutModeMarker::isPopupOrder($order)) {
+                $this->orderService->reservingStockUntilPayment($order, 'aplazo_item_reserved');
+            }
             return $this->resultFactory->create(ResultFactory::TYPE_REDIRECT)->setUrl($popupCheckoutUrl);
         }
         $this->aplazoHelper->log('Operations>purchase: Orden ' . $order->getEntityId() . ' debe redireccionar al checkout de aplazo.', AplazoHelper::LOGS_VVV);
-        $this->orderService->reservingStockUntilPayment($order, 'aplazo_item_reserved');
+        // An order marked as popup at creation gets no compensation here either, whatever URL reached purchase.
+        if (!CheckoutModeMarker::isPopupOrder($order)) {
+            $this->orderService->reservingStockUntilPayment($order, 'aplazo_item_reserved');
+        }
         if (!empty($aplazoCheckout = $order->getAplazoCheckoutUrl())) {
             // Exploding cancel token and checkout Url
             if (strpos($aplazoCheckout, "||") !== false) {

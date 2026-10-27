@@ -1,4 +1,4 @@
-"""LOCAL TEST ONLY (BNPL-1664). Drives a real local Magento checkout in a test Chrome with the Aplazo integrations
+"""LOCAL TEST ONLY (BNPL-1664, BNPL-1665). Drives a real local Magento checkout in a test Chrome with the Aplazo integrations
 replaced by the stub module in stub-module/. See ../VALIDATION-BNPL-1664.md for the setup.
 
   MAGENTO_DIR=~/path/to/docker-magento python3 -I run.py <test> [<test> ...]
@@ -9,7 +9,7 @@ the API, and the popup lands on mock_https.py through Chrome's --host-resolver-r
 Environment: MAGENTO_DIR (docker-magento directory with bin/), MAGENTO_BASE_URL (https://magento.test),
 MAGENTO_PRODUCT_PATH (aplazo-producto-prueba.html), MAGENTO_PRODUCT_SKU (APLAZO-TEST-001), CHROME, OUT.
 """
-import json, os, shlex, shutil, ssl, subprocess, sys, tempfile, time
+import json, os, shlex, shutil, ssl, subprocess, sys, tempfile, threading, time, urllib.parse, urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
@@ -27,7 +27,8 @@ CTX = ssl.create_default_context(); CTX.check_hostname = False; CTX.verify_mode 
 
 # ---------- Magento (through docker-magento's bin/ scripts) ----------
 def sql(q):
-    return subprocess.run(['bin/mysql', '-N', '-e', q], cwd=M, capture_output=True, text=True, stdin=subprocess.DEVNULL).stdout.strip()
+    return subprocess.run(['bin/mysql', '-N', '-e', q], cwd=M, capture_output=True, text=True, errors='replace',
+                          stdin=subprocess.DEVNULL).stdout.strip()
 
 
 def in_container(cmd):
@@ -306,6 +307,7 @@ def t_redirect(name='redirect_default', repeat=True):
     finally:
         b.quit()
     record(name, res)
+    return res
 
 
 def t_blocked_initial():
@@ -323,6 +325,7 @@ def t_blocked_initial():
     finally:
         b.quit()
     record('popup_blocked_initial', res)
+    return res
 
 
 def t_double_click():
@@ -720,6 +723,317 @@ def t_checkout_url(name, base):
         in_container('echo %s > var/localdev_aplazo_stub_checkout_url' % shlex.quote(DEFAULT_STUB_BASE))
 
 
+# ---------- BNPL-1665: orders marked as popup keep Magento's native reservation ----------
+SIMWEBHOOK = os.path.expanduser(os.environ.get(
+    'SIMWEBHOOK', '~/.claude/plugins/cache/bnpl-online-lab/magento/0.1.0/skills/magento-qa-env/scripts/simwebhook.php'))
+LAST_APPROVE = ('APLAZO-1665-LAST-APPROVE', 'aplazo-1665-last-approve.html')
+LAST_CANCEL = ('APLAZO-1665-LAST-CANCEL', 'aplazo-1665-last-cancel.html')
+
+
+def use_product(product):
+    """Points the checkout and the snapshots at another test product; returns the previous one."""
+    global SKU, PRODUCT_PATH
+    prev = (SKU, PRODUCT_PATH)
+    SKU, PRODUCT_PATH = product
+    return prev
+
+
+def stock(inc):
+    """Physical quantity, salable quantity and this order's marker, state, invoices, shipments and reservations."""
+    snap = snapshot(inc)
+    return {'sku': snap['sku'], 'physical': snap['physical_source_qty'], 'salable': snap['salable_qty'],
+            'reservations_sum_sku': snap['reservations_sum_all_orders'], 'order': snap['orders'][inc]}
+
+
+def _inc(inc):
+    if not (inc or '').isdigit():
+        raise ValueError('unexpected increment id')
+    return inc
+
+
+def entity_id(inc):
+    return int(sql("SELECT entity_id FROM sales_order WHERE increment_id='%s'" % _inc(inc)))
+
+
+def order_ops(*args):
+    with open(os.path.join(HERE, 'order_ops.php')) as fh:
+        out = subprocess.run(['bin/clinotty', 'php', '--'] + [str(a) for a in args], cwd=M, capture_output=True, text=True, stdin=fh).stdout
+    return json.loads(out[out.index('{'):]) if '{' in out else {'ok': False, 'raw': out[-300:]}
+
+
+def admin_cancel(inc):
+    """OrderManagementInterface::cancel, what the admin Cancel button calls."""
+    return order_ops('cancel', entity_id(inc))
+
+
+def cancel_link(inc):
+    """The return link a buyer follows when the payment is not completed (operation=cancel with the order's own token).
+    The token is read from the order and never printed."""
+    url = sql("SELECT aplazo_checkout_url FROM sales_order WHERE increment_id='%s'" % _inc(inc))
+    token = url.split('||', 1)[1] if '||' in url else ''
+    query = urllib.parse.urlencode({'operation': 'cancel', 'incrementid': inc, 'token': token})
+    with urllib.request.urlopen(BASE + '/aplazo/order/operations?' + query, context=CTX, timeout=60) as resp:
+        return {'token_present': bool(token), 'http': resp.status, 'final_path': urllib.parse.urlparse(resp.geturl()).path}
+
+
+def webhook(inc, status='Activo'):
+    """The real REST callback, signed like Aplazo with the local apiToken (simwebhook.php, legacy key), sent from the
+    PHP container to the local web server. Only the simulator's verdict line is kept; it never prints the token."""
+    cmd = 'SIM_TARGET=https://app:8443 php -d opcache.enable_cli=0 -- /var/www/html %s legacy %s %s' % (
+        shlex.quote(urllib.parse.urlparse(BASE).hostname), _inc(inc), shlex.quote(status))
+    with open(SIMWEBHOOK) as fh:
+        out = subprocess.run(['bin/clinotty', 'sh', '-c', cmd], cwd=M, capture_output=True, text=True, stdin=fh).stdout
+    return (out.strip().splitlines() or [''])[-1][:200]
+
+
+def cron(incs, loan_status=None):
+    """The real cancel cron (bin/magento aplazo:orders:cancel), restricted to `incs` by the stub's allowlist plugin.
+    `loan_status` is what the stubbed loan status answers (OUTSTANDING approves; nothing means not found: cancel)."""
+    time.sleep(2)  # the collection takes orders created strictly before now
+    in_container('printf "%%s\\n" %s > var/localdev_aplazo_cron_allowlist' % ' '.join(_inc(i) for i in incs))
+    if loan_status:
+        in_container('echo %s > var/localdev_aplazo_stub_loan_status' % shlex.quote(loan_status))
+    try:
+        out = subprocess.run(['bin/clinotty', 'bin/magento', 'aplazo:orders:cancel'], cwd=M, capture_output=True, text=True,
+                             stdin=subprocess.DEVNULL)
+        return (out.stdout + out.stderr).strip()[-600:]
+    finally:
+        in_container('rm -f var/localdev_aplazo_cron_allowlist var/localdev_aplazo_stub_loan_status')
+
+
+def log_mark():
+    return {f: int((in_container('wc -l < var/log/%s 2>/dev/null' % f).strip() or 0)) for f in ('exception.log', 'system.log')}
+
+
+def log_since(mark):
+    out = {}
+    for f, n in mark.items():
+        lines = in_container('tail -n +%d var/log/%s 2>/dev/null' % (n + 1, f)).splitlines()
+        out[f] = [l[:300] for l in lines if 'ERROR' in l or 'CRITICAL' in l or 'Exception' in l][:20]
+    return out
+
+
+def early_close(name):
+    """The buyer closes the popup while placeOrder is still in flight: the order is created, purchase never runs."""
+    set_delay(4)
+    scenario('stay')
+    before = last_order_id()
+    b = Browser(9541)
+    try:
+        ok, cfg = start_checkout(b, name + '@example.invalid')
+        click_place_order(b)
+        time.sleep(1.0)
+        closed = len(b.others())
+        b.close_others()
+        orders = wait_new_order(before, 30)
+        inc = orders[0]['increment_id'] if orders else None
+        time.sleep(3)
+        res = {'reached_payment': ok, 'config': cfg, 'closed_during_place_order': closed, 'orders': orders,
+               'page': state(b), 'mock_hits': hits_for(inc) if inc else [], 'after_place': stock(inc) if inc else None}
+    finally:
+        b.quit()
+        set_delay(0)
+    return inc, res
+
+
+def t_early_close(name, action):
+    inc, res = early_close(name)
+    if inc:
+        res['action'] = action(inc)
+        time.sleep(2)
+        res['after_action'] = stock(inc)
+        res['api_calls'] = stub_calls(inc)
+    record(name, res)
+
+
+def t_popup_purchase_variants():
+    """Normal popup: purchase reloaded, requested again with and without mode=popup, then approved by the webhook."""
+    def act(b, inc):
+        p = b.attach(b.others()[0])
+        out = {'after_open': stock(inc)}
+        url = evaluate(b.ws, "require('ko').dataFor(document.querySelector('input#aplazo_gateway')).popupPurchaseUrl")
+        p.send('Page.reload'); time.sleep(3)
+        out['after_reload'] = reservations(inc)
+        p.send('Page.navigate', {'url': url}); time.sleep(3)
+        out['after_repeat_get_popup'] = reservations(inc)
+        p.send('Page.navigate', {'url': BASE + '/aplazo/order/operations?operation=purchase&quoteid=x'}); time.sleep(3)
+        out['after_get_without_mode'] = reservations(inc)
+        out['popup_url_without_mode'] = evaluate(p, 'location.href')[:90]
+        return out
+    res = popup_flow('c1665_popup_purchase_variants', 'stay', after_open=act)
+    inc = res['orders'][0]['increment_id']
+    res = {'order': inc, 'webhook': webhook(inc)}
+    time.sleep(2)
+    res['after_webhook'] = stock(inc)
+    record('c1665_popup_purchase_variants_approve', res)
+
+
+def t_last_unit(name, product, finish):
+    prev = use_product(product)
+    try:
+        res = popup_flow(name, 'stay', after_open=lambda b, inc: {'after_place': stock(inc)})
+        inc = res['orders'][0]['increment_id']
+        out = {'order': inc}
+        out.update(finish(inc))
+        out['final'] = stock(inc)
+        record(name + '_finish', out)
+    finally:
+        use_product(prev)
+
+
+def approve_and_ship(inc):
+    out = {'webhook': webhook(inc)}
+    time.sleep(2)
+    out['after_webhook'] = stock(inc)
+    out['ship'] = order_ops('ship', entity_id(inc))
+    return out
+
+
+def t_config_change():
+    """The mark is decided once, at creation: turning popup mode off afterwards changes nothing for that order."""
+    def act(b, inc):
+        out = {'after_open': stock(inc), 'config': popup_off(True)}
+        b.ws.send('Page.navigate', {'url': BASE + '/aplazo/order/operations?operation=purchase&quoteid=x'}); time.sleep(3)
+        out['after_get_without_mode_popup_off'] = reservations(inc)
+        return out
+    try:
+        res = popup_flow('c1665_config_change', 'stay', after_open=act)
+        inc = res['orders'][0]['increment_id']
+        out = {'order': inc, 'webhook_popup_off': webhook(inc)}
+        time.sleep(2)
+        out['after_webhook'] = stock(inc)
+        record('c1665_config_change_approve', out)
+    finally:
+        popup_off(False)
+
+
+SET_PAYMENT_JS = r"""
+(async (mode) => {
+  const quote = require('Magento_Checkout/js/model/quote'), cartId = quote.getQuoteId();
+  const body = {cartId: cartId, email: document.querySelector('#customer-email').value,
+                paymentMethod: {method: 'aplazo_gateway', additional_data: {aplazo_checkout_mode: mode}}};
+  const r = await fetch('/rest/default/V1/guest-carts/' + cartId + '/set-payment-information',
+                        {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+  return JSON.stringify({status: r.status, cartId: cartId});
+})
+"""
+
+
+def quote_marker(masked):
+    row = sql("SELECT p.quote_id, COALESCE(JSON_UNQUOTE(JSON_EXTRACT(p.additional_information, '$.aplazo_checkout_mode')), 'null') "
+              "FROM quote_payment p JOIN quote_id_mask m ON m.quote_id = p.quote_id WHERE m.masked_id = '%s'"
+              % ''.join(c for c in masked if c.isalnum()))
+    return dict(zip(('quote_id', 'aplazo_checkout_mode'), row.split('\t'))) if row else None
+
+
+def t_marker_cleanup():
+    """A popup attempt marks the quote and fails before the order exists; the retry on the same quote is a redirect
+    (the browser blocks the window). The retry must remove the mark: the order is unmarked and keeps master's flow.
+    Also: a popup request while popup mode is off is not accepted."""
+    scenario('stay')
+    before = last_order_id()
+    b = Browser(9542, block_popups=True)
+    res = {}
+    try:
+        ok, cfg = start_checkout(b, 'c1665_marker_cleanup@example.invalid')
+        res.update(reached_payment=ok, config=cfg)
+        popup_off(True)
+        try:
+            r = json.loads(evaluate(b.ws, '(%s)(%s)' % (SET_PAYMENT_JS, json.dumps('popup')), timeout=60))
+            res['request_while_popup_off'] = {'http': r['status'], 'quote': quote_marker(r['cartId'])}
+        finally:
+            popup_off(False)
+        r = json.loads(evaluate(b.ws, '(%s)(%s)' % (SET_PAYMENT_JS, json.dumps('popup')), timeout=60))
+        res['request_popup_on'] = {'http': r['status'], 'quote': quote_marker(r['cartId'])}
+        click_place_order(b, trusted=False)
+        orders = wait_new_order(before)
+        inc = orders[0]['increment_id'] if orders else None
+        time.sleep(5)
+        res.update(orders=orders, main_url=evaluate(b.ws, 'location.href')[:90],
+                   windows_open=[t['url'][:90] for t in b.others()], quote_after_retry=quote_marker(r['cartId']),
+                   after_redirect=stock(inc) if inc else None)
+    finally:
+        b.quit()
+    record('c1665_marker_cleanup', res)
+
+
+def t_blocked():
+    res = t_blocked_initial()
+    inc = res['orders'][0]['increment_id']
+    record('c1665_blocked_unmarked', {'order': inc, 'after_redirect': stock(inc)})
+
+
+def t_redirect_unmarked():
+    """Regression with popup mode off: the order is unmarked and keeps master's +1 at purchase and -1 at approval
+    (including master's repeated +1 on a repeated purchase, reported in VALIDATION-BNPL-1664.md)."""
+    popup_off(True)
+    try:
+        res = t_redirect('c1665_redirect_unmarked')
+    finally:
+        popup_off(False)
+    inc = res['orders'][0]['increment_id']
+    out = {'order': inc, 'before_webhook': stock(inc), 'webhook': webhook(inc)}
+    time.sleep(2)
+    out['after_webhook'] = stock(inc)
+    record('c1665_redirect_unmarked_approve', out)
+
+
+def t_concurrency():
+    """Webhook approval and an admin cancel of the same popup order at the same time."""
+    res = popup_flow('c1665_concurrency', 'stay')
+    inc = res['orders'][0]['increment_id']
+    mark = log_mark()
+    results = {}
+    go = threading.Event()
+
+    def run(key, fn):
+        go.wait()
+        results[key] = fn(inc)
+    threads = [threading.Thread(target=run, args=('webhook', webhook)), threading.Thread(target=run, args=('admin_cancel', admin_cancel))]
+    for t in threads:
+        t.start()
+    go.set()
+    for t in threads:
+        t.join(120)
+    time.sleep(2)
+    record('c1665_concurrency_race', {'order': inc, 'results': results, 'final': stock(inc), 'errors': log_since(mark),
+                                      'history': sql("SELECT status, LEFT(REPLACE(comment, '\\n', ' '), 140) FROM sales_order_status_history "
+                                                     "WHERE parent_id = %d ORDER BY entity_id" % entity_id(inc)).splitlines()})
+
+
+
+def t_cancel_then_webhook():
+    """The interleaving the race above did not produce: the order is cancelled first and the approval webhook arrives
+    late. Records what the existing approval path does with a cancelled popup order."""
+    res = popup_flow('c1665_cancel_then_webhook', 'stay')
+    inc = res['orders'][0]['increment_id']
+    mark = log_mark()
+    out = {'order': inc, 'admin_cancel': admin_cancel(inc)}
+    out['after_cancel'] = stock(inc)
+    out['webhook'] = webhook(inc)
+    time.sleep(2)
+    out.update(final=stock(inc), errors=log_since(mark))
+    record('c1665_cancel_then_webhook_finish', out)
+
+
+TESTS_1665 = {
+    'c1665_early_close_cancel_link': lambda: t_early_close('c1665_early_close_cancel_link', cancel_link),
+    'c1665_early_close_cancel_admin': lambda: t_early_close('c1665_early_close_cancel_admin', admin_cancel),
+    'c1665_early_close_cron_cancel': lambda: t_early_close('c1665_early_close_cron_cancel', lambda i: cron([i])),
+    'c1665_early_close_webhook_approve': lambda: t_early_close('c1665_early_close_webhook_approve', webhook),
+    'c1665_early_close_cron_approve': lambda: t_early_close('c1665_early_close_cron_approve', lambda i: cron([i], 'OUTSTANDING')),
+    'c1665_popup_purchase_variants': t_popup_purchase_variants,
+    'c1665_last_unit_approve': lambda: t_last_unit('c1665_last_unit_approve', LAST_APPROVE, approve_and_ship),
+    'c1665_last_unit_cancel': lambda: t_last_unit('c1665_last_unit_cancel', LAST_CANCEL, lambda i: {'admin_cancel': admin_cancel(i)}),
+    'c1665_config_change': t_config_change,
+    'c1665_marker_cleanup': t_marker_cleanup,
+    'c1665_blocked_unmarked': t_blocked,
+    'c1665_redirect_unmarked': t_redirect_unmarked,
+    'c1665_concurrency': t_concurrency,
+    'c1665_cancel_then_webhook': t_cancel_then_webhook,
+}
+
+
 TESTS = {
     'redirect_default': t_redirect,
     'popup_success': t_terminal('success'),
@@ -747,6 +1061,7 @@ TESTS = {
     'popup_url_suffix_host': lambda: t_checkout_url('popup_url_suffix_host', 'https://checkout.aplazo.net.evil.example/mock'),
     'popup_url_credentials': lambda: t_checkout_url('popup_url_credentials', 'https://user:pass@checkout.aplazo.net/mock'),
 }
+TESTS.update(TESTS_1665)
 
 if __name__ == '__main__':
     if not M or not os.path.exists(os.path.join(M, 'bin', 'clinotty')):

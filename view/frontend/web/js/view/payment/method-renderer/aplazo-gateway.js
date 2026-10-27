@@ -89,10 +89,21 @@ define(
                 return actionUrl + (actionUrl.indexOf('?') === -1 ? '?' : '&') + $.param(params);
             },
 
+            /**
+             * The popup mode is requested only for an attempt whose Aplazo window was opened (the base renderer calls
+             * this after getPlaceOrderDeferredObject opened it). The server accepts it only when popup mode is
+             * effective, and otherwise removes any earlier mark (BNPL-1665).
+             */
             getData: function () {
-                return {
+                var data = {
                     'method': this.getCode(),
                 };
+
+                if (this.popupSession !== null && this.popupSession !== undefined) {
+                    data.additional_data = {aplazo_checkout_mode: 'popup'};
+                }
+
+                return data;
             },
 
             getTotalSegment: function (){
