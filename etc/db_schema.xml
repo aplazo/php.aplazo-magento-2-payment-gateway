@@ -55,4 +55,49 @@
             <column name="next_attempt_at"/>
         </index>
     </table>
+
+    <!-- Popup payment-first (BNPL-1664): one row per loan requested from a quote, written before createLoan. -->
+    <table name="aplazo_payment_attempt" resource="default" engine="innodb" comment="Aplazo popup payment attempts">
+        <column xsi:type="int" name="entity_id" unsigned="true" nullable="false" identity="true" comment="Entity ID"/>
+        <column xsi:type="varchar" name="public_id" length="32" nullable="false" comment="Opaque id given to the browser"/>
+        <column xsi:type="int" name="quote_id" unsigned="true" nullable="false" comment="Quote id"/>
+        <column xsi:type="smallint" name="store_id" unsigned="true" nullable="false" comment="Store id"/>
+        <column xsi:type="int" name="customer_id" unsigned="true" nullable="true" comment="Customer id, null for guests"/>
+        <column xsi:type="varchar" name="cart_id" length="32" nullable="false" comment="cartId sent to Aplazo, increment id of the order"/>
+        <column xsi:type="varchar" name="loan_id" length="64" nullable="true" comment="Aplazo loan id"/>
+        <column xsi:type="text" name="checkout_url" nullable="true" comment="Validated Aplazo checkout URL"/>
+        <column xsi:type="decimal" name="amount" precision="20" scale="4" nullable="false" comment="Amount sent to Aplazo"/>
+        <column xsi:type="varchar" name="currency" length="3" nullable="false" comment="Currency of the amount"/>
+        <column xsi:type="varchar" name="fingerprint" length="64" nullable="false" comment="Hash of the accepted checkout data"/>
+        <column xsi:type="text" name="summary_json" nullable="true" comment="Accepted checkout summary, no personal data"/>
+        <column xsi:type="varchar" name="status" length="20" nullable="false" comment="Attempt status"/>
+        <column xsi:type="int" name="version" unsigned="true" nullable="false" default="0" comment="Compare-and-set version"/>
+        <column xsi:type="int" name="order_id" unsigned="true" nullable="true" comment="Resulting order entity id"/>
+        <column xsi:type="varchar" name="reject_reason" length="32" nullable="true" comment="Why a paid attempt could not become an order"/>
+        <column xsi:type="varchar" name="loan_cancel_state" length="16" nullable="true" comment="Loan reversal state of a rejected attempt"/>
+        <column xsi:type="timestamp" name="email_requested_at" nullable="true" default="NULL" comment="Order email handed to Magento"/>
+        <column xsi:type="int" name="check_count" unsigned="true" nullable="false" default="0" comment="Reconciliation checks"/>
+        <column xsi:type="timestamp" name="next_check_at" nullable="true" default="NULL" comment="Next reconciliation check (UTC)"/>
+        <column xsi:type="varchar" name="last_error" length="255" nullable="true" comment="Last error, sanitized"/>
+        <column xsi:type="timestamp" name="created_at" nullable="false" default="CURRENT_TIMESTAMP" comment="Created at"/>
+        <column xsi:type="timestamp" name="updated_at" nullable="false" default="CURRENT_TIMESTAMP" on_update="true" comment="Updated at"/>
+
+        <constraint xsi:type="primary" referenceId="PRIMARY">
+            <column name="entity_id"/>
+        </constraint>
+        <constraint xsi:type="unique" referenceId="APLAZO_PAYMENT_ATTEMPT_PUBLIC_ID_UNQ">
+            <column name="public_id"/>
+        </constraint>
+        <constraint xsi:type="unique" referenceId="APLAZO_PAYMENT_ATTEMPT_CART_ID_UNQ">
+            <column name="cart_id"/>
+        </constraint>
+        <index referenceId="APLAZO_PAYMENT_ATTEMPT_QUOTE_ID_STATUS_IDX" indexType="btree">
+            <column name="quote_id"/>
+            <column name="status"/>
+        </index>
+        <index referenceId="APLAZO_PAYMENT_ATTEMPT_STATUS_NEXT_CHECK_IDX" indexType="btree">
+            <column name="status"/>
+            <column name="next_check_at"/>
+        </index>
+    </table>
 </schema>

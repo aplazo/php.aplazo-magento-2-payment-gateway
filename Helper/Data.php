@@ -6,6 +6,7 @@ use Magento\Framework\View\LayoutFactory;
 use Magento\Sales\Api\Data\OrderInterface;
 use Magento\Store\Model\StoreManagerInterface;
 use Aplazo\AplazoPayment\Service\ApiService as AplazoService;
+use Aplazo\AplazoPayment\Model\Config\Source\CheckoutMode;
 
 class Data extends \Magento\Payment\Helper\Data
 {
@@ -16,6 +17,9 @@ class Data extends \Magento\Payment\Helper\Data
     const APLAZO_CURRENCY = 'MXN';
     private const DEFAULT_TRACKING_BASE_URL_STG = 'https://core.aplazo.net';
     private const DEFAULT_TRACKING_BASE_URL_PROD = 'https://core.aplazo.mx';
+    // Origin of the checkout URL returned by api.aplazo.net. Production is not confirmed yet,
+    // so popup mode is only available in sandbox and production keeps the redirect.
+    private const CHECKOUT_ORIGIN_STG = 'https://checkout.aplazo.net';
     private const PLATFORM_CODE = 'MGT';
 
     /**
@@ -207,21 +211,45 @@ class Data extends \Magento\Payment\Helper\Data
         return $this->getConfigFlag(self::GENERAL_SECTION . 'sanbox_mode') ? 'https://api.aplazo.net' : 'https://api.aplazo.mx';
     }
 
+    /**
+     * @param int|null $storeId null: the current store
+     */
+    public function getCheckoutOrigin(?int $storeId = null): ?string
+    {
+        return $this->getConfigFlag(self::GENERAL_SECTION . 'sanbox_mode', $storeId) ? self::CHECKOUT_ORIGIN_STG : null;
+    }
+
+    /**
+     * Effective checkout mode: popup only when it is configured and the checkout origin is known.
+     *
+     * @param int|null $storeId null: the current store
+     */
+    public function getCheckoutMode(?int $storeId = null): string
+    {
+        $mode = (string)$this->getConfigData(self::GENERAL_SECTION . 'checkout_mode', $storeId);
+        if ($mode === CheckoutMode::MODE_POPUP && $this->getCheckoutOrigin($storeId) !== null) {
+            return CheckoutMode::MODE_POPUP;
+        }
+        return CheckoutMode::MODE_REDIRECT;
+    }
+
     public function getUrl($route, $params = []){
         return $this->_getUrl($route, $params);
     }
 
-    private function getConfigFlag($path){
+    private function getConfigFlag($path, $storeId = null){
         return $this->scopeConfig->isSetFlag(
             $path,
-            \Magento\Store\Model\ScopeInterface::SCOPE_STORE
+            \Magento\Store\Model\ScopeInterface::SCOPE_STORE,
+            $storeId
         );
     }
 
-    private function getConfigData($path){
+    private function getConfigData($path, $storeId = null){
         return $this->scopeConfig->getValue(
             $path,
-            \Magento\Store\Model\ScopeInterface::SCOPE_STORE
+            \Magento\Store\Model\ScopeInterface::SCOPE_STORE,
+            $storeId
         );
     }
 
