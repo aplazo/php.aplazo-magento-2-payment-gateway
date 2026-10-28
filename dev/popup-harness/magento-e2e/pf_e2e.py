@@ -545,7 +545,7 @@ def t_cart_changed(kind):
         good = (ok and not r.orders() and not r.res() and quote(a['quote_id'])['is_active'] == '1'
                 and attempt(a['entity_id'])['status'] == 'rejected' and attempt(a['entity_id'])['reject_reason'] == 'cart_changed'
                 and page.get('status') == 'rejected' and len(r.calls('cancelLoan')) == 1
-                and attempt(a['entity_id'])['loan_cancel_state'] == 'accepted')
+                and attempt(a['entity_id'])['loan_cancel_state'] == 'request_answered')
         record('cart_changed_%s' % kind, good, quote_after_change=q, webhook=hook, page=page, reconcile=rec,
                attempt=attempt(a['entity_id']), cancel_calls=len(r.calls('cancelLoan')),
                note='reversal simulated by the stub: blocked for the real integration until C5')
@@ -628,7 +628,7 @@ def t_two_payments(order):
         o = r.orders(); x1 = attempt(a1['entity_id']); x2 = attempt(a2['entity_id'])
         good = (ok and superseded == 'superseded' and len(o) == 1 and o[0]['increment_id'] == a2['cart_id']
                 and x2['status'] == 'completed' and x1['status'] == 'rejected' and x1['reject_reason'] == expected_reason
-                and x1['loan_cancel_state'] == 'accepted' and r.res() == ['-2.0000 order_placed ' + a2['cart_id']])
+                and x1['loan_cancel_state'] == 'request_answered' and r.res() == ['-2.0000 order_placed ' + a2['cart_id']])
         record('two_attempts_both_paid_%s' % order, good, a1_after_second_start=superseded, first=h1, second=h2, reconcile=rec,
                orders=o, reservations=r.res(), a1=x1, a2=x2,
                note='the second payment needs a real reversal: blocked for the real integration until C5')
@@ -656,7 +656,7 @@ def t_redirect_other_tab():
         inc = redirect[0]['increment_id'] if redirect else None
         good = (ok and redirect and len(r.orders()) == 1 and inc != a['cart_id'] and len(b.popups()) == popups_before
                 and redirect_res == ['-1.0000 order_placed ' + inc, '1.0000 aplazo_item_reserved ' + inc]
-                and x['status'] == 'rejected' and x['reject_reason'] == 'quote_not_active' and x['loan_cancel_state'] == 'accepted')
+                and x['status'] == 'rejected' and x['reject_reason'] == 'quote_not_active' and x['loan_cancel_state'] == 'request_answered')
         record('popup_pending_redirect_other_tab', good, redirect_order=redirect, redirect_reservations=redirect_res,
                webhook=hook, reconcile=rec, attempt=x, reservations=r.res(),
                note='redirect unchanged; the popup loan paid later needs a real reversal: blocked until C5')
