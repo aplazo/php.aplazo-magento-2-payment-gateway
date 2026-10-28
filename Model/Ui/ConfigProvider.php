@@ -60,6 +60,8 @@ class ConfigProvider implements ConfigProviderInterface
                     'actionUrl' => $this->_context->getUrl()->getUrl(Operations::ACTION_URL),
                     'checkoutMode' => $this->aplazoHelper->getCheckoutMode(),
                     'aplazoOrigin' => $this->aplazoHelper->getCheckoutOrigin(),
+                    'popupStartUrl' => $this->_context->getUrl()->getUrl('aplazo/popup/start'),
+                    'popupCompleteUrl' => $this->_context->getUrl()->getUrl('aplazo/popup/complete'),
                 ]
             ]
         ];
