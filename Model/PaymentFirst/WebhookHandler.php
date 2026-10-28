@@ -31,7 +31,9 @@ class WebhookHandler
      */
     public function handle(array $attempt, array $claims): array
     {
-        $merchantId = (string)$this->scopeConfig->getValue('payment/aplazo_gateway/merchantid', ScopeInterface::SCOPE_STORE, (int)$attempt['store_id']);
+        // The merchant the loan was requested with; the store's current one only for rows written before it was kept.
+        $merchantId = (string)($attempt['merchant_id']
+            ?: $this->scopeConfig->getValue('payment/aplazo_gateway/merchantid', ScopeInterface::SCOPE_STORE, (int)$attempt['store_id']));
         $claimedMerchant = (string)($claims['merchantId'] ?? $claims['sub'] ?? '');
         $claimedLoan = isset($claims['loanId']) ? (string)$claims['loanId'] : '';
         if ($merchantId === '' || $claimedMerchant !== $merchantId

@@ -94,7 +94,8 @@ class Finalizer
         private EventManager $eventManager,
         private TrackingService $trackingService,
         private LogService $logService,
-        private ReconcileSchedule $schedule
+        private ReconcileSchedule $schedule,
+        private AttemptContext $context
     ) {
     }
 
@@ -109,10 +110,18 @@ class Finalizer
         }
         if ($attempt['status'] !== AttemptStore::ORDER_CREATED) {
             $payment = $this->statusChecker->check($attempt);
+            if ($payment === LoanStatusChecker::CONTEXT_CHANGED) {
+                return ['status' => self::UNKNOWN, 'attempt' => $this->recordContextChange($attempt)];
+            }
             if ($payment !== LoanStatusChecker::PAID) {
                 $this->scheduleAfterCheck($attempt, $source);
 
                 return ['status' => $payment === LoanStatusChecker::NOT_PAID ? self::NOT_PAID : self::UNKNOWN, 'attempt' => $attempt];
+            }
+            // Kept even if the conversion fails later, so a paid attempt without order is never silent (H-3).
+            if (empty($attempt['paid_confirmed_at'])) {
+                $attempt = $this->attemptStore->transition($attempt, ['paid_confirmed_at' => $this->schedule->now()])
+                    ?? $this->attemptStore->get((int)$attempt['entity_id']) ?? $attempt;
             }
         }
         $lockName = 'aplazo_pf_attempt_' . $attempt['cart_id'];
@@ -133,6 +142,9 @@ class Finalizer
             $this->scheduleSoon($attempt);
 
             return ['status' => self::BUSY, 'attempt' => $attempt];
+        } catch (\DomainException $e) {
+            // Already moved to needs_review with its reason: not a transient error to retry.
+            return ['status' => self::NEEDS_REVIEW, 'attempt' => $this->attemptStore->get((int)$attempt['entity_id']) ?? $attempt];
         } catch (\Throwable $e) {
             return ['status' => self::UNKNOWN, 'attempt' => $this->recordTransient($attempt, $e)];
         } finally {
@@ -364,8 +376,10 @@ class Finalizer
     }
 
     /**
-     * An order with this cartId in the attempt's store: adopted only if it was created from this attempt's quote and
-     * carries its mark. Anything else is a conflict an operator has to look at.
+     * An order with this cartId: adopted only if it is in the attempt's store, was created from this attempt's quote and
+     * carries its mark. Any other order with the number, in any store, is a conflict an operator has to look at:
+     * Magento's reserveOrderId() would not give this order the number either (it checks every store), and the cartId
+     * must stay the order's increment for refunds and cancellation (H-9).
      */
     private function findOwnOrder(array $attempt): ?int
     {
@@ -386,7 +400,7 @@ class Finalizer
             return (int)$row['entity_id'];
         }
         $this->attemptStore->transition($attempt, ['status' => AttemptStore::NEEDS_REVIEW, 'last_error' => 'cart_id_used_by_other_order']);
-        throw new \RuntimeException('cart_id_used_by_other_order');
+        throw new \DomainException('cart_id_used_by_other_order');
     }
 
     private function settled(array $attempt): ?array
@@ -435,6 +449,18 @@ class Finalizer
     private function scheduleSoon(array $attempt): void
     {
         $this->attemptStore->transition($attempt, ['next_check_at' => $this->schedule->now()]);
+    }
+
+    private function recordContextChange(array $attempt): array
+    {
+        $what = $this->context->mismatch($attempt) ?? 'unknown';
+        $count = (int)$attempt['check_count'] + 1;
+
+        return $this->attemptStore->transition($attempt, [
+            'check_count' => $count,
+            'last_error' => 'context_changed:' . $what,
+            'next_check_at' => $this->schedule->afterCheck($count),
+        ]) ?? $attempt;
     }
 
     private function recordTransient(array $attempt, \Throwable $e): array

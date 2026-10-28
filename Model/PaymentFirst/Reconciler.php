@@ -29,6 +29,7 @@ class Reconciler
         private LockManagerInterface $lockManager,
         private ReconcileSchedule $schedule,
         private LogService $logService,
+        private AttemptContext $context,
         private bool $autoCancelRejected = false,
         private int $batchSize = 50
     ) {
@@ -70,6 +71,13 @@ class Reconciler
                 || $current['loan_cancel_state'] !== AttemptStore::CANCEL_PENDING
             ) {
                 return 'skipped';
+            }
+            if (($what = $this->context->mismatch($current)) !== null) {
+                $this->attemptStore->transition($current, ['last_error' => 'context_changed:' . $what,
+                    'next_check_at' => $this->schedule->afterCheck((int)$current['check_count'] + 1),
+                    'check_count' => (int)$current['check_count'] + 1]);
+
+                return 'context_changed';
             }
             $claimed = $this->attemptStore->transition($current, ['loan_cancel_state' => AttemptStore::CANCEL_REQUESTED]);
             if ($claimed === null) {

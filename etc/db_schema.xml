@@ -79,6 +79,14 @@
         <column xsi:type="int" name="check_count" unsigned="true" nullable="false" default="0" comment="Reconciliation checks"/>
         <column xsi:type="timestamp" name="next_check_at" nullable="true" default="NULL" comment="Next reconciliation check (UTC)"/>
         <column xsi:type="varchar" name="last_error" length="255" nullable="true" comment="Last error, sanitized"/>
+        <column xsi:type="varchar" name="environment" length="8" nullable="true" comment="Aplazo environment the loan was requested in"/>
+        <column xsi:type="varchar" name="merchant_id" length="64" nullable="true" comment="Aplazo merchant id the loan was requested with"/>
+        <column xsi:type="timestamp" name="paid_confirmed_at" nullable="true" default="NULL" comment="First time the status API reported the loan paid"/>
+        <column xsi:type="varchar" name="resolution" length="32" nullable="true" comment="Operator resolution of a paid attempt without order"/>
+        <column xsi:type="varchar" name="resolution_reference" length="64" nullable="true" comment="External reference given by the operator"/>
+        <column xsi:type="varchar" name="resolution_note" length="255" nullable="true" comment="Operator note"/>
+        <column xsi:type="varchar" name="resolved_by" length="64" nullable="true" comment="Who recorded the resolution"/>
+        <column xsi:type="timestamp" name="resolved_at" nullable="true" default="NULL" comment="When the resolution was recorded"/>
         <column xsi:type="timestamp" name="created_at" nullable="false" default="CURRENT_TIMESTAMP" comment="Created at"/>
         <column xsi:type="timestamp" name="updated_at" nullable="false" default="CURRENT_TIMESTAMP" on_update="true" comment="Updated at"/>
 

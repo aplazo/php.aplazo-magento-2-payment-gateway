@@ -63,7 +63,8 @@ class StartService
         private ResourceConnection $resource,
         private RemoteAddress $remoteAddress,
         private LogService $logService,
-        private ReconcileSchedule $schedule
+        private ReconcileSchedule $schedule,
+        private AttemptContext $context
     ) {
     }
 
@@ -110,7 +111,7 @@ class StartService
         // keeps one loan. Reuse depends only on that identity: there is no time window, because how long Aplazo's
         // checkout stays valid is not known (contract C3).
         foreach ($this->attemptStore->getForQuote((int)$quote->getId(), [AttemptStore::OPEN]) as $open) {
-            if ($open['fingerprint'] === $fingerprint && !empty($open['checkout_url'])) {
+            if ($open['fingerprint'] === $fingerprint && !empty($open['checkout_url']) && $this->context->mismatch($open) === null) {
                 $this->sessionAttempts->remember($open);
 
                 return $this->result(self::OPEN, null, $open);
@@ -130,6 +131,9 @@ class StartService
         $attempt = $this->attemptStore->create([
             'quote_id' => (int)$quote->getId(),
             'store_id' => (int)$quote->getStoreId(),
+            // The environment and merchant this loan is requested with; later calls about it must use the same.
+            'environment' => $this->context->current((int)$quote->getStoreId())['environment'],
+            'merchant_id' => $this->context->current((int)$quote->getStoreId())['merchant_id'],
             'customer_id' => $customerId ?: null,
             'amount' => $amount / 100,
             'currency' => $currency,

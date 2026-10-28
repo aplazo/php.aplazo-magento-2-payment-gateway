@@ -1062,6 +1062,112 @@ def t_h1(route, point='load'):
         b.quit()
 
 
+def config_row(path, scope, scope_id):
+    return sql("SELECT value FROM core_config_data WHERE path='%s' AND scope='%s' AND scope_id=%d" % (path, scope, scope_id))
+
+
+def set_config_sql(path, scope, scope_id, value_sql):
+    """value_sql is an SQL expression (so a merchant id is derived in the DB and never printed); None deletes the row."""
+    if value_sql is None:
+        sql("DELETE FROM core_config_data WHERE path='%s' AND scope='%s' AND scope_id=%d" % (path, scope, scope_id))
+    else:
+        sql("INSERT INTO core_config_data (scope, scope_id, path, value) VALUES ('%s', %d, '%s', %s) "
+            "ON DUPLICATE KEY UPDATE value=VALUES(value)" % (scope, scope_id, path, value_sql))
+    magento('cache:clean', 'config')
+
+
+MERCHANT_SQL = "(SELECT v FROM (SELECT value v FROM core_config_data WHERE path='payment/aplazo_gateway/merchantid' AND scope='default' AND scope_id=0) t)"
+OTHER_MERCHANT_SQL = "CONCAT('1', %s)" % MERCHANT_SQL
+
+
+def get_calls(r, cart_id):
+    return [c for c in r.calls('getLoanStatus') if c.get('cartId') == cart_id]
+
+
+def t_h4(change):
+    """H-4: the store's sandbox flag or merchant changes after the start: Aplazo is not asked; restoring it completes."""
+    r = Run(); b = Browser(); default_loan('REQUEST')
+    try:
+        ok, a = open_popup(b, plan='stay')
+        stored = sql('SELECT environment, merchant_id = %s FROM aplazo_payment_attempt WHERE entity_id=%s' % (MERCHANT_SQL, a['entity_id'])).split('\t')
+        loan(a['cart_id'], 'OUTSTANDING')
+        calls_before = len(get_calls(r, a['cart_id']))
+        if change == 'sandbox':
+            prev = config_row('payment/aplazo_gateway/sanbox_mode', 'default', 0)
+            set_config_sql('payment/aplazo_gateway/sanbox_mode', 'default', 0, "'0'")
+        else:
+            set_config_sql('payment/aplazo_gateway/merchantid', 'websites', 1, OTHER_MERCHANT_SQL)
+        try:
+            hook = webhook(a['cart_id'], 'stub-' + a['cart_id'])
+            rec = reconcile(a['entity_id'])
+            during = dict(attempt=attempt(a['entity_id']), orders=r.orders(), status_calls=len(get_calls(r, a['cart_id'])) - calls_before)
+        finally:
+            if change == 'sandbox':
+                set_config_sql('payment/aplazo_gateway/sanbox_mode', 'default', 0, "'%s'" % prev)
+            else:
+                set_config_sql('payment/aplazo_gateway/merchantid', 'websites', 1, None)
+        time.sleep(2)
+        rec2 = reconcile(a['entity_id'])
+        o = r.orders()
+        good = (ok and stored == ['stg', '1'] and during['status_calls'] == 0 and not during['orders']
+                and during['attempt']['status'] == 'open'
+                and during['attempt']['last_error'] == 'context_changed:' + ('environment' if change == 'sandbox' else 'merchant')
+                and rec2 and rec2[0]['result'] == 'completed' and len(o) == 1)
+        record('h4_%s_changed_after_start' % change, good, stored_environment_and_merchant_match=stored, webhook=hook,
+               reconcile_during=rec, during=during, reconcile_after_restore=rec2, orders=o)
+    finally:
+        b.quit()
+
+
+def foreign_order(store_id, increment):
+    return php('store_ops.php', 'order', store_id, increment, SKU)
+
+
+def t_h9(merchants):
+    """H-9: another store's order has the attempt's cartId. distinct merchants: the signed merchantId routes each webhook
+    to its own side; same merchant: refused as ambiguous, neither side touched."""
+    r = Run(); b = Browser(); default_loan('REQUEST')
+    store2 = php('store_ops.php', 'store')['store_id']
+    try:
+        set_config_sql('payment/aplazo_gateway/merchantid', 'websites', 2, OTHER_MERCHANT_SQL if merchants == 'distinct' else MERCHANT_SQL)
+        ok, a = open_popup(b, plan='stay')
+        f = foreign_order(store2, a['cart_id'])
+        both = rows("SELECT entity_id, store_id, state FROM sales_order WHERE increment_id='%s'" % a['cart_id'], ('entity_id', 'store_id', 'state'))
+        loan(a['cart_id'], 'OUTSTANDING')
+        res = {}
+        if merchants == 'distinct':
+            # The other store's webhook first (the attempt has no order yet): unchanged redirect path, its own order.
+            res['other_merchant'] = webhook(a['cart_id'], '888777', 'other-merchant')
+            foreign_after = sql('SELECT state FROM sales_order WHERE entity_id=%d' % f['entity_id'])
+            res['attempt_merchant'] = webhook(a['cart_id'], 'stub-' + a['cart_id'])
+            x = attempt(a['entity_id'])
+            own = rows("SELECT entity_id, store_id, state FROM sales_order WHERE increment_id='%s' ORDER BY entity_id" % a['cart_id'],
+                       ('entity_id', 'store_id', 'state'))
+            # Again for the other merchant: the attempt still has no order of its own, so the redirect path is safe.
+            res['other_merchant_again'] = webhook(a['cart_id'], '888777', 'other-merchant')
+            # Paid, but the cartId is another store's order number: Magento would not give the order that number, so
+            # the attempt is left for an operator instead of creating an order with another number.
+            good = (ok and f.get('ok') and len(both) == 1 and res['other_merchant']['body'].get('status') is True
+                    and foreign_after == 'processing' and x['status'] == 'needs_review'
+                    and res['attempt_merchant']['body'] == {'status': False, 'message': 'needs_review'}
+                    and x['last_error'] == 'cart_id_used_by_other_order' and [o['store_id'] for o in own] == [str(store2)]
+                    and res['other_merchant_again']['body'].get('status') is True)
+            record('h9_cross_store_cartid_distinct_merchants', good, foreign_order=f, results=res, foreign_after_its_webhook=foreign_after,
+                   attempt=x, orders_with_cart_id=own,
+                   note='foreign order: check/money-order, increment forced to the attempt cartId; its webhook used the unchanged redirect path')
+        else:
+            res['same_merchant'] = webhook(a['cart_id'], 'stub-' + a['cart_id'])
+            x = attempt(a['entity_id'])
+            foreign_after = sql('SELECT state FROM sales_order WHERE entity_id=%d' % f['entity_id'])
+            good = (ok and f.get('ok') and len(both) == 1 and res['same_merchant']['body'] == {'status': False, 'message': 'Ambiguous cartId'}
+                    and x['status'] == 'open' and foreign_after == 'new' and len([o for o in r.orders() if o['increment_id'] == a['cart_id']]) == 1)
+            record('h9_cross_store_cartid_same_merchant', good, foreign_order=f, same_increment=both, results=res, attempt=x,
+                   foreign_after=foreign_after)
+    finally:
+        set_config_sql('payment/aplazo_gateway/merchantid', 'websites', 2, None)
+        b.quit()
+
+
 TESTS = {
     'close_unpaid': t_close_unpaid,
     'paid_message': t_paid_message,
@@ -1092,6 +1198,10 @@ TESTS = {
     'registered_browser': t_registered_browser,
     'webview_rules': t_webview_rules,
     'h1_add_to_cart': lambda: t_h1('add_to_cart'),
+    'h4_sandbox': lambda: t_h4('sandbox'),
+    'h4_merchant': lambda: t_h4('merchant'),
+    'h9_distinct': lambda: t_h9('distinct'),
+    'h9_same': lambda: t_h9('same'),
     'h1_update_qty_save': lambda: t_h1('update_qty', 'save'),
     'h1_update_qty_cart': lambda: t_h1('update_qty', 'cart'),
     'h1_add_to_cart_cart': lambda: t_h1('add_to_cart', 'cart'),

@@ -19,15 +19,21 @@ class LoanStatusChecker
     public const PAID = 'paid';
     public const NOT_PAID = 'not_paid';
     public const UNKNOWN = 'unknown';
+    /** The store's Aplazo environment or merchant is no longer the attempt's: Aplazo is not asked (H-4). */
+    public const CONTEXT_CHANGED = 'context_changed';
 
     public function __construct(
         private ApiService $apiService,
-        private StoreScope $storeScope
+        private StoreScope $storeScope,
+        private AttemptContext $context
     ) {
     }
 
     public function check(array $attempt): string
     {
+        if ($this->context->mismatch($attempt) !== null) {
+            return self::CONTEXT_CHANGED;
+        }
         try {
             $loans = $this->storeScope->run((int)$attempt['store_id'], function () use ($attempt) {
                 return $this->apiService->getLoanStatus($attempt['cart_id']);
