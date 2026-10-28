@@ -35,6 +35,12 @@ class SalesOrderPlaceAfterCreateLoan implements ObserverInterface
     {
         $order = $observer->getEvent()->getOrder();
         if($order->getPayment()->getMethod() === ConfigProvider::CODE){
+            // Popup payment-first (BNPL-1664): the order is created from an attempt whose loan is already paid; a
+            // second loan must not be requested. The mark alone is not enough: it must name that attempt (server data).
+            if ($this->orderService->isPaymentFirstOrder($order)) {
+                $this->logService->send('info', 'Payment-first order placed, loan already paid', ['module:checkout'], ['order_id' => $order->getIncrementId()]);
+                return $this;
+            }
             $this->aplazoHelper->log('Observer sales_order_place_after pagando con Aplazo.', AplazoHelper::LOGS_VVV);
             try {
                 $randomToken = $this->generateRandomString();

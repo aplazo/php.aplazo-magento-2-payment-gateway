@@ -2,6 +2,7 @@
 
 namespace Aplazo\AplazoPayment\Plugin\Order;
 
+use Aplazo\AplazoPayment\Model\PaymentFirst\PaymentFirstMarker;
 use Aplazo\AplazoPayment\Model\Ui\ConfigProvider;
 
 class NewOrderEmail
@@ -20,6 +21,13 @@ class NewOrderEmail
         $order = $observer->getEvent()->getOrder();
 
         if ($order->getPayment()->getMethod() === ConfigProvider::CODE && $this->aplazoHelper->getSendEmail()) {
+            $order->setCanSendNewEmailFlag(false);
+        }
+        // Popup payment-first (BNPL-1664): the order is submitted inside the finalizer's transaction; its email is
+        // handed to Magento once the order is committed and approved (Finalizer::requestEmail), not from here.
+        if ($order->getPayment()->getMethod() === ConfigProvider::CODE
+            && $order->getPayment()->getAdditionalInformation(PaymentFirstMarker::ATTEMPT_KEY)
+        ) {
             $order->setCanSendNewEmailFlag(false);
         }
 
