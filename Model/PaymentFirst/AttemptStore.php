@@ -120,6 +120,19 @@ class AttemptStore
     }
 
     /**
+     * Whether an attempt of this quote already has an order (the quote was converted by the finalizer).
+     */
+    public function hasOrderForQuote(int $quoteId): bool
+    {
+        $connection = $this->resource->getConnection();
+
+        return (bool)$connection->fetchOne(
+            $connection->select()->from($this->resource->getTableName(self::TABLE), ['entity_id'])
+                ->where('quote_id = ?', $quoteId)->where('order_id IS NOT NULL')->limit(1)
+        );
+    }
+
+    /**
      * Attempts whose next reconciliation check is due. Rejected attempts only while their reversal is open.
      *
      * @return array[]

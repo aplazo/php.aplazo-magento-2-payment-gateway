@@ -10,4 +10,14 @@
     <event name="aplazo_payment_first_approve_before">
         <observer name="localdev_pf_sync" instance="LocalDev\AplazoStub\Observer\SyncPoint"/>
     </event>
+    <!-- BNPL-1664 H-1: hold one ordinary cart request with the quote it already read. -->
+    <event name="sales_quote_load_after">
+        <observer name="localdev_pf_quote_save_pause" instance="LocalDev\AplazoStub\Observer\QuoteSavePause"/>
+    </event>
+    <event name="checkout_cart_save_before">
+        <observer name="localdev_pf_quote_save_pause" instance="LocalDev\AplazoStub\Observer\QuoteSavePause"/>
+    </event>
+    <event name="sales_quote_save_before">
+        <observer name="localdev_pf_quote_save_pause" instance="LocalDev\AplazoStub\Observer\QuoteSavePause"/>
+    </event>
 </config>

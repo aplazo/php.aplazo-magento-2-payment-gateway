@@ -978,6 +978,90 @@ def t_webview_rules():
         b.quit()
 
 
+FETCH_JS = r"""(async (path, form, json) => {
+  const fk = decodeURIComponent((document.cookie.match(/(?:^|; )form_key=([^;]+)/) || [])[1] || '');
+  const opts = {method: json ? (json.__method || 'POST') : 'POST', credentials: 'same-origin',
+                headers: {'X-Requested-With': 'XMLHttpRequest'}};
+  if (json) { delete json.__method; opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(json); }
+  else { opts.body = new URLSearchParams(Object.assign({form_key: fk}, form || {})); }
+  const r = await fetch(path, opts); const t = (await r.text()).slice(0, 300);
+  return {http: r.status, body: t}; })(%s, %s, %s)"""
+
+
+def address_json(qid, street):
+    a = rows("SELECT firstname, lastname, city, region_id, postcode, country_id, telephone, email FROM quote_address "
+             "WHERE quote_id=%d AND address_type='shipping'" % int(qid),
+             ('firstname', 'lastname', 'city', 'region_id', 'postcode', 'country_id', 'telephone', 'email'))[0]
+    return {'firstname': a['firstname'], 'lastname': a['lastname'], 'street': [street], 'city': a['city'],
+            'region_id': int(a['region_id']), 'postcode': a['postcode'], 'countryId': a['country_id'],
+            'telephone': a['telephone'], 'email': 'pf-test@example.invalid'}
+
+
+def h1_request(route, qid):
+    """(path, form, json) of an ordinary cart write for quote qid."""
+    mask = sql('SELECT masked_id FROM quote_id_mask WHERE quote_id=%d' % int(qid))
+    item = sql('SELECT item_id FROM quote_item WHERE quote_id=%d AND parent_item_id IS NULL LIMIT 1' % int(qid))
+    pid = sql("SELECT entity_id FROM catalog_product_entity WHERE sku='%s'" % SKU)
+    method = (sql("SELECT shipping_method FROM quote_address WHERE quote_id=%d AND address_type='shipping'" % int(qid)) or 'flatrate_flatrate').split('_', 1)
+    if route == 'add_to_cart':
+        return '/checkout/cart/add/', {'product': pid, 'qty': '1'}, None
+    if route == 'update_qty':
+        return '/checkout/sidebar/updateItemQty/', {'item_id': item, 'item_qty': '3'}, None
+    if route == 'shipping_information':
+        addr = address_json(qid, 'Calle Tardia 9')
+        return '/rest/default/V1/guest-carts/%s/shipping-information' % mask, None, {'addressInformation': {
+            'shipping_address': addr, 'billing_address': addr, 'shipping_carrier_code': method[0], 'shipping_method_code': method[1]}}
+    if route == 'payment_information':
+        return '/rest/default/V1/guest-carts/%s/set-payment-information' % mask, None, {
+            'email': 'pf-test@example.invalid', 'paymentMethod': {'method': 'aplazo_gateway'},
+            'billingAddress': address_json(qid, 'Calle Tardia 9')}
+    raise ValueError(route)
+
+
+def t_h1(route, point='load'):
+    """H-1: a cart write that loaded the quote before the conversion and saves it after the commit."""
+    r = Run(); b = Browser(); default_loan('REQUEST')
+    try:
+        ok, a = open_popup(b, plan='stay')
+        qid = int(a['quote_id'])
+        tab = b.new_tab(); tab.send('Page.navigate', {'url': BASE + '/checkout/cart/'}); time.sleep(4)
+        path, form, body = h1_request(route, qid)
+        before = dict(quote=quote(qid), street=sql("SELECT street FROM quote_address WHERE quote_id=%d AND address_type='shipping'" % qid))
+        loan(a['cart_id'], 'OUTSTANDING')
+        stub('localdev_pf_quote_save_pause', '%s:%d:12' % (point, qid))
+        t, box = in_thread(evaluate, tab, FETCH_JS % (json.dumps(path), json.dumps(form), json.dumps(body)), 120)
+        held = wait_until(lambda: sh('cat var/localdev_pf_quote_save_pause.inside 2>/dev/null').strip(), 30)
+        hook = webhook(a['cart_id'], 'stub-' + a['cart_id'])
+        committed = dict(quote=quote(qid), orders=r.orders())
+        t.join()
+        stub('localdev_pf_quote_save_pause', None)
+        after = dict(quote=quote(qid), items=rows('SELECT sku, qty FROM quote_item WHERE quote_id=%d AND parent_item_id IS NULL' % qid, ('sku', 'qty')),
+                     street=sql("SELECT street FROM quote_address WHERE quote_id=%d AND address_type='shipping'" % qid),
+                     orders=r.orders(), reservations=r.res())
+        # Can the same cart be bought again? A new start from the buyer's session, then a paid loan.
+        again = post(b.ws, '/aplazo/popup/start')['body']
+        second = None
+        if again.get('status') == 'open':
+            na = attempts_after(r.a)[-1]
+            loan(na['cart_id'], 'OUTSTANDING')
+            second = dict(attempt=na['cart_id'], webhook=webhook(na['cart_id'], 'stub-' + na['cart_id']), orders=r.orders(), reservations=r.res())
+        # Integrity is broken when the quote ends active although it already became an order, or when one quote ends up
+        # with two orders. A stale write that wins before the conversion (the conversion then rejects the changed cart)
+        # and a new purchase of that changed cart are legitimate.
+        orders_of_quote = [o for o in r.orders() if o['quote_id'] == str(qid)]
+        reactivated = after['quote']['is_active'] == '1' and bool(after['orders'])
+        double = len(orders_of_quote) > 1
+        outcome = ('stale_write_refused' if after['orders'] and after['quote']['is_active'] == '0' else
+                   'stale_write_first_conversion_rejected' if not after['orders'] else 'converted_quote_reactivated')
+        record('h1_stale_write_%s_%s' % (route, point), bool(held) and not reactivated and not double, route=route, point=point,
+               outcome=outcome, orders_of_quote=[o['increment_id'] for o in orders_of_quote], held_request=held,
+               write_response=box.get('v'), webhook=hook, before=before, at_commit=committed, after=after,
+               start_again=again, second_purchase=second)
+    finally:
+        stub('localdev_pf_quote_save_pause', None)
+        b.quit()
+
+
 TESTS = {
     'close_unpaid': t_close_unpaid,
     'paid_message': t_paid_message,
@@ -1007,6 +1091,13 @@ TESTS = {
     'registered': t_registered,
     'registered_browser': t_registered_browser,
     'webview_rules': t_webview_rules,
+    'h1_add_to_cart': lambda: t_h1('add_to_cart'),
+    'h1_update_qty_save': lambda: t_h1('update_qty', 'save'),
+    'h1_update_qty_cart': lambda: t_h1('update_qty', 'cart'),
+    'h1_add_to_cart_cart': lambda: t_h1('add_to_cart', 'cart'),
+    'h1_update_qty': lambda: t_h1('update_qty'),
+    'h1_shipping_information': lambda: t_h1('shipping_information'),
+    'h1_payment_information': lambda: t_h1('payment_information'),
 }
 
 if __name__ == '__main__':
