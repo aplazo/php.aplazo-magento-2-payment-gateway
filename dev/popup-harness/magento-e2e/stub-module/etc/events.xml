@@ -1,0 +1,13 @@
+<?xml version="1.0"?>
+<!-- LOCAL TEST ONLY (BNPL-1664): synchronization points of the payment-first finalizer. -->
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:framework:Event/etc/events.xsd">
+    <event name="aplazo_payment_first_convert_before">
+        <observer name="localdev_pf_sync" instance="LocalDev\AplazoStub\Observer\SyncPoint"/>
+    </event>
+    <event name="aplazo_payment_first_order_saved">
+        <observer name="localdev_pf_sync" instance="LocalDev\AplazoStub\Observer\SyncPoint"/>
+    </event>
+    <event name="aplazo_payment_first_approve_before">
+        <observer name="localdev_pf_sync" instance="LocalDev\AplazoStub\Observer\SyncPoint"/>
+    </event>
+</config>

@@ -12,10 +12,11 @@ define(
         'Magento_Checkout/js/model/payment/additional-validators',
         'Magento_Checkout/js/action/set-payment-information',
         'Aplazo_AplazoPayment/js/model/popup-checkout',
+        'Aplazo_AplazoPayment/js/model/webview',
         'mage/cookies'
     ],
     function ($, Component, url, quote, totals, priceUtils, $t, additionalValidators, setPaymentInformationAction,
-              popupCheckout) {
+              popupCheckout, webview) {
         'use strict';
         const months = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
         // How the page re-asks the server after a signal while the payment is not confirmed yet (UI cadence only).
@@ -94,13 +95,13 @@ define(
             },
 
             /**
-             * Popup (payment-first, BNPL-1664) when it is configured and its origin is valid. Otherwise the redirect,
-             * unchanged and without opening any window.
+             * Popup (payment-first, BNPL-1664) when it is configured, its origin is valid and the page is not in a
+             * known webview. Otherwise the redirect, unchanged and without opening any window.
              */
             getPopupOrigin: function () {
                 var config = this.getConfig();
 
-                if (config.checkoutMode !== 'popup' || !config.popupStartUrl) {
+                if (config.checkoutMode !== 'popup' || !config.popupStartUrl || webview.isWebView(navigator.userAgent)) {
                     return null;
                 }
 

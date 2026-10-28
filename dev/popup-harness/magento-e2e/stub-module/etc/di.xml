@@ -1,0 +1,26 @@
+<?xml version="1.0"?>
+<!-- LOCAL TEST ONLY (BNPL-1607): the three classes of the Aplazo plugin that make HTTP calls. -->
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:framework:ObjectManager/etc/config.xsd">
+    <preference for="Aplazo\AplazoPayment\Service\ApiService" type="LocalDev\AplazoStub\Service\ApiService"/>
+    <preference for="Aplazo\AplazoPayment\Service\TrackingService" type="LocalDev\AplazoStub\Service\TrackingService"/>
+    <preference for="Aplazo\AplazoPayment\Service\LogService" type="LocalDev\AplazoStub\Service\LogService"/>
+    <!-- BNPL-1665: confine the cancel cron to the orders of a test run (see Plugin/CronAllowlist.php). -->
+    <type name="Aplazo\AplazoPayment\Model\Service\OrderService">
+        <plugin name="localdev_aplazo_cron_allowlist" type="LocalDev\AplazoStub\Plugin\CronAllowlist"/>
+    </type>
+    <!-- BNPL-1664: kit parameters, never production values. Short reconciliation delays, and the rejected-attempt
+         reversal turned on so the path runs against this stub (contract C5 is not confirmed). -->
+    <type name="Aplazo\AplazoPayment\Model\PaymentFirst\ReconcileSchedule">
+        <arguments>
+            <argument name="startGraceSeconds" xsi:type="number">2</argument>
+            <argument name="delaysSeconds" xsi:type="array">
+                <item name="0" xsi:type="number">1</item>
+            </argument>
+        </arguments>
+    </type>
+    <type name="Aplazo\AplazoPayment\Model\PaymentFirst\Reconciler">
+        <arguments>
+            <argument name="autoCancelRejected" xsi:type="boolean">true</argument>
+        </arguments>
+    </type>
+</config>
