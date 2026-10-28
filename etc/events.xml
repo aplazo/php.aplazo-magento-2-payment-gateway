@@ -18,4 +18,7 @@
     <event name="sales_quote_save_before">
         <observer name="aplazo_payment_first_keep_converted_quote_closed" instance="Aplazo\AplazoPayment\Observer\PaymentFirst\KeepConvertedQuoteClosed"/>
     </event>
+    <event name="sales_order_save_before">
+        <observer name="aplazo_payment_first_keep_paid_order_open" instance="Aplazo\AplazoPayment\Observer\PaymentFirst\KeepPaidOrderOpen"/>
+    </event>
 </config>

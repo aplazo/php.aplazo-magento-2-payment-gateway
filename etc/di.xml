@@ -78,6 +78,9 @@
             </argument>
         </arguments>
     </type>
+    <type name="Magento\Sales\Model\Order">
+        <plugin name="aplazo_payment_first_refuse_stale_cancel" type="Aplazo\AplazoPayment\Plugin\PaymentFirst\RefuseStaleCancel"/>
+    </type>
     <type name="Magento\Quote\Observer\SubmitObserver">
         <plugin name="aplazo_payment_new_order_email" type="Aplazo\AplazoPayment\Plugin\Order\NewOrderEmail" />
     </type>

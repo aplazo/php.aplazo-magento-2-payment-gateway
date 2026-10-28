@@ -39,12 +39,23 @@ class AttemptStore
     /** States in which the loan can still be paid and the attempt converted. */
     public const PAYABLE = [self::STARTING, self::OPEN, self::UNCERTAIN, self::SUPERSEDED];
 
+    /**
+     * Reversal of a rejected attempt's loan, as far as this module knows (contract C5 is not confirmed): it never says
+     * the money was returned. pending: not requested. requested: a request was being sent. request_answered: Aplazo
+     * answered the request without an error; its effect is not verified. unknown: the request failed or was interrupted,
+     * so whether Aplazo received it is not known; it is never sent again automatically.
+     */
     public const CANCEL_PENDING = 'pending';
     public const CANCEL_REQUESTED = 'requested';
-    public const CANCEL_ACCEPTED = 'accepted';
-    public const CANCEL_FAILED = 'failed';
+    public const CANCEL_ANSWERED = 'request_answered';
     public const CANCEL_UNKNOWN = 'unknown';
-    public const CANCEL_OPEN = [self::CANCEL_PENDING, self::CANCEL_FAILED, self::CANCEL_UNKNOWN];
+    /** Reversal states the reconciliation still acts on: send a pending one, close an interrupted one as unknown. */
+    public const CANCEL_OPEN = [self::CANCEL_PENDING, self::CANCEL_REQUESTED];
+
+    /** What an operator recorded about a paid attempt without order (PaymentAttemptsCommand --resolve). */
+    public const RESOLUTION_REVERSAL_CONFIRMED = 'reversal_confirmed';
+    public const RESOLUTION_FULFILLED_MANUALLY = 'fulfilled_manually';
+    public const RESOLUTIONS = [self::RESOLUTION_REVERSAL_CONFIRMED, self::RESOLUTION_FULFILLED_MANUALLY];
 
     private const CART_ID_ALLOCATION_TRIES = 5;
 
@@ -144,6 +155,7 @@ class AttemptStore
             ->where('status IN (?)', self::RECONCILED)
             ->where($connection->quoteInto('status <> ?', self::REJECTED)
                 . ' OR ' . $connection->quoteInto('loan_cancel_state IN (?)', self::CANCEL_OPEN))
+            ->where('resolution IS NULL')
             ->where('next_check_at IS NULL OR next_check_at <= ?', gmdate('Y-m-d H:i:s'))
             ->order('next_check_at ASC')->limit($limit);
         if ($onlyIds !== null) {

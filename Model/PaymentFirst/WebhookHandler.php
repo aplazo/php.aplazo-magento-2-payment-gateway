@@ -3,7 +3,6 @@ declare(strict_types=1);
 
 namespace Aplazo\AplazoPayment\Model\PaymentFirst;
 
-use Aplazo\AplazoPayment\Service\LogService;
 use Magento\Framework\App\Config\ScopeConfigInterface;
 use Magento\Store\Model\ScopeInterface;
 
@@ -21,7 +20,7 @@ class WebhookHandler
         private AttemptStore $attemptStore,
         private Finalizer $finalizer,
         private ScopeConfigInterface $scopeConfig,
-        private LogService $logService
+        private Trace $trace
     ) {
     }
 
@@ -31,6 +30,15 @@ class WebhookHandler
      */
     public function handle(array $attempt, array $claims): array
     {
+        try {
+            return $this->handleOnce($attempt, $claims);
+        } finally {
+            $this->trace->flush();
+        }
+    }
+
+    private function handleOnce(array $attempt, array $claims): array
+    {
         // The merchant the loan was requested with; the store's current one only for rows written before it was kept.
         $merchantId = (string)($attempt['merchant_id']
             ?: $this->scopeConfig->getValue('payment/aplazo_gateway/merchantid', ScopeInterface::SCOPE_STORE, (int)$attempt['store_id']));
@@ -39,7 +47,7 @@ class WebhookHandler
         if ($merchantId === '' || $claimedMerchant !== $merchantId
             || ($claimedLoan !== '' && !empty($attempt['loan_id']) && $claimedLoan !== (string)$attempt['loan_id'])
         ) {
-            $this->logService->send('error', 'Payment-first webhook does not match its attempt', ['module:webhook'],
+            $this->trace->add('error', 'Payment-first webhook does not match its attempt', ['module:webhook'],
                 ['cart_id' => $attempt['cart_id'], 'merchant_matches' => $claimedMerchant === $merchantId]);
 
             return ['status' => false, 'message' => 'Webhook does not match the payment attempt'];
@@ -53,13 +61,13 @@ class WebhookHandler
         // reconciliation right away instead (or by the buyer's own `complete`).
         if (!empty($attempt['customer_id'])) {
             $this->attemptStore->transition($attempt, ['next_check_at' => gmdate('Y-m-d H:i:s')]);
-            $this->logService->send('info', 'Payment-first webhook for a customer cart, reconciliation scheduled', ['module:webhook'],
+            $this->trace->add('info', 'Payment-first webhook for a customer cart, reconciliation scheduled', ['module:webhook'],
                 ['cart_id' => $attempt['cart_id']]);
 
             return ['status' => true, 'message' => 'scheduled'];
         }
         $result = $this->finalizer->finalize($attempt, Finalizer::SOURCE_WEBHOOK, 10);
-        $this->logService->send('info', 'Payment-first webhook handled', ['module:webhook'],
+        $this->trace->add('info', 'Payment-first webhook handled', ['module:webhook'],
             ['cart_id' => $attempt['cart_id'], 'result' => $result['status']]);
 
         return [

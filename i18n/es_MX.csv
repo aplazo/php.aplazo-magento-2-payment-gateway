@@ -34,3 +34,5 @@
 "We could not confirm your payment yet. If you paid, your order will be confirmed by email.","Todavía no pudimos confirmar tu pago. Si pagaste, tu pedido se confirmará por correo."
 "Aplazo: payment confirmed through the loan status API before the order was created (popup).","Aplazo: pago confirmado con la API de estado del préstamo antes de crear la orden (popup)."
 "Your session has expired. Please reload the page.","Tu sesión expiró. Recarga la página."
+"This order was paid and approved while it was being cancelled; it was not cancelled.","Esta orden se pagó y aprobó mientras se cancelaba; no se canceló."
+"Aplazo: this order was paid before it was created (popup). Cancelling it did not request any loan reversal; check the loan with Aplazo.","Aplazo: esta orden se pagó antes de crearse (popup). Cancelarla no solicitó ninguna devolución del préstamo; revisa el préstamo con Aplazo."

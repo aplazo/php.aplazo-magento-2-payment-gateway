@@ -2,6 +2,7 @@
 
 namespace Aplazo\AplazoPayment\Observer;
 
+use Aplazo\AplazoPayment\Model\PaymentFirst\Trace;
 use Aplazo\AplazoPayment\Model\Ui\ConfigProvider;
 use Aplazo\AplazoPayment\Service\LogService;
 use Aplazo\AplazoPayment\Service\TrackingService;
@@ -17,14 +18,17 @@ class SalesOrderPlaceAfterCreateLoan implements ObserverInterface
     private $orderService;
     private TrackingService $trackingService;
     private LogService $logService;
+    private Trace $paymentFirstTrace;
 
     public function __construct(
         AplazoHelper $aplazoHelper,
         OrderService $orderService,
         TrackingService $trackingService,
-        LogService $logService
+        LogService $logService,
+        Trace $paymentFirstTrace
     )
     {
+        $this->paymentFirstTrace = $paymentFirstTrace;
         $this->aplazoHelper = $aplazoHelper;
         $this->orderService = $orderService;
         $this->trackingService = $trackingService;
@@ -38,7 +42,8 @@ class SalesOrderPlaceAfterCreateLoan implements ObserverInterface
             // Popup payment-first (BNPL-1664): the order is created from an attempt whose loan is already paid; a
             // second loan must not be requested. The mark alone is not enough: it must name that attempt (server data).
             if ($this->orderService->isPaymentFirstOrder($order)) {
-                $this->logService->send('info', 'Payment-first order placed, loan already paid', ['module:checkout'], ['order_id' => $order->getIncrementId()]);
+                // Inside the finalizer's transaction: local trace only, sent to Aplazo once the locks are released (H-2).
+                $this->paymentFirstTrace->add('info', 'Payment-first order placed, loan already paid', ['module:checkout'], ['order_id' => $order->getIncrementId()]);
                 return $this;
             }
             $this->aplazoHelper->log('Observer sales_order_place_after pagando con Aplazo.', AplazoHelper::LOGS_VVV);

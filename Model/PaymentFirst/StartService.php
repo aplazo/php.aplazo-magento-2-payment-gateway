@@ -7,7 +7,6 @@ use Aplazo\AplazoPayment\Helper\Data as AplazoHelper;
 use Aplazo\AplazoPayment\Model\Config\Source\CheckoutMode;
 use Aplazo\AplazoPayment\Model\Ui\ConfigProvider;
 use Aplazo\AplazoPayment\Service\ApiService;
-use Aplazo\AplazoPayment\Service\LogService;
 use Magento\Checkout\Model\Session as CheckoutSession;
 use Magento\Customer\Model\Session as CustomerSession;
 use Magento\Framework\App\ResourceConnection;
@@ -62,9 +61,9 @@ class StartService
         private AplazoHelper $aplazoHelper,
         private ResourceConnection $resource,
         private RemoteAddress $remoteAddress,
-        private LogService $logService,
         private ReconcileSchedule $schedule,
-        private AttemptContext $context
+        private AttemptContext $context,
+        private Trace $trace
     ) {
     }
 
@@ -83,6 +82,8 @@ class StartService
             });
         } catch (CartLockedException $e) {
             return $this->result(self::BUSY, __('Your order is already being processed. Please wait a moment.'));
+        } finally {
+            $this->trace->flush();
         }
     }
 
@@ -158,7 +159,7 @@ class StartService
             : null;
         $loanId = is_array($result) && isset($result['loanId']) ? substr((string)$result['loanId'], 0, 64) : null;
         if ($url === null) {
-            $this->logService->send('error', 'Payment-first createLoan gave no usable checkout URL', ['module:checkout'],
+            $this->trace->add('error', 'Payment-first createLoan gave no usable checkout URL', ['module:checkout'],
                 ['cart_id' => $attempt['cart_id'], 'reason' => $error ?? 'invalid_checkout_url']);
             $changes = ['status' => AttemptStore::UNCERTAIN, 'last_error' => $error ?? 'invalid_checkout_url',
                 'next_check_at' => $this->schedule->now()];
@@ -183,7 +184,7 @@ class StartService
                 ? $this->attemptStore->transition($current, $changes)
                 : $current;
         }
-        $this->logService->send('info', 'Payment-first attempt opened', ['module:checkout'],
+        $this->trace->add('info', 'Payment-first attempt opened', ['module:checkout'],
             ['cart_id' => $attempt['cart_id'], 'quote_id' => (int)$quote->getId()]);
 
         return $open && !empty($open['checkout_url'])

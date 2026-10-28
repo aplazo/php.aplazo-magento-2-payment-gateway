@@ -51,6 +51,14 @@ class CancelAfter implements \Magento\Framework\Event\ObserverInterface
         /** @var Order $order */
         $order = $observer->getEvent()->getOrder();
 
+        if($order->getPayment()->getMethod() === ConfigProvider::CODE && $this->orderService->isPaymentFirstOrder($order)){
+            // Popup payment-first (BNPL-1664): the loan was paid before this order existed. What cancelLoan does after a
+            // payment is not confirmed (contract C5), so no reversal is requested from here; Magento releases the
+            // native reservation. The attempt's reconciliation and an operator follow it up.
+            $order->addCommentToStatusHistory(__('Aplazo: this order was paid before it was created (popup). Cancelling it did not request any loan reversal; check the loan with Aplazo.'));
+            $this->logService->send('warn', 'Payment-first order cancelled; no loan reversal requested', ['module:cancel'], ['order_id' => $order->getIncrementId()]);
+            return;
+        }
         if($order->getPayment()->getMethod() === ConfigProvider::CODE){
             $this->logService->send('info', 'Order cancel after: cancelling loan and updating stock', ['module:cancel'], ['order_id' => $order->getIncrementId(), 'state' => $order->getState(), 'status' => $order->getStatus()]);
             $this->orderService->decreasingStockAfterPaymentSuccess($order, 'order_canceled_aplazo');

@@ -4,10 +4,8 @@ declare(strict_types=1);
 namespace Aplazo\AplazoPayment\Model\PaymentFirst;
 
 use Aplazo\AplazoPayment\Helper\Data as AplazoHelper;
-use Aplazo\AplazoPayment\Model\Service\OrderService;
 use Aplazo\AplazoPayment\Model\Ui\ConfigProvider;
 use Aplazo\AplazoPayment\Service\ApiService;
-use Aplazo\AplazoPayment\Service\LogService;
 use Aplazo\AplazoPayment\Service\TrackingService;
 use Magento\Customer\Api\Data\GroupInterface;
 use Magento\Framework\App\ResourceConnection;
@@ -23,6 +21,10 @@ use Magento\Quote\Model\QuoteManagement;
 use Magento\Quote\Model\SubmitQuoteValidator;
 use Magento\Sales\Api\OrderRepositoryInterface;
 use Magento\Sales\Model\Order;
+use Magento\Sales\Model\OrderFactory;
+use Magento\Sales\Model\OrderMutexInterface;
+use Magento\Sales\Model\Service\InvoiceService;
+use Magento\Framework\DB\TransactionFactory;
 use Magento\Sales\Model\Order\Email\Sender\OrderSender;
 
 /**
@@ -88,22 +90,52 @@ class Finalizer
         private StockCheck $stockCheck,
         private StoreScope $storeScope,
         private OrderRepositoryInterface $orderRepository,
-        private OrderService $orderService,
+        private OrderFactory $orderFactory,
+        private OrderMutexInterface $orderMutex,
+        private InvoiceService $invoiceService,
+        private TransactionFactory $transactionFactory,
         private OrderSender $orderSender,
         private AplazoHelper $aplazoHelper,
         private EventManager $eventManager,
         private TrackingService $trackingService,
-        private LogService $logService,
         private ReconcileSchedule $schedule,
-        private AttemptContext $context
+        private AttemptContext $context,
+        private Trace $trace
     ) {
     }
+
+    /** Orders whose approval happened in this call: tracked after the locks are released. */
+    private array $paidToTrack = [];
 
     /**
      * @param int $lockWait seconds to wait for the attempt lock (0 for the browser)
      * @return array{status: string, attempt: array, order_id?: int}
      */
     public function finalize(array $attempt, string $source, int $lockWait = 0): array
+    {
+        try {
+            return $this->finalizeOnce($attempt, $source, $lockWait);
+        } finally {
+            // Network side effects only here, once the attempt lock, the cart lock and the transaction are released.
+            $this->afterLocks();
+        }
+    }
+
+    private function afterLocks(): void
+    {
+        $paid = $this->paidToTrack;
+        $this->paidToTrack = [];
+        foreach ($paid as [$orderId, $loanId]) {
+            try {
+                $this->trackingService->trackOrderPaid($this->orderRepository->get($orderId), $loanId, ApiService::LOAN_SUCCESS_STATUS);
+            } catch (\Throwable $e) {
+                // Never block the approval because of tracking.
+            }
+        }
+        $this->trace->flush();
+    }
+
+    private function finalizeOnce(array $attempt, string $source, int $lockWait): array
     {
         if (($done = $this->settled($attempt)) !== null) {
             return $done;
@@ -182,9 +214,17 @@ class Finalizer
             ]);
         }
         $this->eventManager->dispatch(self::EVENT_APPROVE_BEFORE, ['attempt' => $attempt, 'order_id' => $orderId]);
-        $this->approve($attempt, $orderId);
+        if (!$this->approve($attempt, $orderId)) {
+            // The order was cancelled (or closed) by someone else before approval: paid loan, no live order (H-8).
+            $attempt = $this->mustTransition($attempt, ['status' => AttemptStore::NEEDS_REVIEW,
+                'last_error' => 'order_canceled_after_payment', 'next_check_at' => null]);
+            $this->trace->add('error', 'Payment-first order cancelled before approval; loan paid', ['module:checkout'],
+                ['cart_id' => $attempt['cart_id'], 'order_entity_id' => $orderId]);
+
+            return ['status' => self::NEEDS_REVIEW, 'attempt' => $attempt, 'order_id' => $orderId];
+        }
         $attempt = $this->mustTransition($attempt, ['status' => AttemptStore::COMPLETED, 'next_check_at' => null]);
-        $this->logService->send('info', 'Payment-first order completed', ['module:checkout'],
+        $this->trace->add('info', 'Payment-first order completed', ['module:checkout'],
             ['cart_id' => $attempt['cart_id'], 'order_entity_id' => $orderId]);
 
         return ['status' => self::COMPLETED, 'attempt' => $attempt, 'order_id' => $orderId];
@@ -303,35 +343,62 @@ class Finalizer
     }
 
     /**
-     * Invoice and approval with Magento's invoice service (OrderService::invoiceOrder), once: an existing invoice is
-     * not repeated, and the status comment and tracking are written only on the change to processing.
+     * Invoice and approval with Magento's invoice service (as OrderService::invoiceOrder), once: an existing invoice is
+     * not repeated, and the status comment (and the tracking, sent after the locks) only on the change to processing.
      */
-    private function approve(array $attempt, int $orderId): void
+    private function approve(array $attempt, int $orderId): bool
+    {
+        // Under Magento's order mutex (row lock on sales_order, the one OrderManagement::cancel and refunds take), so
+        // an admin cancellation is either committed before (and seen here) or runs after (and cannot cancel an
+        // invoiced order). Cancellations that save without the mutex are refused by KeepPaidOrderOpen (H-8).
+        return $this->orderMutex->execute($orderId, function () use ($attempt, $orderId) {
+            return $this->approveLocked($attempt, $orderId);
+        });
+    }
+
+    private function approveLocked(array $attempt, int $orderId): bool
     {
         /** @var Order $order */
-        $order = $this->orderRepository->get($orderId);
+        // Loaded fresh (the repository keeps a per-request copy): the row is locked, this is its committed state.
+        $order = $this->orderFactory->create()->load($orderId);
         $approvedStatus = $this->aplazoHelper->getApprovedOrderStatus();
-        // An order someone already moved on (cancelled, closed, completed) is left as it is.
-        if (!in_array($order->getState(), [Order::STATE_NEW, Order::STATE_PROCESSING], true)) {
-            return;
+        if ($order->getState() === Order::STATE_PROCESSING && $order->hasInvoices()) {
+            return true;
+        }
+        // An order someone already moved on (cancelled, closed) is left as it is.
+        if ($order->getState() !== Order::STATE_NEW && $order->getState() !== Order::STATE_PROCESSING) {
+            return false;
         }
         if (!$order->hasInvoices()) {
-            if (!$order->canInvoice() || !$this->orderService->invoiceOrder($order)) {
+            if (!$order->canInvoice()) {
                 throw new \RuntimeException('invoice_failed');
             }
-            $order = $this->orderRepository->get($orderId);
+            $this->invoice($order);
+            $order = $this->orderFactory->create()->load($orderId);
         }
         if ($order->getState() !== Order::STATE_PROCESSING || $order->getStatus() !== $approvedStatus) {
             $order->setState(Order::STATE_PROCESSING)->setStatus($approvedStatus);
             $order->getPayment()->setAdditionalInformation('aplazo_status', ApiService::LOAN_SUCCESS_STATUS);
             $order->addCommentToStatusHistory(__('Aplazo: payment confirmed through the loan status API before the order was created (popup).'));
             $this->orderRepository->save($order);
-            try {
-                $this->trackingService->trackOrderPaid($order, (string)$attempt['loan_id'], ApiService::LOAN_SUCCESS_STATUS);
-            } catch (\Throwable $e) {
-                // Never block the approval because of tracking.
-            }
+            $this->paidToTrack[] = [$orderId, (string)$attempt['loan_id']];
         }
+
+        return true;
+    }
+
+    /**
+     * The invoice as OrderService::invoiceOrder creates it (Magento's invoice service, online capture case, one
+     * transaction with the order), without its synchronous log posts: this runs with the order row and the attempt
+     * locked (H-2). A failure is thrown and retried as transient, never ignored.
+     */
+    private function invoice(Order $order): void
+    {
+        $invoice = $this->invoiceService->prepareInvoice($order);
+        $invoice->setRequestedCaptureCase(\Magento\Sales\Model\Order\Invoice::CAPTURE_ONLINE);
+        $invoice->register();
+        $this->transactionFactory->create()->addObject($invoice)->addObject($invoice->getOrder())->save();
+        $this->trace->add('info', 'Payment-first invoice created', ['module:checkout'], ['order_id' => $order->getIncrementId()]);
     }
 
     /**
@@ -354,7 +421,7 @@ class Finalizer
                 $this->orderSender->send($order);
             }
         } catch (\Throwable $e) {
-            $this->logService->send('error', 'Payment-first order email failed', ['module:checkout'],
+            $this->trace->add('error', 'Payment-first order email failed', ['module:checkout'],
                 ['cart_id' => $attempt['cart_id'], 'error' => get_class($e)]);
         }
 
@@ -369,7 +436,7 @@ class Finalizer
             'loan_cancel_state' => AttemptStore::CANCEL_PENDING,
             'next_check_at' => $this->schedule->now(),
         ]);
-        $this->logService->send('error', 'Payment-first attempt paid but not convertible', ['module:checkout'],
+        $this->trace->add('error', 'Payment-first attempt paid but not convertible', ['module:checkout'],
             ['cart_id' => $attempt['cart_id'], 'reason' => $reason]);
 
         return ['status' => self::REJECTED, 'attempt' => $rejected];
@@ -440,7 +507,9 @@ class Finalizer
     {
         if ($source === self::SOURCE_RECONCILE) {
             $count = (int)$attempt['check_count'] + 1;
-            $this->attemptStore->transition($attempt, ['check_count' => $count, 'next_check_at' => $this->schedule->afterCheck($count)]);
+            // A completed check replaces an earlier error (H-10): last_error describes the latest check only.
+            $this->attemptStore->transition($attempt, ['check_count' => $count, 'last_error' => null,
+                'next_check_at' => $this->schedule->afterCheck($count)]);
         } elseif ($source === self::SOURCE_WEBHOOK) {
             $this->scheduleSoon($attempt);
         }
@@ -468,7 +537,7 @@ class Finalizer
         $current = $this->attemptStore->get((int)$attempt['entity_id']) ?? $attempt;
         $count = (int)$current['check_count'] + 1;
         $error = substr(get_class($e) . ($e instanceof \RuntimeException ? ': ' . $e->getMessage() : ''), 0, 255);
-        $this->logService->send('error', 'Payment-first finalization failed, will retry', ['module:checkout'],
+        $this->trace->add('error', 'Payment-first finalization failed, will retry', ['module:checkout'],
             ['cart_id' => $attempt['cart_id'], 'error' => $error]);
 
         return $this->attemptStore->transition($current, [
