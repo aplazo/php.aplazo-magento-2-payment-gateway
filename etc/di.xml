@@ -102,6 +102,7 @@
             <argument name="commands" xsi:type="array">
                 <item name="aplazo_refund_process" xsi:type="object">Aplazo\AplazoPayment\Console\Command\ProcessRefundQueueCommand</item>
                 <item name="aplazo_orders_cancel" xsi:type="object">Aplazo\AplazoPayment\Console\Command\CancelOrdersCommand</item>
+                <item name="aplazo_payment_first_attempts" xsi:type="object">Aplazo\AplazoPayment\Console\Command\PaymentAttemptsCommand</item>
             </argument>
         </arguments>
     </type>

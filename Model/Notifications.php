@@ -5,6 +5,8 @@ namespace Aplazo\AplazoPayment\Model;
 use Aplazo\AplazoPayment\Helper\Data as AplazoHelper;
 use Magento\Sales\Model\Order;
 use Aplazo\AplazoPayment\Api\NotificationsInterface;
+use Aplazo\AplazoPayment\Model\PaymentFirst\AttemptStore;
+use Aplazo\AplazoPayment\Model\PaymentFirst\WebhookHandler;
 use Aplazo\AplazoPayment\Model\Service\OrderService;
 use Aplazo\AplazoPayment\Service\ApiService as AplazoService;
 use Aplazo\AplazoPayment\Service\LogService;
@@ -42,6 +44,8 @@ class Notifications implements NotificationsInterface
     private $aplazoService;
     private TrackingService $trackingService;
     private LogService $logService;
+    private AttemptStore $attemptStore;
+    private WebhookHandler $paymentFirstWebhook;
 
     public function __construct
     (
@@ -50,9 +54,13 @@ class Notifications implements NotificationsInterface
         \Magento\Sales\Model\Order\Email\Sender\OrderSender $orderSender,
         AplazoService                     $aplazoService,
         TrackingService                   $trackingService,
-        LogService                        $logService
+        LogService                        $logService,
+        AttemptStore                      $attemptStore,
+        WebhookHandler                    $paymentFirstWebhook
     )
     {
+        $this->attemptStore = $attemptStore;
+        $this->paymentFirstWebhook = $paymentFirstWebhook;
         $this->orderService = $orderService;
         $this->aplazoService = $aplazoService;
         $this->aplazoHelper = $aplazoHelper;
@@ -71,6 +79,12 @@ class Notifications implements NotificationsInterface
         if ($aplazoData = $this->validateJWT()) {
             $this->logService->send('info', 'JWT validated, processing webhook payload', ['module:webhook'], ['payload_loan_id' => $aplazoData[self::APLAZO_PAYLOAD_LOAN_ID_INDEX] ?? '', 'payload_status' => $aplazoData[self::APLAZO_PAYLOAD_STATUS_INDEX] ?? '', 'payload_cart_id' => $aplazoData[self::APLAZO_PAYLOAD_ORDER_ID_INDEX] ?? '']);
             try {
+                // Popup payment-first (BNPL-1664): the cartId names an attempt, and there may be no order yet.
+                // The signal only starts the trusted payment check; redirect orders continue below unchanged.
+                $attempt = $this->attemptStore->getByCartId((string)($aplazoData[self::APLAZO_PAYLOAD_ORDER_ID_INDEX] ?? ''));
+                if ($attempt !== null) {
+                    return $this->paymentFirstWebhook->handle($attempt, $aplazoData);
+                }
                 $orderResult = $this->orderService->getOrderByIncrementId($aplazoData[self::APLAZO_PAYLOAD_ORDER_ID_INDEX]);
                 if ($orderResult['success']) {
                     /** @var Order $order */
