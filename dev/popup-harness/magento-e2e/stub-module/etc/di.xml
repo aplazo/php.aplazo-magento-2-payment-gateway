@@ -16,9 +16,11 @@
             <argument name="delaysSeconds" xsi:type="array">
                 <item name="0" xsi:type="number">1</item>
             </argument>
+            <argument name="cancelRequestSeconds" xsi:type="number">3</argument>
         </arguments>
     </type>
     <type name="Aplazo\AplazoPayment\Model\PaymentFirst\Reconciler">
+        <plugin name="localdev_pf_reconcile_allowlist" type="LocalDev\AplazoStub\Plugin\ReconcileAllowlist"/>
         <arguments>
             <argument name="autoCancelRejected" xsi:type="boolean">true</argument>
         </arguments>

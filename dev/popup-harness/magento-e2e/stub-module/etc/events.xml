@@ -7,6 +7,15 @@
     <event name="aplazo_payment_first_order_saved">
         <observer name="localdev_pf_sync" instance="LocalDev\AplazoStub\Observer\SyncPoint"/>
     </event>
+    <event name="aplazo_payment_first_cancel_requested">
+        <observer name="localdev_pf_sync" instance="LocalDev\AplazoStub\Observer\SyncPoint"/>
+    </event>
+    <event name="sales_order_load_after">
+        <observer name="localdev_pf_sync" instance="LocalDev\AplazoStub\Observer\SyncPoint"/>
+    </event>
+    <event name="order_cancel_after">
+        <observer name="localdev_pf_sync" instance="LocalDev\AplazoStub\Observer\SyncPoint"/>
+    </event>
     <event name="aplazo_payment_first_approve_before">
         <observer name="localdev_pf_sync" instance="LocalDev\AplazoStub\Observer\SyncPoint"/>
     </event>

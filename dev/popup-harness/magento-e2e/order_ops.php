@@ -2,6 +2,7 @@
 // LOCAL TEST ONLY (BNPL-1665, BNPL-1664). Order and product operations through Magento's own service contracts, for the E2E kit.
 // Run from the Magento root:  bin/clinotty php -- <command> [args] < dev/popup-harness/magento-e2e/order_ops.php
 //   cancel <entity_id>          OrderManagementInterface::cancel (what the admin "Cancel" button calls)
+//   cancel_direct <entity_id> [seconds]  load (with items), hold, cancel() and save without the order mutex (H-8 guard test)
 //   ship <entity_id>            ShipOrderInterface::execute (default source)
 //   product <sku> <qty>         creates a simple test product with that quantity on the default source if missing
 //   stock <sku> <qty>           sets the default source quantity of an APLAZO-1664- test product
@@ -15,6 +16,23 @@ $out = ['command' => $command];
 try {
     if ($command === 'cancel') {
         $out['result'] = $om->get(\Magento\Sales\Api\OrderManagementInterface::class)->cancel((int)$argv[2]);
+    } elseif ($command === 'cancel_direct') {
+        // Loads, cancels in memory and saves without Magento's order mutex (as legacy or third-party code may).
+        // With <seconds>, the order and its items are loaded first and held that long (var/localdev_pf_cancel_direct.inside
+        // exists meanwhile): a stale copy that still looks cancellable.
+        $repo = $om->get(\Magento\Sales\Api\OrderRepositoryInterface::class);
+        $order = $repo->get((int)$argv[2]);
+        $order->getAllItems();
+        $out['can_cancel_when_loaded'] = $order->canCancel();
+        $hold = (int)($argv[3] ?? 0);
+        if ($hold > 0) {
+            @touch(BP . '/var/localdev_pf_cancel_direct.inside');
+            sleep(min(60, $hold));
+            @unlink(BP . '/var/localdev_pf_cancel_direct.inside');
+        }
+        $order->cancel();
+        $repo->save($order);
+        $out['result'] = $order->getState();
     } elseif ($command === 'ship') {
         $out['shipment_id'] = $om->get(\Magento\Sales\Api\ShipOrderInterface::class)->execute((int)$argv[2]);
     } elseif ($command === 'product') {

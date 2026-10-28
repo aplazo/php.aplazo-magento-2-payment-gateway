@@ -62,7 +62,7 @@ def loan(cart_id, status):
 
 def reset_switches():
     sh('rm -rf var/localdev_aplazo_stub_loans var/localdev_aplazo_stub_createloan var/localdev_aplazo_stub_cancel '
-       'var/localdev_pf_* var/localdev_aplazo_stub_delay')
+       'var/localdev_pf_* var/localdev_aplazo_stub_delay var/localdev_aplazo_stub_log_delay')
 
 
 ATTEMPT_COLS = ('entity_id', 'public_id', 'quote_id', 'cart_id', 'loan_id', 'status', 'order_id', 'reject_reason',
@@ -1168,6 +1168,240 @@ def t_h9(merchants):
         b.quit()
 
 
+def attempts_cli(*args):
+    """bin/magento aplazo:payment-first:attempts <args>: (exit code, parsed JSON or text)."""
+    proc = subprocess.run(['bin/clinotty', 'bin/magento', 'aplazo:payment-first:attempts'] + list(args), cwd=M,
+                          capture_output=True, text=True, errors='replace', stdin=subprocess.DEVNULL, timeout=240)
+    out = proc.stdout
+    start = min([i for i in (out.find('{'), out.find('[')) if i >= 0] or [-1])
+    try:
+        body = json.loads(out[start:out.rfind('Nothing written') if 'Nothing written' in out else None]) if start >= 0 else out.strip()
+    except ValueError:
+        body = out.strip()[:400]
+    return proc.returncode, body
+
+
+def cron_job():
+    with open(os.path.join(HERE, 'cron_job.php')) as fh:
+        out = run(['bin/clinotty', 'php'], stdin=fh, timeout=240)
+    return json.loads(out[out.index('{'):]) if '{' in out else {'raw': out.strip()[:200]}
+
+
+def rejected_attempt(b):
+    """A paid attempt whose cart changed in another tab: rejected/cart_changed, reversal pending."""
+    ok, a = open_popup(b, plan='stay')
+    tab = b.new_tab(); add_to_cart(tab)
+    loan(a['cart_id'], 'OUTSTANDING')
+    webhook(a['cart_id'], 'stub-' + a['cart_id'])
+    return ok, attempt(a['entity_id'])
+
+
+def t_h5_interrupted():
+    """H-5: the process dies while sending the reversal request: never sent again, closed as unknown, then an operator
+    records what Aplazo confirmed; nothing claims the money was returned."""
+    r = Run(); b = Browser(); default_loan('REQUEST')
+    try:
+        ok, a = rejected_attempt(b)
+        stub('localdev_pf_cancel_requested', 'crash')
+        crashed = reconcile(a['entity_id'])
+        mid = attempt(a['entity_id'])
+        time.sleep(4)
+        closed = reconcile(a['entity_id'])
+        after = attempt(a['entity_id'])
+        again = reconcile(a['entity_id'])
+        listing = attempts_cli('--id=%s' % a['entity_id'])[1]
+        attention = attempts_cli('--attention', '--older-than=0')
+        bad_resolve = attempts_cli('--resolve=%s' % a['entity_id'], '--outcome=reversal_confirmed')
+        dry = attempts_cli('--resolve=%s' % a['entity_id'], '--outcome=reversal_confirmed', '--reference=APLAZO-CASE-TEST-1')
+        dry_state = attempt(a['entity_id'])['status'], sql('SELECT resolution FROM aplazo_payment_attempt WHERE entity_id=%s' % a['entity_id'])
+        done = attempts_cli('--resolve=%s' % a['entity_id'], '--outcome=reversal_confirmed', '--reference=APLAZO-CASE-TEST-1',
+                            '--note=kit test, synthetic', '--confirm')
+        twice = attempts_cli('--resolve=%s' % a['entity_id'], '--outcome=reversal_confirmed', '--reference=APLAZO-CASE-TEST-2', '--confirm')
+        attention_after = attempts_cli('--attention', '--older-than=0')
+        text = json.dumps(listing)
+        good = (ok and a['status'] == 'rejected' and mid['loan_cancel_state'] == 'requested'
+                and after['loan_cancel_state'] == 'unknown' and after['last_error'] == 'cancel_request_interrupted'
+                and len(r.calls('cancelLoan')) == 0 and again == []
+                and int(a['entity_id']) in attention[1]['rejected_unresolved'] and attention[0] == 1
+                and bad_resolve[0] == 1 and dry_state[1] == 'NULL'
+                and isinstance(done[1], dict) and done[1].get('resolution') == 'reversal_confirmed'
+                and twice[0] == 1 and int(a['entity_id']) not in attention_after[1]['rejected_unresolved']
+                and 'refunded' not in text.lower() and 'cancelled' not in text.lower())
+        record('h5_reversal_interrupted_then_operator_resolution', good, crashed=crashed, after_crash=mid['loan_cancel_state'],
+               closed=closed, after=dict(state=after['loan_cancel_state'], last_error=after['last_error']), reconcile_again=again,
+               cancel_calls=len(r.calls('cancelLoan')), listing=listing, attention=attention, bad_resolve=bad_resolve,
+               dry_run_written=dry_state, resolved=done, resolve_twice=twice, attention_after=attention_after)
+    finally:
+        stub('localdev_pf_cancel_requested', None)
+        b.quit()
+
+
+def t_h5_cancel_fails():
+    """H-5: the reversal request fails: unknown, not retried, still listed for an operator."""
+    r = Run(); b = Browser(); default_loan('REQUEST')
+    try:
+        ok, a = rejected_attempt(b)
+        stub('localdev_aplazo_stub_cancel', 'fail')
+        first = reconcile(a['entity_id'])
+        second = reconcile(a['entity_id'])
+        x = attempt(a['entity_id'])
+        attention = attempts_cli('--attention', '--older-than=0')
+        good = (ok and first and first[0]['result'] == 'cancel_unknown' and second == [] and len(r.calls('cancelLoan')) == 1
+                and x['loan_cancel_state'] == 'unknown' and int(a['entity_id']) in attention[1]['rejected_unresolved'])
+        record('h5_cancel_request_fails_not_retried', good, first=first, second=second, attempt=x, cancel_calls=len(r.calls('cancelLoan')))
+    finally:
+        stub('localdev_aplazo_stub_cancel', None)
+        b.quit()
+
+
+def t_h3_cron_registered():
+    """H-3: registered customer, browser gone, webhook schedules; the cron class (invoked directly, allowlisted)
+    crashes once after saving the order, the attention report shows the paid attempt, the next cron run completes it."""
+    r = Run(); b = Browser(); default_loan('REQUEST')
+    email, password = 'pf-cron@example.invalid', 'Kit-' + os.urandom(6).hex() + '-Aa1'
+    try:
+        sql("DELETE FROM customer_entity WHERE email='%s'" % email)
+        c = php('order_ops.php', 'customer', email, password)
+        b.ws.send('Page.navigate', {'url': BASE + '/customer/account/login/'})
+        wait_for(b.ws, "!!document.querySelector('#email')", 40)
+        logged_in = evaluate(b.ws, LOGIN_JS % (json.dumps(email), json.dumps(password)), timeout=60)
+        ok, a = open_popup(b, email=email, plan='stay')
+        loan(a['cart_id'], 'OUTSTANDING')
+        b.ws.send('Network.enable'); b.ws.send('Network.clearBrowserCookies')
+        hook = webhook(a['cart_id'], 'stub-' + a['cart_id'])
+        sh("printf '%s\n' > var/localdev_pf_cron_allowlist" % a['entity_id'])
+        # The finalizer records the payment before converting; a crash after the order is saved leaves the attempt open.
+        stub('localdev_pf_order_saved', 'crash')
+        run1 = cron_job()
+        mid = dict(attempt=attempt(a['entity_id']), orders=r.orders(),
+                   paid_confirmed=sql('SELECT paid_confirmed_at IS NOT NULL FROM aplazo_payment_attempt WHERE entity_id=%s' % a['entity_id']))
+        attention = attempts_cli('--attention', '--older-than=0')
+        time.sleep(2)
+        run2 = cron_job()
+        o = r.orders()
+        cust = sql('SELECT customer_id, customer_is_guest FROM sales_order WHERE entity_id=%s' % o[0]['entity_id']).split('\t') if o else None
+        attention_after = attempts_cli('--attention', '--older-than=0')
+        good = (ok and logged_in and hook['body'].get('message') == 'scheduled' and mid['paid_confirmed'] == '1'
+                and len(mid['orders']) == 1 and mid['orders'][0]['invoices'] == '0' and mid['attempt']['status'] == 'open'
+                and int(a['entity_id']) in attention[1]['paid_without_order'] and attention[1]['cron_stale']
+                and len(o) == 1 and o[0]['invoices'] == '1' and cust == [str(c['customer_id']), '0']
+                and attempt(a['entity_id'])['status'] == 'completed' and r.res() == ['-1.0000 order_placed ' + a['cart_id']]
+                and int(a['entity_id']) not in attention_after[1]['paid_without_order'])
+        record('h3_registered_cron_class_crash_then_complete', good, webhook=hook, cron_run_1=run1, mid=mid, attention=attention,
+               cron_run_2=run2, orders=o, order_customer=cust, reservations=r.res(), attention_after=attention_after,
+               note='cron class invoked directly in the crontab area; the scheduler (cron:run) was not run')
+    finally:
+        sh('rm -f var/localdev_pf_cron_allowlist')
+        stub('localdev_pf_order_saved', None)
+        b.quit()
+
+
+def t_h8_sequential():
+    """H-8: admin cancels a payment-first order between its creation and its approval: no reversal requested, native
+    reservation released, the attempt goes to needs_review (not completed) and is listed for an operator."""
+    r = Run(); b = Browser(); default_loan('REQUEST')
+    try:
+        ok, a = open_popup(b, plan='stay')
+        loan(a['cart_id'], 'OUTSTANDING')
+        stub('localdev_pf_approve_before', 'crash')
+        webhook(a['cart_id'], 'stub-' + a['cart_id'])
+        stub('localdev_pf_approve_before', None)
+        o = r.orders()
+        cancel = php('order_ops.php', 'cancel', o[0]['entity_id'])
+        after_cancel = dict(state=sql('SELECT state FROM sales_order WHERE entity_id=%s' % o[0]['entity_id']),
+                            reservations=r.res(), cancel_calls=len(r.calls('cancelLoan')),
+                            comment=sql("SELECT COUNT(*) FROM sales_order_status_history WHERE parent_id=%s AND comment LIKE '%%did not request any loan reversal%%'" % o[0]['entity_id']))
+        rec = reconcile(a['entity_id'])
+        x = attempt(a['entity_id'])
+        attention = attempts_cli('--attention', '--older-than=0')
+        good = (ok and cancel.get('ok') and after_cancel['state'] == 'canceled' and after_cancel['cancel_calls'] == 0
+                and after_cancel['comment'] == '1'
+                and after_cancel['reservations'] == ['-1.0000 order_placed ' + a['cart_id'], '1.0000 order_canceled ' + a['cart_id']]
+                and x['status'] == 'needs_review' and x['last_error'] == 'order_canceled_after_payment'
+                and int(a['entity_id']) in attention[1]['order_canceled'] and int(a['entity_id']) in attention[1]['needs_review_unresolved']
+                and sql('SELECT COUNT(*) FROM sales_invoice WHERE order_id=%s' % o[0]['entity_id']) == '0')
+        record('h8_admin_cancel_before_approval', good, cancel=cancel, after_cancel=after_cancel, reconcile=rec, attempt=x, attention=attention)
+    finally:
+        b.quit()
+
+
+def t_h8_race(path='cancel_direct'):
+    """H-8: the admin cancellation loaded and cancelled the order in memory, then the approval commits, then the
+    cancellation saves: refused; the order stays approved with its invoice."""
+    r = Run(); b = Browser(); default_loan('REQUEST')
+    try:
+        ok, a = open_popup(b, plan='stay')
+        loan(a['cart_id'], 'OUTSTANDING')
+        stub('localdev_pf_approve_before', 'crash')
+        webhook(a['cart_id'], 'stub-' + a['cart_id'])
+        stub('localdev_pf_approve_before', None)
+        o = r.orders()
+        # The cancellation loads the order and is held right there (stale copy in memory); the approval commits; then
+        # the cancellation goes on and saves.
+        if path == 'cancel_direct':
+            t, box = in_thread(php, 'order_ops.php', path, o[0]['entity_id'], 10)
+            inside = wait_inside('cancel_direct')
+        else:
+            stub('localdev_pf_sales_order_load_after', 'once:10')
+            t, box = in_thread(php, 'order_ops.php', path, o[0]['entity_id'])
+            inside = wait_inside('sales_order_load_after')
+        rec = reconcile(a['entity_id'])
+        t.join(); stub('localdev_pf_sales_order_load_after', None)
+        state = sql('SELECT state FROM sales_order WHERE entity_id=%s' % o[0]['entity_id'])
+        invoices = sql('SELECT COUNT(*) FROM sales_invoice WHERE order_id=%s' % o[0]['entity_id'])
+        if path == 'cancel_direct':
+            # Without the mutex: the approval commits while the cancellation holds a stale copy; its save is refused.
+            good = (ok and inside and rec and rec[0]['result'] == 'completed' and box['v'].get('can_cancel_when_loaded') is True
+                    and box['v'].get('ok') is False
+                    and 'not cancelled' in (box['v'].get('error') or '') and state == 'processing' and invoices == '1'
+                    and len(r.calls('cancelLoan')) == 0 and r.res() == ['-1.0000 order_placed ' + a['cart_id']])
+            # The reservation must be untouched too: no "order_canceled" compensation for an order that stays approved.
+        else:
+            # Magento's cancellation (admin button) holds the order mutex from before its load: the approval waits for
+            # it and then finds the order cancelled.
+            good = (ok and inside and rec and rec[0]['result'] == 'needs_review' and box['v'].get('ok') is True
+                    and state == 'canceled' and invoices == '0' and len(r.calls('cancelLoan')) == 0)
+        record('h8_cancel_races_approval_%s' % path, good, cancel=box.get('v'), reconcile=rec, state=state, invoices=invoices,
+               reservations=r.res(), cancel_calls=len(r.calls('cancelLoan')))
+    finally:
+        stub('localdev_pf_sales_order_load_after', None)
+        b.quit()
+
+
+def t_h2_slow_log():
+    """H-2: the log service takes 5 s per call: the order is completed (and the locks released) long before the webhook
+    request ends, because the finalizer's logs are sent after the locks."""
+    r = Run(); b = Browser(); default_loan('REQUEST')
+    try:
+        ok, a = open_popup(b, plan='stay')
+        tab = b.new_tab(); tab.send('Page.navigate', {'url': BASE + '/customer/account/login/'}); time.sleep(3)
+        loan(a['cart_id'], 'OUTSTANDING')
+        stub('localdev_aplazo_stub_log_delay', '5')
+        started = time.time()
+        t, box = in_thread(webhook, a['cart_id'], 'stub-' + a['cart_id'])
+        seen = None
+        # Polled in the database only (a browser `complete` would run the finalizer itself and send its own logs).
+        while t.is_alive() and time.time() - started < 120:
+            if seen is None and sql('SELECT status FROM aplazo_payment_attempt WHERE entity_id=%s' % a['entity_id']) == 'completed':
+                seen = round(time.time() - started, 1)
+            time.sleep(0.3)
+        t.join(); ended = round(time.time() - started, 1)
+        stub('localdev_aplazo_stub_log_delay', None)
+        o = r.orders()
+        logs = [c for c in stub_calls_since(r.log) if c.get('service') == 'log' and c.get('delay_seconds') == 5]
+        flushed_after = [c['message'] for c in logs if c['message'].startswith('Payment-first')]
+        # Two posts of 5 s each are sent after the attempt lock is released (the finalizer's trace), so the request ends
+        # at least ~10 s after the order was completed.
+        good = (ok and seen is not None and ended - seen >= 9 and len(o) == 1 and o[0]['invoices'] == '1'
+                and box['v']['body'].get('message') == 'completed' and len(flushed_after) >= 2)
+        record('h2_slow_log_outside_locks', good, attempt_completed_after_s=seen, webhook_returned_after_s=ended,
+               delayed_remote_log_calls=[c['message'] for c in logs], orders=o, webhook=box.get('v'),
+               note='posts before the finalizer (webhook received, JWT validated) are the unchanged Notifications logs, outside locks')
+    finally:
+        stub('localdev_aplazo_stub_log_delay', None)
+        b.quit()
+
+
 TESTS = {
     'close_unpaid': t_close_unpaid,
     'paid_message': t_paid_message,
@@ -1199,6 +1433,13 @@ TESTS = {
     'webview_rules': t_webview_rules,
     'h1_add_to_cart': lambda: t_h1('add_to_cart'),
     'h4_sandbox': lambda: t_h4('sandbox'),
+    'h5_interrupted': t_h5_interrupted,
+    'h5_cancel_fails': t_h5_cancel_fails,
+    'h3_cron_registered': t_h3_cron_registered,
+    'h8_sequential': t_h8_sequential,
+    'h8_race': t_h8_race,
+    'h8_race_mutex': lambda: t_h8_race('cancel'),
+    'h2_slow_log': t_h2_slow_log,
     'h4_merchant': lambda: t_h4('merchant'),
     'h9_distinct': lambda: t_h9('distinct'),
     'h9_same': lambda: t_h9('same'),
