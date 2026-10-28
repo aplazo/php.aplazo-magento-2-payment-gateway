@@ -104,6 +104,10 @@ class Operations extends \Magento\Framework\App\Action\Action
     public function purchase()
     {
         $order = $this->checkoutSession->getLastRealOrder();
+        // A popup payment-first order (BNPL-1664) is already paid and has no checkout to open: no stock compensation.
+        if ($this->orderService->isPaymentFirstOrder($order)) {
+            return $this->resultRedirectFactory->create()->setPath('checkout/onepage/success');
+        }
         $this->aplazoHelper->log('Operations>purchase: Orden ' . $order->getEntityId() . ' debe redireccionar al checkout de aplazo.', AplazoHelper::LOGS_VVV);
         $this->orderService->reservingStockUntilPayment($order, 'aplazo_item_reserved');
         if (!empty($aplazoCheckout = $order->getAplazoCheckoutUrl())) {

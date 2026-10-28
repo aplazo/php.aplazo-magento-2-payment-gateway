@@ -80,6 +80,11 @@ class CancelOrders
                 foreach ($orderCollection as $order) {
                     $store_id = $order->getStoreId();
                     $incrementId = $order->getIncrementId();
+                    // Popup payment-first orders (BNPL-1664) are paid before they exist; their attempt's reconciliation
+                    // resumes them. A failed status query must never cancel them here.
+                    if ($this->orderService->isPaymentFirstOrder($order)) {
+                        continue;
+                    }
                     if($this->apiService->shouldCancelOrder($incrementId)){
                         try {
                             $orderResult = $this->orderService->getOrderByIncrementId($incrementId);
