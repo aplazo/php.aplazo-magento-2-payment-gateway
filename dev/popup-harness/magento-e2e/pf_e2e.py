@@ -517,7 +517,9 @@ def t_crash(point):
         resumed = reconcile(a['entity_id'])
         o = r.orders()
         good = (ok and len(mid['orders']) == 1 and mid['orders'][0]['invoices'] == '0'
-                and mid['attempt']['status'] == ('open' if point == 'order_saved' else 'order_created')
+                # The attempt is linked to its order in the conversion transaction, so a crash after the commit
+                # (order_saved) or before approval leaves it order_created with its order_id.
+                and mid['attempt']['status'] == 'order_created' and mid['attempt']['order_id'] == mid['orders'][0]['entity_id']
                 and len(o) == 1 and o[0]['invoices'] == '1' and o[0]['state'] == 'processing'
                 and attempt(a['entity_id'])['status'] == 'completed' and r.res() == ['-1.0000 order_placed ' + a['cart_id']])
         record('crash_at_%s_then_reconcile' % point, good, crashed=crashed, mid=mid, resumed=resumed, orders=o,
@@ -1402,6 +1404,72 @@ def t_h2_slow_log():
         b.quit()
 
 
+def t_h1_crash_window(point='model'):
+    """H-1 window: the order is committed and the quote deactivated, the process dies before the attempt records its
+    order_id, and a cart write that already read the active quote saves before the reconciliation runs."""
+    r = Run(); b = Browser(); default_loan('REQUEST')
+    try:
+        ok, a = open_popup(b, plan='stay')
+        qid = int(a['quote_id'])
+        tab = b.new_tab(); tab.send('Page.navigate', {'url': BASE + '/checkout/cart/'}); time.sleep(4)
+        path, form, body = h1_request('update_qty', qid)
+        loan(a['cart_id'], 'OUTSTANDING')
+        # 1. The quantity update reads the active quote and is held after its last read, before saving.
+        stub('localdev_pf_quote_save_pause', '%s:%d:20' % (point, qid))
+        t, box = in_thread(evaluate, tab, FETCH_JS % (json.dumps(path), json.dumps(form), json.dumps(body)), 120)
+        held = wait_until(lambda: sh('cat var/localdev_pf_quote_save_pause.inside 2>/dev/null').strip(), 30)
+        # 2. The webhook converts; the process dies at order_saved (after the commit, before the attempt link).
+        stub('localdev_pf_order_saved', 'crash')
+        crashed = webhook(a['cart_id'], 'stub-' + a['cart_id'])
+        stub('localdev_pf_order_saved', None)
+        after_crash = dict(attempt=attempt(a['entity_id']), orders=r.orders(), quote=quote(qid))
+        # 3. The held write goes on before any reconciliation.
+        t.join()
+        after_write = dict(quote=quote(qid), items=rows('SELECT sku, qty FROM quote_item WHERE quote_id=%d AND parent_item_id IS NULL' % qid, ('sku', 'qty')),
+                           orders=r.orders(), reservations=r.res(), write_response=box.get('v'))
+        # 4. Can this cart start another purchase now? (start only; not paid)
+        again = post(b.ws, '/aplazo/popup/start')['body']
+        # 5. Recovery, then integrity again.
+        rec = reconcile(a['entity_id'])
+        after_recovery = dict(attempt=attempt(a['entity_id']), quote=quote(qid), orders=r.orders(), reservations=r.res(),
+                              attempts=[(x['entity_id'], x['status'], x['order_id']) for x in r.attempts()])
+        order_of_quote = [o for o in r.orders() if o['quote_id'] == str(qid)]
+        reactivated = after_write['quote']['is_active'] == '1'
+        record('h1_crash_window_before_link_%s' % point, bool(held) and len(after_crash['orders']) == 1 and not reactivated
+               and again.get('status') != 'open' and len(order_of_quote) == 1,
+               held_request=held, webhook=crashed, after_crash=after_crash, after_write=after_write, start_again=again,
+               reconcile=rec, after_recovery=after_recovery)
+    finally:
+        stub('localdev_pf_quote_save_pause', None)
+        stub('localdev_pf_order_saved', None)
+        b.quit()
+
+
+def t_rollback_not_blocked():
+    """A conversion that dies inside its transaction (before submit) is rolled back: no order, no attempt link, and the
+    buyer's ordinary cart write is accepted (the guard must not block a cart that did not become an order)."""
+    r = Run(); b = Browser(); default_loan('REQUEST')
+    try:
+        ok, a = open_popup(b, plan='stay')
+        qid = int(a['quote_id'])
+        tab = b.new_tab(); tab.send('Page.navigate', {'url': BASE + '/checkout/cart/'}); time.sleep(4)
+        loan(a['cart_id'], 'OUTSTANDING')
+        stub('localdev_pf_convert_before', 'crash')
+        crashed = webhook(a['cart_id'], 'stub-' + a['cart_id'])
+        stub('localdev_pf_convert_before', None)
+        mid = dict(attempt=attempt(a['entity_id']), orders=r.orders(), quote=quote(qid), reservations=r.res())
+        path, form, body = h1_request('update_qty', qid)
+        write = evaluate(tab, FETCH_JS % (json.dumps(path), json.dumps(form), json.dumps(body)), timeout=120)
+        after = dict(quote=quote(qid), items=rows('SELECT sku, qty FROM quote_item WHERE quote_id=%d AND parent_item_id IS NULL' % qid, ('sku', 'qty')))
+        good = (ok and not mid['orders'] and mid['attempt']['order_id'] == 'NULL' and mid['attempt']['status'] == 'open'
+                and mid['quote']['is_active'] == '1' and not mid['reservations'] and '"success":true' in (write or {}).get('body', '')
+                and after['quote']['is_active'] == '1' and after['items'] == [{'sku': SKU, 'qty': '3.0000'}])
+        record('conversion_rolled_back_cart_write_allowed', good, webhook=crashed, mid=mid, write=write, after=after)
+    finally:
+        stub('localdev_pf_convert_before', None)
+        b.quit()
+
+
 TESTS = {
     'close_unpaid': t_close_unpaid,
     'paid_message': t_paid_message,
@@ -1445,6 +1513,9 @@ TESTS = {
     'h9_same': lambda: t_h9('same'),
     'h1_update_qty_save': lambda: t_h1('update_qty', 'save'),
     'h1_update_qty_cart': lambda: t_h1('update_qty', 'cart'),
+    'h1_crash_window': t_h1_crash_window,
+    'rollback_not_blocked': t_rollback_not_blocked,
+    'h1_crash_window_cart': lambda: t_h1_crash_window('cart'),
     'h1_add_to_cart_cart': lambda: t_h1('add_to_cart', 'cart'),
     'h1_update_qty': lambda: t_h1('update_qty'),
     'h1_shipping_information': lambda: t_h1('shipping_information'),

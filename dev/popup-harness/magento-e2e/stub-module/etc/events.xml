@@ -23,6 +23,9 @@
     <event name="sales_quote_load_after">
         <observer name="localdev_pf_quote_save_pause" instance="LocalDev\AplazoStub\Observer\QuoteSavePause"/>
     </event>
+    <event name="model_save_before">
+        <observer name="localdev_pf_quote_save_pause" instance="LocalDev\AplazoStub\Observer\QuoteSavePause"/>
+    </event>
     <event name="checkout_cart_save_before">
         <observer name="localdev_pf_quote_save_pause" instance="LocalDev\AplazoStub\Observer\QuoteSavePause"/>
     </event>
