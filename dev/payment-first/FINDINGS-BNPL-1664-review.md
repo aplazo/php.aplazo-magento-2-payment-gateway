@@ -182,3 +182,39 @@ Only `pending` (to send) and `requested` (to close as unknown) are picked up. `r
 - `--reconcile` can create orders, and only for loans the status API reports paid.
 - `--resolve` writes only the resolution fields, and needs `--reference` and `--confirm`.
 - No command calls `cancelLoan` unless `autoCancelRejected` is turned on in `di.xml`; it is off in production.
+
+## H-1 addendum · crash window between the commit and the attempt link (2026-10-29)
+
+**Finding (review of `87b9a0c`):**
+- `Finalizer::convert` committed the order and the inactive quote before `finalizeLocked` stored `order_id` on the attempt.
+- The quote guard recognises a conversion only by an attempt with `order_id`.
+
+**Reproduction before the fix** (`h1_crash_window_before_link_model`, on `87b9a0c` + kit):
+1. A `checkout/sidebar/updateItemQty` request was held at `model_save_before`: inside the quote save, after Magento's own active-cart checks, before the module's guard.
+2. The webhook converted the quote and the process died at `order_saved`: order `…270` committed, attempt `open` with `order_id` NULL, quote inactive.
+3. The held write then saved:
+   - the quote was active again with qty 3 and no reserved order id;
+   - the cart started another attempt;
+   - recovery adopted the order but left the quote active.
+
+**Held earlier** (`checkout_cart_save_before`, `h1_crash_window_before_link_cart`), the same write was refused, both with the module's guard on and with it disabled through the kit (control run, flag confirmed). The refusal came from Magento itself, traced with `sidebar_probe.php`:
+- `SaveHandler::processShippingAssignment` → `ShippingAddressManagement::assign`;
+- MSI `InventoryInStorePickupQuote` plugin → `QuoteRepository::getActive` → `validateCachedActiveQuote` → `NoSuchEntityException`.
+
+That depends on the installed MSI module, on 2.4.8's cached-quote validation and on a shipping assignment (not on virtual quotes). It does not cover the moment between that check and the row write, so it was not taken as closing the finding.
+
+**Fix:**
+- `order_created` and `order_id` are written in the conversion transaction (`Finalizer::linkOrder`, compare-and-set, re-applied once on a concurrent bookkeeping write, otherwise the whole conversion rolls back).
+- `AttemptStore::hasOrderForQuote` is a locking read (`LOCK IN SHARE MODE`), so inside the writer's transaction it sees committed rows.
+- Rejected alternative: matching the persisted order through `sales_order_payment.additional_information` on every quote save (JSON, not indexed); with an atomic link it adds nothing.
+
+**After the fix** (`5c4c458`):
+- both window cases: the write was refused, the quote stayed inactive (qty 1), the cart could not start another purchase, and recovery completed with 1 invoice and `-1 order_placed` only;
+- `crash_at_order_saved_then_reconcile`: attempt `order_created` with its `order_id` after the crash, completed by recovery;
+- `conversion_rolled_back_cart_write_allowed`: crash inside the transaction → no order, no link, the cart write is accepted.
+
+**Regression on `5c4c458`:** all H-1 late-write cases, concurrency (both orders), crash before approval, cart changed, two paid attempts, H-8, H-9, redirect, webview and blocked popup passed. `redirect_mode_unchanged` hit a DevTools socket reset once and passed alone on the same SHA.
+
+**Limitations:**
+- Writes to the quote that do not go through a quote save (direct `quote_item` writes) are still not covered.
+- A process dying inside the conversion transaction relies on the database rollback (tested).
