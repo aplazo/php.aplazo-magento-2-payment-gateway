@@ -86,3 +86,59 @@
 - **Devices:** Android with and without the app, iPhone, Instagram and Facebook apps, a domain opened by an app (BNPL-1667).
 - **STG:** the real API, real webhook delivery and retries, the `OUTSTANDING` vs `ACTIVO` status (C4), and `cancelLoan` after payment (C5).
 - **Async email retry** in Magento (see Observations).
+
+
+---
+
+# Round 3 · after the review findings (2026-10-28)
+
+**Code tested:** `74602e97d9e5b5b8779274684daea2dbdc8466fd`, full matrix (46 cases).
+- 41 passed.
+- 5 failed only because they still expected the old reversal state `accepted`, renamed `request_answered` (H-6). Their records show the same outcome: rejected, one stub cancel call.
+- `ea5df14` changes only those three assertions in `pf_e2e.py` (production code identical to `74602e9`). The five were run again there:
+  - 1 passed;
+  - 4 hit browser/CDP errors before any assertion (socket reset, evaluate timeout, page not loaded);
+  - after closing stray kit browsers, all 4 passed.
+- Findings, reproduction and fixes: `FINDINGS-BNPL-1664-review.md`.
+- **Still against the mock only:** stub API, mock checkout, simulated webhook, synthetic data. No STG, no real Aplazo call.
+
+**Corrected classification of the first 28 cases.** The earlier "15 completed orders" mixed categories. Some cases belong to two categories (they are listed under both):
+
+| Category | Cases |
+|---|---|
+| Order finalized (created, approved, invoiced) | paid_success_message_once, paid_window_closed_before_message, concurrent_webhook_first, concurrent_complete_first, crash_at_order_saved_then_reconcile, crash_at_approve_before_then_reconcile, cart_mutation_waits_for_conversion, status_unknown_then_paid, create_loan_fail_then_early_webhook, session_lost_server_completes, config_changed_after_start, shipment_and_physical_stock, registered_customer_without_session, registered_customer_with_browser; and the second attempt of two_attempts_both_paid_old_first / _new_first |
+| Payment confirmed, no order, reversal pending (simulated, C5) | cart_changed_same_amount, cart_changed_amount, two_attempts_both_paid_old_first (A1), two_attempts_both_paid_new_first (A1), popup_pending_redirect_other_tab (popup attempt), last_unit_sold_elsewhere |
+| Closed without payment (no order, no stock movement) | close_unpaid_and_reuse, double_start_two_tabs |
+| Access refused | webhook_correlation, ownership_and_form_key |
+| Redirect fallback / redirect unchanged | redirect_mode_unchanged, popup_blocked_uses_redirect, webview_uses_redirect, webview_rules; the redirect order of popup_pending_redirect_other_tab |
+| Infrastructure failure and retry | last_unit_sold_elsewhere (CDP socket reset in the full run, passed alone on the same SHA) |
+
+## New cases (round 3)
+
+| Case | Finding | Result on `74602e9` |
+|---|---|---|
+| h1_stale_write_update_qty_save / _cart / _load | H-1 | Pass |
+| h1_stale_write_add_to_cart_load / _cart | H-1 | Pass |
+| h1_stale_write_shipping_information_load, h1_stale_write_payment_information_load | H-1 | Pass |
+| h4_sandbox_changed_after_start, h4_merchant_changed_after_start | H-4 | Pass |
+| h9_cross_store_cartid_distinct_merchants, h9_cross_store_cartid_same_merchant | H-9 | Pass |
+| h5_reversal_interrupted_then_operator_resolution, h5_cancel_request_fails_not_retried | H-5/H-6/H-7 | Pass |
+| h3_registered_cron_class_crash_then_complete | H-3 | Pass (cron class invoked directly; scheduler not run) |
+| h8_admin_cancel_before_approval, h8_cancel_races_approval_cancel, h8_cancel_races_approval_cancel_direct | H-8 | Pass |
+| h2_slow_log_outside_locks | H-2 | Pass |
+
+**Before the fixes, the same kit reproduced:**
+- H-1: a reactivated converted quote and a second order on it, twice;
+- H-2: two synchronous log posts inside the approval;
+- H-8: MSI's `order_canceled` reservation written by a stale cancellation refused only at save;
+- H-9: the attempt sent to `needs_review` by another store's order with its number.
+
+## Environment changes for round 3 (local only)
+
+- **Second website/store `pf2`** (store id 2) with its own order sequence (prefix `2`).
+- **Synthetic orders** in it with forced increments.
+- **`pf2` merchant-id configuration:** set during tests and removed afterwards.
+- **Configuration changed and restored:** `sanbox_mode` (default scope) and `merchantid` (websites/1) were changed during tests and restored.
+- **Synthetic customers** `pf-*@example.invalid`.
+- **Kit stub updated** (sync points, cron allowlist, slow log).
+- **Cron:** no scheduler was run; the reconciliation cron class was invoked directly, allowlisted to the test's attempt.

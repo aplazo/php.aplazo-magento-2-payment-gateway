@@ -1,6 +1,6 @@
 # BNPL-1664 · Popup payment-first: design
 
-Status: implemented on `BNPL-1664-payment-first`, validated **against a mock only**; see `VALIDATION-BNPL-1664-payment-first.md`.
+Status: implemented on `BNPL-1664-payment-first`, validated **against a mock only**; see `VALIDATION-BNPL-1664-payment-first.md`. The review findings H-1..H-13 and their fixes (quote guard, persisted context, webhook routing, reversal recovery and operator resolution, attention report, admin-cancel guards, logging outside locks) are in `FINDINGS-BNPL-1664-review.md`; where they differ, that file is current.
 
 Each statement is tagged:
 - **[D]** a product decision (Miguel);
