@@ -5,6 +5,7 @@ replaced by stub-module/ and Aplazo's window served by mock_https.py (Chrome --h
 
 Nothing pays, cancels or calls Aplazo. "Paid" means the stub answers OUTSTANDING for that cartId; the webhook is
 webhook_sim.php, signed with the local store's credentials. Every result is appended to ../.out/magento-e2e/pf.jsonl.
+Optional: RABBITMQ_CONTAINER (name of the local RabbitMQ container) to count queued messages in the coupon/link cases.
 """
 import json, os, ssl, subprocess, sys, tempfile, threading, time, shutil
 
@@ -1470,6 +1471,245 @@ def t_rollback_not_blocked():
         b.quit()
 
 
+def rabbit_count(queue):
+    """Messages waiting in a RabbitMQ queue of the local stack, read with rabbitmqctl in the container named by
+    RABBITMQ_CONTAINER. Without it (or without AMQP) the count is None: not measured."""
+    container = os.environ.get('RABBITMQ_CONTAINER')
+    if not container:
+        return None
+    out = subprocess.run(['docker', 'exec', container, 'rabbitmqctl', 'list_queues', 'name', 'messages'],
+                         capture_output=True, text=True).stdout
+    for line in out.splitlines():
+        parts = line.split()
+        if len(parts) == 2 and parts[0] == queue:
+            return int(parts[1])
+    return None
+
+
+SALABILITY_QUEUE = 'inventory.reservations.updateSalabilityStatus'
+
+
+def link_failure_case(name, interfere, write_after=True):
+    """The conversion is held inside its transaction (convert_before: quote rows locked, snapshot taken); meanwhile
+    `interfere` changes the attempt row; then submit runs and linkOrder() must cope. Records what persisted."""
+    r = Run(); b = Browser(); default_loan('REQUEST')
+    try:
+        ok, a = open_popup(b, plan='stay')
+        qid = int(a['quote_id'])
+        tab = b.new_tab(); tab.send('Page.navigate', {'url': BASE + '/checkout/cart/'}); time.sleep(4)
+        loan(a['cart_id'], 'OUTSTANDING')
+        queue_before = rabbit_count(SALABILITY_QUEUE)
+        stub('localdev_pf_convert_before', 'pause:10')
+        t, box = in_thread(webhook, a['cart_id'], 'stub-' + a['cart_id'])
+        inside = wait_inside('convert_before')
+        version_before = sql('SELECT version FROM aplazo_payment_attempt WHERE entity_id=%s' % a['entity_id'])
+        interference = interfere(a, tab)
+        version_during = sql('SELECT version FROM aplazo_payment_attempt WHERE entity_id=%s' % a['entity_id'])
+        t.join(); stub('localdev_pf_convert_before', None)
+        persisted = dict(
+            webhook=box.get('v'), attempt=attempt(a['entity_id']), quote=quote(qid),
+            orders_any_store=rows("SELECT entity_id, store_id FROM sales_order WHERE increment_id='%s'" % a['cart_id'], ('entity_id', 'store_id')),
+            grid_rows=sql("SELECT COUNT(*) FROM sales_order_grid WHERE increment_id='%s'" % a['cart_id']),
+            invoices=sql("SELECT COUNT(*) FROM sales_invoice i JOIN sales_order o ON o.entity_id=i.order_id WHERE o.increment_id='%s'" % a['cart_id']),
+            reservations=r.res(), quote_payment_mark=sql("SELECT JSON_UNQUOTE(JSON_EXTRACT(additional_information, '$.aplazo_payment_attempt')) FROM quote_payment WHERE quote_id=%d" % qid),
+            salability_messages_added=(rabbit_count(SALABILITY_QUEUE) or 0) - (queue_before or 0),
+            local_trace=sh("grep -c 'Payment-first order placed, loan already paid {\"order_id\":\"%s\"}' var/log/aplazo_payment/info.log" % a['cart_id']).strip(),
+            remote_log=[c.get('message') for c in r.calls() if c.get('service') == 'log' and c.get('order_id') == a['cart_id']])
+        # A legitimate cart change afterwards must not be blocked by the guard.
+        write = after_write = None
+        if write_after:
+            path, form, body = h1_request('update_qty', qid)
+            write = evaluate(tab, FETCH_JS % (json.dumps(path), json.dumps(form), json.dumps(body)), timeout=120)
+            after_write = quote(qid)
+        record(name, None, inside=bool(inside), version_before=version_before, version_during_hold=version_during,
+               interference=interference, persisted=persisted, cart_write=write, quote_after_write=after_write)
+        return a, r
+    finally:
+        stub('localdev_pf_convert_before', None)
+        b.quit()
+
+
+def t_link_conflict():
+    """Legitimate concurrent update: the buyer's `complete` during the conversion records the payment / asks for a check
+    (attempt lock busy), which moves the attempt version."""
+    def interfere(a, tab):
+        return complete_from(tab, a)['body']
+    a, r = link_failure_case('link_conflict_concurrent_complete', interfere, write_after=False)
+    rec = reconcile(a['entity_id'])
+    record('link_conflict_then_reconcile', None, reconcile=rec, attempt=attempt(a['entity_id']),
+           orders=[o['increment_id'] + ':' + o['state'] + ':inv' + o['invoices'] for o in r.orders()], reservations=r.res())
+
+
+def t_link_conflict_with_write():
+    def interfere(a, tab):
+        return complete_from(tab, a)['body']
+    link_failure_case('link_conflict_then_cart_write', interfere)
+
+
+def t_link_definitive():
+    """Definitive link failure (synthetic): while the conversion runs, the attempt is moved out of the payable states
+    by a direct SQL write, as no supported concurrent path does that during a conversion."""
+    def interfere(a, tab):
+        sql("UPDATE aplazo_payment_attempt SET status='needs_review', last_error='kit_synthetic_definitive', version=version+1 WHERE entity_id=%s" % a['entity_id'])
+        return 'status set to needs_review by SQL (synthetic)'
+    link_failure_case('link_definitive_failure_synthetic', interfere)
+
+
+def hold_conversion_and(a, interfere, crash_after_commit=False):
+    """Webhook converts while held inside the conversion transaction; `interfere` runs during the hold."""
+    stub('localdev_pf_convert_before', 'pause:10')
+    if crash_after_commit:
+        stub('localdev_pf_order_saved', 'crash')
+    t, box = in_thread(webhook, a['cart_id'], 'stub-' + a['cart_id'])
+    inside = wait_inside('convert_before')
+    v0 = sql('SELECT version FROM aplazo_payment_attempt WHERE entity_id=%s' % a['entity_id'])
+    note = interfere()
+    v1 = sql('SELECT version FROM aplazo_payment_attempt WHERE entity_id=%s' % a['entity_id'])
+    t.join()
+    stub('localdev_pf_convert_before', None); stub('localdev_pf_order_saved', None)
+    return dict(inside=bool(inside), version_before=v0, version_during_hold=v1, interference=note, webhook=box.get('v'))
+
+
+def plugin_stock_moves(r):
+    return [x for x in r.res() if 'aplazo' in x]
+
+
+def t_link_conflict_fixed(crash=False):
+    """Legitimate concurrent update during the conversion (the buyer's complete): the link is applied on the current
+    row and the order completes (or, with crash, the link is already persisted when the process dies after the commit)."""
+    r = Run(); b = Browser(); default_loan('REQUEST')
+    try:
+        ok, a = open_popup(b, plan='stay')
+        qid = int(a['quote_id'])
+        tab = b.new_tab(); tab.send('Page.navigate', {'url': BASE + '/checkout/cart/'}); time.sleep(4)
+        loan(a['cart_id'], 'OUTSTANDING')
+        held = hold_conversion_and(a, lambda: complete_from(tab, a)['body'], crash_after_commit=crash)
+        mid = dict(attempt=attempt(a['entity_id']), orders=r.orders(), quote=quote(qid), reservations=r.res())
+        rec = reconcile(a['entity_id']) if crash else None
+        x = attempt(a['entity_id']); o = r.orders()
+        good = (ok and held['inside'] and int(held['version_during_hold']) > int(held['version_before']) and len(o) == 1
+                and x['status'] == 'completed' and x['order_id'] == o[0]['entity_id'] and o[0]['invoices'] == '1'
+                and o[0]['increment_id'] == a['cart_id'] and quote(qid)['is_active'] == '0'
+                and r.res() == ['-1.0000 order_placed ' + a['cart_id']] and not plugin_stock_moves(r))
+        if crash:
+            good = good and mid['attempt']['status'] == 'order_created' and mid['attempt']['order_id'] == o[0]['entity_id'] \
+                and len(mid['orders']) == 1 and mid['orders'][0]['invoices'] == '0' and rec and rec[0]['result'] == 'completed'
+        else:
+            good = good and held['webhook']['body'].get('message') == 'completed'
+        record('link_conflict_legit_%s' % ('crash_after_commit' if crash else 'completes'), good, held=held, mid=mid,
+               reconcile=rec, attempt=x, orders=o, quote=quote(qid), reservations=r.res())
+    finally:
+        b.quit()
+
+
+def t_link_incompatible():
+    """Incompatible conflict (synthetic, direct SQL): during the conversion the attempt is moved to needs_review. The
+    conversion must roll back and leave that row exactly as written (status, last_error, check_count)."""
+    r = Run(); b = Browser(); default_loan('REQUEST')
+    try:
+        ok, a = open_popup(b, plan='stay')
+        qid = int(a['quote_id'])
+        loan(a['cart_id'], 'OUTSTANDING')
+        def interfere():
+            sql("UPDATE aplazo_payment_attempt SET status='needs_review', last_error='kit_synthetic_definitive', version=version+1 WHERE entity_id=%s" % a['entity_id'])
+            return 'SYNTHETIC: status set to needs_review by direct SQL'
+        held = hold_conversion_and(a, interfere)
+        x = attempt(a['entity_id'])
+        written = rows('SELECT status, last_error, check_count, version FROM aplazo_payment_attempt WHERE entity_id=%s' % a['entity_id'],
+                       ('status', 'last_error', 'check_count', 'version'))[0]
+        good = (ok and held['inside'] and held['webhook']['body'] == {'status': False, 'message': 'needs_review'}
+                and written['status'] == 'needs_review' and written['last_error'] == 'kit_synthetic_definitive'
+                and written['check_count'] == '0' and written['version'] == held['version_during_hold']
+                and not r.orders() and not r.res() and quote(qid)['is_active'] == '1' and x['order_id'] == 'NULL')
+        record('link_incompatible_conflict_aborts_synthetic', good, held=held, attempt_row=written, orders=r.orders(),
+               reservations=r.res(), quote=quote(qid))
+    finally:
+        b.quit()
+
+
+COUPON = 'PFKIT10'
+COUPON_QUEUE = 'sales.rule.update.coupon.usage'
+
+
+def coupon_usage():
+    return rows("SELECT c.times_used, r.times_used FROM salesrule_coupon c JOIN salesrule r ON r.rule_id=c.rule_id WHERE c.code='%s'" % COUPON,
+                ('coupon_times_used', 'rule_times_used'))[0]
+
+
+def consume_coupon_queue(n):
+    """Runs Magento's own consumer for the coupon usage topic for exactly n messages (only kit messages are queued)."""
+    if not n:
+        return 'nothing to consume'
+    out = run(['bin/clinotty', 'bin/magento', 'queue:consumers:start', COUPON_QUEUE, '--max-messages=%d' % n, '--single-thread'], timeout=180)
+    return out.strip()[-200:] or 'ok'
+
+
+def t_coupon(mode):
+    """A cart with a coupon. mode=success: paid and converted (baseline). mode=link_fail: definitive link failure after
+    submit (synthetic SQL), conversion rolled back. Records coupon usage, published messages and the consumer's effect."""
+    r = Run(); b = Browser(); default_loan('REQUEST')
+    try:
+        php('order_ops.php', 'coupon', COUPON)
+        add_to_cart(b.ws)
+        applied = post(b.ws, '/checkout/cart/couponPost/', {'coupon_code': COUPON})
+        ok = to_payment(b.ws)
+        before_attempt = max_id('aplazo_payment_attempt'); mock_plan('stay')
+        click_place_order(b.ws)
+        a = wait_attempt(before_attempt, status=('open',)); time.sleep(2)
+        qid = int(a['quote_id'])
+        q_coupon = sql('SELECT coupon_code FROM quote WHERE entity_id=%d' % qid)
+        loan(a['cart_id'], 'OUTSTANDING')
+        usage0, q0 = coupon_usage(), rabbit_count(COUPON_QUEUE)
+        if mode == 'success':
+            held = dict(webhook=webhook(a['cart_id'], 'stub-' + a['cart_id']))
+        else:
+            def interfere():
+                sql("UPDATE aplazo_payment_attempt SET status='needs_review', last_error='kit_synthetic_definitive', version=version+1 WHERE entity_id=%s" % a['entity_id'])
+                return 'SYNTHETIC: status set to needs_review by direct SQL'
+            held = hold_conversion_and(a, interfere)
+        usage1, q1 = coupon_usage(), rabbit_count(COUPON_QUEUE)
+        consumed = consume_coupon_queue((q1 or 0) - (q0 or 0))
+        usage2, q2 = coupon_usage(), rabbit_count(COUPON_QUEUE)
+        o = r.orders()
+        record('coupon_%s' % mode, None, coupon_applied=applied.get('http'), quote_coupon=q_coupon, held=held,
+               orders=[x['increment_id'] + ':' + x['state'] for x in o],
+               order_coupon=sql("SELECT coupon_code FROM sales_order WHERE increment_id='%s'" % a['cart_id']),
+               usage_before=usage0, usage_after_webhook=usage1, usage_after_consumer=usage2,
+               coupon_messages_published=(q1 or 0) - (q0 or 0), coupon_queue_after_consumer=q2, consumer=consumed,
+               attempt=attempt(a['entity_id']), reservations=r.res())
+    finally:
+        b.quit()
+
+
+def t_cart_changed_record():
+    """Paid, cart changed in another tab: what is kept about the payment, the loan and the need for attention, before any
+    reconciliation or reversal (nothing here is a refund or a resolution)."""
+    r = Run(); b = Browser(); default_loan('REQUEST')
+    try:
+        ok, a = open_popup(b, plan='stay')
+        tab = b.new_tab(); add_to_cart(tab)
+        loan(a['cart_id'], 'OUTSTANDING')
+        hook = webhook(a['cart_id'], 'stub-' + a['cart_id'])
+        kept = rows('SELECT status, reject_reason, cart_id, loan_id, paid_confirmed_at IS NOT NULL, loan_cancel_state, order_id, resolution '
+                    'FROM aplazo_payment_attempt WHERE entity_id=%s' % a['entity_id'],
+                    ('status', 'reject_reason', 'cart_id', 'loan_id', 'paid_confirmed', 'loan_cancel_state', 'order_id', 'resolution'))[0]
+        buyer = complete_from(tab, a)['body']
+        listing = attempts_cli('--id=%s' % a['entity_id'])[1]
+        row = listing[0] if isinstance(listing, list) and listing else {}
+        attention = attempts_cli('--attention', '--older-than=0')
+        text = json.dumps([buyer, row]).lower()
+        good = (ok and kept['status'] == 'rejected' and kept['reject_reason'] == 'cart_changed' and kept['paid_confirmed'] == '1'
+                and kept['loan_id'] == 'stub-' + a['cart_id'] and kept['cart_id'] == a['cart_id'] and kept['loan_cancel_state'] == 'pending'
+                and kept['resolution'] == 'NULL' and not r.orders() and int(a['entity_id']) in attention[1]['rejected_unresolved']
+                and attention[0] == 1 and not any(w in text for w in ('refunded', 'reembols', 'devuelto', 'cancelled', 'cancelado')))
+        record('cart_changed_payment_kept_attention', good, webhook=hook, attempt_kept=kept, buyer_message=buyer,
+               cli_payment=row.get('payment'), cli_conversion=row.get('conversion'), cli_reversal=row.get('reversal'),
+               attention_exit=attention[0], in_rejected_unresolved=int(a['entity_id']) in attention[1]['rejected_unresolved'],
+               cancel_calls=len(r.calls('cancelLoan')))
+    finally:
+        b.quit()
+
+
 TESTS = {
     'close_unpaid': t_close_unpaid,
     'paid_message': t_paid_message,
@@ -1515,6 +1755,15 @@ TESTS = {
     'h1_update_qty_cart': lambda: t_h1('update_qty', 'cart'),
     'h1_crash_window': t_h1_crash_window,
     'rollback_not_blocked': t_rollback_not_blocked,
+    'link_conflict': t_link_conflict,
+    'link_conflict_fixed': t_link_conflict_fixed,
+    'link_conflict_crash': lambda: t_link_conflict_fixed(True),
+    'link_incompatible': t_link_incompatible,
+    'coupon_success': lambda: t_coupon('success'),
+    'cart_changed_record': t_cart_changed_record,
+    'coupon_link_fail': lambda: t_coupon('link_fail'),
+    'link_conflict_with_write': t_link_conflict_with_write,
+    'link_definitive': t_link_definitive,
     'h1_crash_window_cart': lambda: t_h1_crash_window('cart'),
     'h1_add_to_cart_cart': lambda: t_h1('add_to_cart', 'cart'),
     'h1_update_qty': lambda: t_h1('update_qty'),

@@ -218,3 +218,48 @@ That depends on the installed MSI module, on 2.4.8's cached-quote validation and
 **Limitations:**
 - Writes to the quote that do not go through a quote save (direct `quote_item` writes) are still not covered.
 - A process dying inside the conversion transaction relies on the database rollback (tested).
+
+## H-1 addendum 2 · retry in `linkOrder()` and effects of an abort after submit (2026-10-29)
+
+**Defect:**
+- Under REPEATABLE READ (the local isolation level), the single retry in `linkOrder()` re-read the attempt with a plain `SELECT`, so it got the conversion transaction's snapshot from before the concurrent write. The retry could never succeed.
+- Shown with two connections (plain read 4 while 5 was committed; `UPDATE … WHERE version = 4` affects 0 rows; locking read 5).
+- Shown in the flow: the buyer's `complete` during the conversion → `attempt_changed_concurrently` and a rollback of the whole conversion. Recovered later by reconciliation.
+
+**Fix (this commit):**
+- `AttemptStore::getForUpdate()`: `SELECT … FOR UPDATE` on the same connection. `get()` is unchanged.
+- `linkOrder()` re-reads with it and retries once, if the attempt is still payable and has no order. Otherwise `AttemptNotPayableException`: the conversion rolls back and `finalize()` returns the current state without overwriting it (no `recordTransient`).
+- Lock order: quote rows, then the attempt row, as in the quote guard. The other writers of the attempt row only lock that row.
+
+**Local tests against the mock** (records `link_*`, `crash_*`, `coupon_*`, `cart_changed_payment_kept_attention`, H-1 and regression cases; 20 records):
+- **17 with `ok=true`**, including:
+  - legitimate conflict → linked and completed (1 order, 1 invoice, `-1 order_placed` only);
+  - the same conflict plus a crash after the commit → link already persisted, recovery without duplicates;
+  - incompatible conflict (**synthetic**, direct SQL) → rollback with the attempt row intact;
+  - regression of the H-1 windows, rolled-back conversion, concurrency, repeated payment, crash before approval, late writes, two paid attempts, H-9 and redirect.
+- **3 observations serialized with `ok=false`** (no pass/fail assertion): `coupon_success`, `coupon_link_fail`, `link_conflict_then_cart_write`.
+- These records do not replace the full matrix of earlier rounds; they are a targeted run.
+
+**Coupon rule usage over-count (demonstrated):**
+
+| Case | coupon `times_used` | rule `times_used` |
+|---|---|---|
+| `coupon_success` | 0→1 at submit | 0→1 by Magento's consumer |
+| `coupon_link_fail` (**synthetic** definitive failure after `submit`) | rolls back (stays at 1) | 1→2 for an order that does not exist |
+
+How it happens:
+- `CouponUsagesIncrement::aroundSubmit` publishes the message before `submit` (AMQP, outside the transaction) and only compensates if `submit` itself fails.
+- The bulk row (`magento_bulk`) that `CouponUsagePublisher` creates was rolled back with the conversion; the message was not.
+- `CouponUsageConsumer::process` runs `updateRuleUsages` (the increment) **before** saving its operation. That save fails on the foreign key to the missing bulk, and the consumer logs `CRITICAL Message has been rejected: SQLSTATE[23000] … MAGENTO_OPERATION_BULK_UUID_MAGENTO_BULK_UUID` **after** the increment.
+
+At `87b9a0c` the link happened after the commit (inspection, not run); the same class of effect existed for any failure between `submit` and the commit. Not fixed: no messaging or compensation mechanism was added.
+
+**Log of a rolled-back order:** `SalesOrderPlaceAfterCreateLoan` traces "Payment-first order placed, loan already paid" inside the transaction. After an abort the local line remains, and the remote post (sent after the locks) reports an order that does not exist. Not fixed.
+
+**Still open:**
+- **MSI:** `inventory.reservations.updateSalabilityStatus` is published on every abort (observed). That consuming it is harmless was not demonstrated (consumer not run).
+- **Customer coupon usage** (registered customer with a coupon): not run.
+- **Recovery between a persisted invoice and a completed approval:** not addressed.
+- **The transactional fatal in the interruption test:** clarification pending. What is known:
+  - the kit's crash points end the PHP process with `exit()` inside the transaction (HTTP 200 with an empty body), and the database rolls back on disconnect;
+  - the only `SQLSTATE` error recorded during these runs is the coupon consumer's rejection described above.

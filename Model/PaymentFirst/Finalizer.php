@@ -174,6 +174,12 @@ class Finalizer
             $this->scheduleSoon($attempt);
 
             return ['status' => self::BUSY, 'attempt' => $attempt];
+        } catch (AttemptNotPayableException $e) {
+            // Someone else settled the attempt while it was being converted; the conversion was rolled back and the
+            // attempt is left as they wrote it.
+            $current = $this->attemptStore->get((int)$attempt['entity_id']) ?? $attempt;
+
+            return $this->settled($current) ?? ['status' => self::UNKNOWN, 'attempt' => $current];
         } catch (\DomainException $e) {
             // Already moved to needs_review with its reason: not a transient error to retry.
             return ['status' => self::NEEDS_REVIEW, 'attempt' => $this->attemptStore->get((int)$attempt['entity_id']) ?? $attempt];
@@ -289,8 +295,13 @@ class Finalizer
 
     /**
      * order_created with its order_id, written inside the conversion transaction. A concurrent bookkeeping write (the
-     * webhook recording the loan id, a schedule change) can move the version: it is applied once more on the current
-     * row; anything else rolls the whole conversion back.
+     * webhook recording the loan id, the browser recording the payment or asking for a check) can move the version:
+     * the row is then read again with a locking read (a plain read would return this transaction's snapshot, from
+     * before that write) and the link applied once more, if the attempt is still payable and has no order. Otherwise the
+     * whole conversion rolls back and the current row is left as it is.
+     *
+     * Lock order: the conversion already holds the quote rows; the attempt row comes after them, as in the quote guard
+     * (quote row, then the attempt rows). The other writers of the attempt row lock only that row.
      */
     private function linkOrder(array $attempt, int $orderId): array
     {
@@ -302,9 +313,11 @@ class Finalizer
         ];
         $linked = $this->attemptStore->transition($attempt, $changes);
         if ($linked === null) {
-            $current = $this->attemptStore->get((int)$attempt['entity_id']);
-            $linked = $current && in_array($current['status'], AttemptStore::PAYABLE, true) && empty($current['order_id'])
-                ? $this->attemptStore->transition($current, $changes) : null;
+            $current = $this->attemptStore->getForUpdate((int)$attempt['entity_id']);
+            if (!$current || !in_array($current['status'], AttemptStore::PAYABLE, true) || !empty($current['order_id'])) {
+                throw new AttemptNotPayableException('attempt_no_longer_payable');
+            }
+            $linked = $this->attemptStore->transition($current, $changes);
         }
         if ($linked === null) {
             throw new \RuntimeException('attempt_changed_concurrently');

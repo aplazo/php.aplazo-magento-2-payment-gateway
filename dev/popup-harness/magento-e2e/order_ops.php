@@ -7,6 +7,7 @@
 //   product <sku> <qty>         creates a simple test product with that quantity on the default source if missing
 //   stock <sku> <qty>           sets the default source quantity of an APLAZO-1664- test product
 //   customer <email> <password> creates a synthetic pf-*@example.invalid customer if missing
+//   coupon <PFKIT...>           creates a synthetic 10% cart rule with that specific coupon if missing
 // Prints one JSON line. Never prints tokens or customer data.
 require 'app/bootstrap.php';
 $om = \Magento\Framework\App\Bootstrap::create(BP, $_SERVER)->getObjectManager();
@@ -79,6 +80,26 @@ try {
                     return $om->get(\Magento\Customer\Api\AccountManagementInterface::class)->createAccount($customer, $password)->getId();
                 });
             $out['created'] = true;
+        }
+    } elseif ($command === 'coupon') {
+        // A synthetic cart price rule with a specific coupon for the BNPL-1664 coupon test (PFKIT* codes only).
+        $code = (string)$argv[2];
+        if (strpos($code, 'PFKIT') !== 0) {
+            throw new \InvalidArgumentException('only PFKIT* test coupons');
+        }
+        $couponRepo = $om->get(\Magento\SalesRule\Model\ResourceModel\Coupon\Collection::class)->addFieldToFilter('code', $code);
+        if ($couponRepo->getSize()) {
+            $out['created'] = false;
+            $out['rule_id'] = (int)$couponRepo->getFirstItem()->getRuleId();
+        } else {
+            $rule = $om->create(\Magento\SalesRule\Model\Rule::class);
+            $rule->setName('BNPL-1664 kit coupon ' . $code)->setIsActive(1)->setWebsiteIds([1])->setCustomerGroupIds([0, 1])
+                ->setCouponType(\Magento\SalesRule\Model\Rule::COUPON_TYPE_SPECIFIC)->setCouponCode($code)
+                ->setUsesPerCoupon(0)->setUsesPerCustomer(0)->setSimpleAction('by_percent')->setDiscountAmount(10)
+                ->setStopRulesProcessing(0);
+            $rule->save();
+            $out['created'] = true;
+            $out['rule_id'] = (int)$rule->getId();
         }
     } elseif ($command === 'stock') {
         // Sets the default source quantity of an existing test product (BNPL-1664 last-unit test).

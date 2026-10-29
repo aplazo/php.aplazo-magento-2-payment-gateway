@@ -107,6 +107,20 @@ class AttemptStore
         return $this->fetch('entity_id = ?', $id);
     }
 
+    /**
+     * The attempt row read with FOR UPDATE: inside a transaction it returns the committed row (not the transaction's
+     * snapshot) and keeps it locked until that transaction ends. Only for the finalizer's conversion transaction.
+     */
+    public function getForUpdate(int $id): ?array
+    {
+        $row = $this->resource->getConnection()->fetchRow(
+            'SELECT * FROM ' . $this->resource->getTableName(self::TABLE) . ' WHERE entity_id = ? FOR UPDATE',
+            [$id]
+        );
+
+        return $row ?: null;
+    }
+
     public function getByPublicId(string $publicId): ?array
     {
         return preg_match('/^[0-9a-f]{32}$/', $publicId) === 1 ? $this->fetch('public_id = ?', $publicId) : null;
