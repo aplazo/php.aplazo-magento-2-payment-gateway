@@ -19,7 +19,9 @@ use Magento\Framework\Exception\NoSuchEntityException;
  * Runs on sales_quote_save_before, which Magento dispatches inside the quote save's own transaction, for every way a
  * quote is saved (repository or model). Only an active in-memory quote with an id is checked: its row is read with
  * FOR UPDATE, which waits for a conversion in progress (the finalizer holds that row lock until it commits) and returns
- * the committed value. If the row is inactive and an attempt of this quote has an order, the save is refused the way
+ * the committed value. The finalizer writes the attempt's order_id in the same transaction that deactivates the quote,
+ * so a committed inactive quote of a payment-first conversion always has it (also when that process dies right after
+ * its commit). If the row is inactive and an attempt of this quote has an order, the save is refused the way
  * Magento refuses an inactive cart (NoSuchEntityException on cartId) and rolled back. Inactive quotes of any other
  * origin are left alone, so Magento's restoreQuote() keeps working for them; it is refused only for these quotes,
  * whose order is already paid.

@@ -131,15 +131,18 @@ class AttemptStore
     }
 
     /**
-     * Whether an attempt of this quote already has an order (the quote was converted by the finalizer).
+     * Whether an attempt of this quote already has an order (the quote was converted by the finalizer). The order_id
+     * is written in the conversion transaction, so it is visible together with the inactive quote. A locking read:
+     * inside a caller's transaction it returns the committed rows, never an older snapshot.
      */
     public function hasOrderForQuote(int $quoteId): bool
     {
         $connection = $this->resource->getConnection();
 
         return (bool)$connection->fetchOne(
-            $connection->select()->from($this->resource->getTableName(self::TABLE), ['entity_id'])
-                ->where('quote_id = ?', $quoteId)->where('order_id IS NOT NULL')->limit(1)
+            'SELECT entity_id FROM ' . $this->resource->getTableName(self::TABLE)
+            . ' WHERE quote_id = ? AND order_id IS NOT NULL LIMIT 1 LOCK IN SHARE MODE',
+            [$quoteId]
         );
     }
 

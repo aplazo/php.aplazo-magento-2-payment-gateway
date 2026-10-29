@@ -203,6 +203,7 @@ class Finalizer
                 return $this->reject($attempt, $conversion['reject']);
             }
             $orderId = (int)$conversion['order_id'];
+            $attempt = $conversion['attempt'];
             $this->eventManager->dispatch(self::EVENT_ORDER_SAVED, ['attempt' => $attempt, 'order_id' => $orderId]);
         }
         if ($attempt['status'] !== AttemptStore::ORDER_CREATED || (int)$attempt['order_id'] !== $orderId) {
@@ -271,6 +272,9 @@ class Finalizer
             if (!$order || (string)$order->getIncrementId() !== $attempt['cart_id']) {
                 throw new \RuntimeException('submit did not create the attempt order');
             }
+            // Linked in the same transaction (H-1): whoever sees this quote inactive also sees that this attempt has
+            // its order, even if the process dies right after the commit.
+            $linked = $this->linkOrder($attempt, (int)$order->getId());
             $connection->commit();
         } catch (\Throwable $e) {
             if ($connection->getTransactionLevel() > 0) {
@@ -280,7 +284,33 @@ class Finalizer
         }
         $this->eventManager->dispatch('checkout_submit_all_after', ['order' => $order, 'quote' => $quote]);
 
-        return ['order_id' => (int)$order->getId()];
+        return ['order_id' => (int)$order->getId(), 'attempt' => $linked];
+    }
+
+    /**
+     * order_created with its order_id, written inside the conversion transaction. A concurrent bookkeeping write (the
+     * webhook recording the loan id, a schedule change) can move the version: it is applied once more on the current
+     * row; anything else rolls the whole conversion back.
+     */
+    private function linkOrder(array $attempt, int $orderId): array
+    {
+        $changes = [
+            'status' => AttemptStore::ORDER_CREATED,
+            'order_id' => $orderId,
+            'last_error' => null,
+            'next_check_at' => $this->schedule->afterCheck(1),
+        ];
+        $linked = $this->attemptStore->transition($attempt, $changes);
+        if ($linked === null) {
+            $current = $this->attemptStore->get((int)$attempt['entity_id']);
+            $linked = $current && in_array($current['status'], AttemptStore::PAYABLE, true) && empty($current['order_id'])
+                ? $this->attemptStore->transition($current, $changes) : null;
+        }
+        if ($linked === null) {
+            throw new \RuntimeException('attempt_changed_concurrently');
+        }
+
+        return $linked;
     }
 
     /**
