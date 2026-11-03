@@ -19,7 +19,8 @@ class LogService
     public function __construct(
         private CurlFactory $curlFactory,
         private Data $aplazoHelper,
-        private ModuleListInterface $moduleList
+        private ModuleListInterface $moduleList,
+        private TokenCache $tokenCache
     ) {
     }
 
@@ -59,7 +60,14 @@ class LogService
             $curl = $this->curlFactory->create();
             $curl->setOption(CURLOPT_CONNECTTIMEOUT, self::CONNECT_TIMEOUT);
             $curl->setOption(CURLOPT_TIMEOUT, self::TIMEOUT);
-            $curl->setHeaders(['Content-Type' => 'application/json']);
+            $headers = ['Content-Type' => 'application/json'];
+            // Only a token already cached by ApiService: the logger never calls /api/auth (no extra traffic,
+            // no auth fails -> log -> auth loop). Without one the log goes out unauthenticated, as before.
+            $token = $this->tokenCache->get();
+            if ($token !== null) {
+                $headers['Authorization'] = $token;
+            }
+            $curl->setHeaders($headers);
             $curl->post($url, json_encode($payload, JSON_UNESCAPED_SLASHES));
         } catch (\Throwable $e) {
             // Fire-and-forget: never block commerce flows

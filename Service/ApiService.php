@@ -10,7 +10,7 @@ use Magento\Framework\HTTP\Client\Curl;
 
 class ApiService
 {
-    const TOKEN_CACHE_KEY = 'aplazo_api_token';
+    const TOKEN_CACHE_KEY = TokenCache::CACHE_KEY;
     const API_POST = 'POST';
     const LOAN_SUCCESS_STATUS = 'OUTSTANDING';
     private const DEFAULT_CONNECT_TIMEOUT_SECONDS = 10;
@@ -28,16 +28,20 @@ class ApiService
 
     private LogService $logService;
 
+    private TokenCache $tokenCache;
+
     public function __construct
     (
         CurlFactory  $curlFactory,
         AplazoHelper $aplazoHelper,
-        LogService   $logService
+        LogService   $logService,
+        TokenCache   $tokenCache
     )
     {
         $this->curl = $curlFactory->create();
         $this->aplazoHelper = $aplazoHelper;
         $this->logService = $logService;
+        $this->tokenCache = $tokenCache;
     }
 
     /**
@@ -49,12 +53,26 @@ class ApiService
     {
         $response = [];
         if ($tokenBearer) {
-            $response = $this->requestService(
-                $this->getCreateLoanUrl(),
-                json_encode($orderData),
-                self::API_POST,
-                $tokenBearer
-            );
+            try {
+                $response = $this->requestService(
+                    $this->getCreateLoanUrl(),
+                    json_encode($orderData),
+                    self::API_POST,
+                    $tokenBearer
+                );
+            } catch (LocalizedException $e) {
+                if (!in_array((int)$this->curl->getStatus(), [401, 403], true)) {
+                    throw $e;
+                }
+                // The token may come from the cache and no longer be accepted: retry once with a fresh one
+                $this->tokenCache->clean();
+                $response = $this->requestService(
+                    $this->getCreateLoanUrl(),
+                    json_encode($orderData),
+                    self::API_POST,
+                    $this->getAuthorizationToken(false)
+                );
+            }
         }
 
         return $response;
@@ -98,11 +116,16 @@ class ApiService
     }
 
     /**
+     * @param bool $useCache false to always call /api/auth (credential validation, health check). A fresh token
+     *                       still refreshes the cache.
      * @return string
      * @throws LocalizedException
      */
-    public function getAuthorizationToken()
+    public function getAuthorizationToken(bool $useCache = true)
     {
+        if ($useCache && ($cachedToken = $this->tokenCache->get())) {
+            return $cachedToken;
+        }
         try {
             $response = $this->requestService($this->getAuthorizationUrl(),
                 json_encode(['apiToken' => $this->aplazoHelper->getApiToken(), 'merchantId' => $this->aplazoHelper->getMerchantId()]));
@@ -113,8 +136,10 @@ class ApiService
             }
             $authToken = $response['Authorization'];
         } catch (LocalizedException $e) {
+            $this->tokenCache->clean();
             throw new AuthenticationException(__('Unable to retrieve Aplazo API token. ' . $e->getMessage()));
         }
+        $this->tokenCache->save($authToken);
         return $authToken;
     }
 
