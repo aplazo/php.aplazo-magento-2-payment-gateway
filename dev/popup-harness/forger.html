@@ -1,0 +1,9 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>forger</title></head>
+<body><script>
+// Same origin as the mock checkout, but a different window: must be rejected by event.source.
+setTimeout(function () {
+  var target = window.parent && window.parent.opener;
+  if (target) { target.postMessage({ type: 'aplazo:checkout:success', version: 1 }, 'http://localhost:8098'); }
+}, 300);
+</script></body></html>

@@ -1,0 +1,9 @@
+<?xml version="1.0"?>
+<!-- LOCAL TEST ONLY (BNPL-1607). Never deploy. -->
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:framework:Module/etc/module.xsd">
+    <module name="LocalDev_AplazoStub">
+        <sequence>
+            <module name="Aplazo_AplazoPayment"/>
+        </sequence>
+    </module>
+</config>

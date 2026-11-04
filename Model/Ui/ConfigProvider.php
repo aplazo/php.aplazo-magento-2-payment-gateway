@@ -58,6 +58,8 @@ class ConfigProvider implements ConfigProviderInterface
                     'title' => 'Compra ahora y paga en 5 quincenas',
                     'banner' => $this->_assetRepo->getUrl("Aplazo_AplazoPayment::images/aplazo-logo.png"),
                     'actionUrl' => $this->_context->getUrl()->getUrl(Operations::ACTION_URL),
+                    'checkoutMode' => $this->aplazoHelper->getCheckoutMode(),
+                    'aplazoOrigin' => $this->aplazoHelper->getCheckoutOrigin(),
                 ]
             ]
         ];
