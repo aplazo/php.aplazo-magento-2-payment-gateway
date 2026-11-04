@@ -36,9 +36,10 @@ define(
 
             initObservable: function () {
                 this._super().observe(['popupNotice', 'popupBusy']);
+                this.popupCycle = 0;
                 this.popupAttempt = null;
                 this.popupSession = null;
-                this.checking = false;
+                this.checkingCycle = null;
                 this.retries = 0;
                 this.completed = false;
                 $(window).on('focus', this.onPageFocus.bind(this));
@@ -114,7 +115,7 @@ define(
              * order and the server starts the attempt.
              */
             placeOrder: function (data, event) {
-                var origin, session;
+                var origin, session, cycle = null;
 
                 if (event) {
                     event.preventDefault();
@@ -129,17 +130,24 @@ define(
                 if (!(this.validate() && additionalValidators.validate() && this.isPlaceOrderActionAllowed() === true)) {
                     return false;
                 }
-                session = popupCheckout.create(origin, this.getPopupHandlers());
+                session = popupCheckout.create(origin, this.getPopupHandlers(function () {
+                    return cycle;
+                }));
                 if (!session.open()) {
                     return this._super(data, event);
                 }
-                this.startPopup(session, data, event);
+                cycle = this.startPopup(session, data, event);
 
                 return true;
             },
 
+            /**
+             * Starts a new opening. Everything it triggers (start answer, checks, retries, window signals) carries its
+             * cycle number and is ignored once another opening has started.
+             */
             startPopup: function (session, data, event) {
-                var self = this;
+                var self = this,
+                    cycle = this.beginCycle();
 
                 this.popupBusy(true);
                 this.isPlaceOrderActionAllowed(false);
@@ -151,16 +159,42 @@ define(
                         dataType: 'json',
                         data: {form_key: $.mage.cookies.get('form_key')}
                     }).done(function (response) {
+                        if (!self.isCurrent(cycle)) {
+                            session.close();
+
+                            return;
+                        }
                         self.onStart(session, response || {}, data, event);
                     }).fail(function () {
                         // The loan may have been requested: never fall back to a redirect that would request another.
                         session.close();
-                        self.finishPopup($t('We could not confirm that Aplazo opened. Please try again.'));
+                        if (self.isCurrent(cycle)) {
+                            self.finishPopup($t('We could not confirm whether Aplazo received your payment request. We are checking it; please do not start another Aplazo payment for this cart for now.'));
+                        }
                     });
                 }).fail(function () {
                     session.close();
-                    self.finishPopup('');
+                    if (self.isCurrent(cycle)) {
+                        self.finishPopup('');
+                    }
                 });
+
+                return cycle;
+            },
+
+            beginCycle: function () {
+                this.popupCycle++;
+                this.popupAttempt = null;
+                this.popupSession = null;
+                this.checkingCycle = null;
+                this.retries = 0;
+                this.completed = false;
+
+                return this.popupCycle;
+            },
+
+            isCurrent: function (cycle) {
+                return cycle === this.popupCycle;
             },
 
             onStart: function (session, response, data, event) {
@@ -189,11 +223,17 @@ define(
                 }
             },
 
-            getPopupHandlers: function () {
+            /**
+             * @param {Function} cycleOf returns the opening these window events belong to (known once it started)
+             */
+            getPopupHandlers: function (cycleOf) {
                 var self = this;
 
                 return {
                     signal: function (state) {
+                        if (!self.isCurrent(cycleOf())) {
+                            return;
+                        }
                         if (state === 'pending') {
                             self.popupNotice($t('Aplazo is confirming your payment.'));
 
@@ -207,7 +247,9 @@ define(
                         self.checkPayment();
                     },
                     closed: function () {
-                        self.checkPayment();
+                        if (self.isCurrent(cycleOf())) {
+                            self.checkPayment();
+                        }
                     }
                 };
             },
@@ -222,27 +264,37 @@ define(
              * Asks the server; only its answer decides what the page shows.
              */
             checkPayment: function () {
-                var self = this;
+                var self = this,
+                    cycle = this.popupCycle;
 
-                if (this.popupAttempt === null || this.checking || this.completed) {
+                if (this.popupAttempt === null || this.checkingCycle === cycle || this.completed) {
                     return;
                 }
-                this.checking = true;
+                this.checkingCycle = cycle;
                 $.ajax({
                     url: this.getConfig().popupCompleteUrl,
                     type: 'POST',
                     dataType: 'json',
                     data: {form_key: $.mage.cookies.get('form_key'), attempt: this.popupAttempt}
                 }).done(function (response) {
-                    self.checking = false;
-                    self.onComplete(response || {});
+                    self.onCheck(cycle, response || {});
                 }).fail(function () {
-                    self.checking = false;
-                    self.onComplete({status: 'pending'});
+                    self.onCheck(cycle, {status: 'pending'});
                 });
             },
 
-            onComplete: function (response) {
+            /**
+             * A check answered: only for the opening it was asked for; an earlier opening's answer changes nothing.
+             */
+            onCheck: function (cycle, response) {
+                if (!this.isCurrent(cycle)) {
+                    return;
+                }
+                this.checkingCycle = null;
+                this.onComplete(response, cycle);
+            },
+
+            onComplete: function (response, cycle) {
                 var open = this.popupSession !== null && this.popupSession.isOpen(),
                     self = this;
 
@@ -266,7 +318,9 @@ define(
                         if (this.retries > 0) {
                             this.retries--;
                             window.setTimeout(function () {
-                                self.checkPayment();
+                                if (self.isCurrent(cycle)) {
+                                    self.checkPayment();
+                                }
                             }, CHECK_RETRY_MS);
                         }
                         if (open) {

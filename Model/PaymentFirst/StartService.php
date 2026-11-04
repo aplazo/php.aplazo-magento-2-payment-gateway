@@ -27,7 +27,7 @@ use Magento\Quote\Model\SubmitQuoteValidator;
  *
  * Results: open (url to load in the window) · use_redirect (popup not effective now; no loan was requested) ·
  * invalid (the cart is not eligible; no loan was requested) · busy · uncertain (createLoan did not give a usable
- * answer: a loan may exist, and the attempt stays under reconciliation).
+ * answer, now or in an earlier start of this quote: a loan may exist, and the attempt stays under reconciliation).
  */
 class StartService
 {
@@ -92,6 +92,25 @@ class StartService
         $customerId = (int)$this->customerSession->getCustomerId();
         if ((int)$quote->getCustomerId() !== $customerId || $quote->getPayment()->getMethod() !== ConfigProvider::CODE) {
             return $this->result(self::INVALID, __('We could not start the payment for this cart. Please reload the page.'));
+        }
+        // An earlier start of this quote whose createLoan gave no usable answer (uncertain) or never finished
+        // (starting: the request was interrupted; under the cart lock no other start of this quote is running) may
+        // have created a loan. Until the reconciliation resolves it, no other loan is requested for this quote,
+        // whatever the cart holds now: the attempt is kept as it is, never superseded.
+        $unresolved = $this->attemptStore->getForQuote(
+            (int)$quote->getId(),
+            [AttemptStore::STARTING, AttemptStore::UNCERTAIN]
+        );
+        if ($unresolved) {
+            $this->trace->add('info', 'Payment-first start refused: an earlier start is unresolved', [
+                'module:checkout',
+            ], [
+                'cart_id' => $unresolved[0]['cart_id'],
+                'status' => $unresolved[0]['status'],
+                'quote_id' => (int)$quote->getId(),
+            ]);
+
+            return $this->uncertain();
         }
         $quote->setTotalsCollectedFlag(false)->collectTotals();
         try {
@@ -168,8 +187,7 @@ class StartService
             }
             $this->attemptStore->transition($attempt, $changes);
 
-            return $this->result(self::UNCERTAIN,
-                __('We could not confirm that Aplazo opened. Please try again; nothing was charged in this step.'));
+            return $this->uncertain();
         }
         $changes = ['status' => AttemptStore::OPEN, 'checkout_url' => $url, 'next_check_at' => $this->schedule->now()];
         if ($loanId !== null) {
@@ -189,7 +207,7 @@ class StartService
 
         return $open && !empty($open['checkout_url'])
             ? $this->result(self::OPEN, null, $open)
-            : $this->result(self::UNCERTAIN, __('We could not confirm that Aplazo opened. Please try again.'));
+            : $this->uncertain();
     }
 
     /**
@@ -207,6 +225,17 @@ class StartService
             ['remote_ip' => $remoteIp],
             ['entity_id = ?' => (int)$quote->getId()]
         );
+    }
+
+    /**
+     * The outcome of a start is not known: a loan may exist. Never says that nothing was charged nor asks to pay again.
+     */
+    private function uncertain(): array
+    {
+        // One literal, so Magento's phrase collector (i18n:collect-phrases) finds it.
+        return $this->result(self::UNCERTAIN, __(
+            'We could not confirm whether Aplazo received your payment request. We are checking it; please do not start another Aplazo payment for this cart for now.'
+        ));
     }
 
     private function result(string $status, $message = null, ?array $attempt = null): array

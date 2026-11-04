@@ -9,7 +9,8 @@
   ],
   "require": {
     "firebase/php-jwt": "^6.0.0 || ^7.0",
-    "laminas/laminas-uri": "^2.9"
+    "laminas/laminas-uri": "^2.9",
+    "magento/module-sales-rule": "^101.2.3"
   },
   "autoload": {
     "files": [ "registration.php" ],

@@ -100,7 +100,8 @@ class Finalizer
         private TrackingService $trackingService,
         private ReconcileSchedule $schedule,
         private AttemptContext $context,
-        private Trace $trace
+        private Trace $trace,
+        private ConversionScope $conversionScope
     ) {
     }
 
@@ -274,7 +275,16 @@ class Finalizer
             PaymentFirstMarker::mark($quote->getPayment(), $attempt);
             $this->eventManager->dispatch('checkout_submit_before', ['quote' => $quote]);
             $this->eventManager->dispatch(self::EVENT_CONVERT_BEFORE, ['attempt' => $attempt, 'quote' => $quote]);
-            $order = $this->quoteManagement->submit($quote);
+            // The coupon usage message is published after this transaction commits, not from inside submit
+            // (ConversionScope, Plugin\PaymentFirst\DeferCouponUsagePublish).
+            $order = $this->conversionScope->run(
+                $connection,
+                (int)$attempt['entity_id'],
+                (string)$attempt['cart_id'],
+                function () use ($quote) {
+                    return $this->quoteManagement->submit($quote);
+                }
+            );
             if (!$order || (string)$order->getIncrementId() !== $attempt['cart_id']) {
                 throw new \RuntimeException('submit did not create the attempt order');
             }

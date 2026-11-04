@@ -9,6 +9,7 @@ use Aplazo\AplazoPayment\Model\PaymentFirst\Trace;
 use Magento\Framework\App\Area;
 use Magento\Framework\App\ResourceConnection;
 use Magento\Framework\App\State;
+use Magento\Framework\Exception\LocalizedException;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
@@ -72,9 +73,14 @@ class PaymentAttemptsCommand extends Command
     {
         $ids = array_map('intval', (array)$input->getOption('id'));
         if ($input->getOption('reconcile')) {
-            $report = $this->appState->emulateAreaCode(Area::AREA_CRONTAB, function () use ($ids) {
-                return $this->reconciler->run($ids ?: null);
-            });
+            $area = $this->enterCrontabArea();
+            if ($area !== Area::AREA_CRONTAB) {
+                $output->writeln('<error>The reconciliation runs in the crontab area; this process already runs in '
+                    . $area . '</error>');
+
+                return Command::FAILURE;
+            }
+            $report = $this->reconciler->run($ids ?: null);
             $output->writeln(json_encode($report, JSON_PRETTY_PRINT));
 
             return Command::SUCCESS;
@@ -100,6 +106,24 @@ class PaymentAttemptsCommand extends Command
         $output->writeln(json_encode(array_map([$this, 'describe'], $connection->fetchAll($select)), JSON_PRETTY_PRINT));
 
         return Command::SUCCESS;
+    }
+
+    /**
+     * Sets the crontab area for this process, as the scheduler does (Magento\Framework\App\Cron), and returns the area
+     * the process ends up in. The area is set, not emulated: under an emulated area the order email cannot render the
+     * frontend payment block (Required parameter 'theme_dir' was not passed). bin/magento leaves the area unset; an
+     * area already set by something else in this process is returned unchanged for the caller to refuse.
+     */
+    private function enterCrontabArea(): string
+    {
+        try {
+            return $this->appState->getAreaCode();
+        } catch (LocalizedException $e) {
+            // Area code is not set: the usual case for bin/magento. Any other failure is not caught here.
+            $this->appState->setAreaCode(Area::AREA_CRONTAB);
+
+            return Area::AREA_CRONTAB;
+        }
     }
 
     /**

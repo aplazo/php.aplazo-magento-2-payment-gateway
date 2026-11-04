@@ -5,7 +5,6 @@ namespace Aplazo\AplazoPayment\Model;
 use Aplazo\AplazoPayment\Helper\Data as AplazoHelper;
 use Magento\Sales\Model\Order;
 use Aplazo\AplazoPayment\Api\NotificationsInterface;
-use Aplazo\AplazoPayment\Model\PaymentFirst\AttemptStore;
 use Aplazo\AplazoPayment\Model\PaymentFirst\WebhookHandler;
 use Aplazo\AplazoPayment\Model\PaymentFirst\WebhookRouter;
 use Aplazo\AplazoPayment\Model\Service\OrderService;
@@ -45,7 +44,6 @@ class Notifications implements NotificationsInterface
     private $aplazoService;
     private TrackingService $trackingService;
     private LogService $logService;
-    private AttemptStore $attemptStore;
     private WebhookRouter $paymentFirstRouter;
     private WebhookHandler $paymentFirstWebhook;
 
@@ -57,13 +55,11 @@ class Notifications implements NotificationsInterface
         AplazoService                     $aplazoService,
         TrackingService                   $trackingService,
         LogService                        $logService,
-        AttemptStore                      $attemptStore,
         WebhookHandler                    $paymentFirstWebhook,
         WebhookRouter                     $paymentFirstRouter
     )
     {
         $this->paymentFirstRouter = $paymentFirstRouter;
-        $this->attemptStore = $attemptStore;
         $this->paymentFirstWebhook = $paymentFirstWebhook;
         $this->orderService = $orderService;
         $this->aplazoService = $aplazoService;
