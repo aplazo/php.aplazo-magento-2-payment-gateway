@@ -62,6 +62,7 @@ HARNESS = r"""
     var o = {labels: labels, states: [], state: null, text: null, handlers: {},
       showOpen: function (t, h) { o.state = 'open'; o.text = t; o.handlers = h || {}; o.states.push('open'); },
       showConfirming: function (t) { o.state = 'confirming'; o.text = t; o.handlers = {}; o.states.push('confirming'); },
+      showMessage: function (t, a) { o.state = 'message'; o.text = t; o.handlers = a ? {action: a.handler} : {}; o.actionLabel = a ? a.label : null; o.states.push('message'); },
       setText: function (t) { o.text = t; },
       hide: function () { if (o.state !== null) { o.states.push('hidden'); } o.state = null; o.handlers = {}; },
       isShown: function () { return o.state !== null; }};
@@ -97,7 +98,9 @@ SCENARIOS = r"""
 
   // Opening 1 reaches a state where the page can be used again while an earlier check and a retry timer are still
   // pending: Aplazo says success (retries armed), the window is closed, the check answers "pending" (a retry timer is
-  // queued; the window is closed, so the page is released), and a focus starts one more check that stays in flight.
+  // queued), and with the retry budget spent the next check answers "not_paid", the only answer that releases the page
+  // (since the BNPL-1664 review an exhausted "pending" keeps it blocked); a focus then starts one more check that stays
+  // in flight.
   function cycleOneLeavesWorkPending(v, noInflight) {
     v.placeOrder({}, null);
     var s1 = H.sessions[H.sessions.length - 1];
@@ -109,7 +112,7 @@ SCENARIOS = r"""
     // The retry budget is spent (as after the last retry): the next answer releases the page, the timer stays queued.
     v.retries = 0;
     v.onPageFocus();
-    last('/complete').d.resolve({status: 'pending'});
+    last('/complete').d.resolve({status: 'not_paid'});
     var inflight = null;
     if (!noInflight) {
       v.onPageFocus();
@@ -203,14 +206,31 @@ SCENARIOS = r"""
     out.layer_while_open = {layer: o.state, has_focus_link: typeof o.handlers.focus === 'function',
       has_close: typeof o.handlers.close === 'function', window_focused: s.focusCount, busy: v.popupBusy(), allowed: v.isPlaceOrderActionAllowed()};
   })();
-  // 9. Close button: the window is closed, the server asked once; not paid -> layer removed, checkout usable again.
+  // Answers every check with the next status of the list (repeating the last), firing each retry timer, until no new
+  // retry is queued. A status 'NETWORK' rejects the request (network error). Returns how many checks were answered.
+  function drain(statuses) {
+    for (var i = 0; i < 40; i++) {
+      var st = statuses[Math.min(i, statuses.length - 1)], timersBefore = H.timers.length, c = last('/complete');
+      if (c.d.s !== 'pending') { return i; }
+      if (st === 'NETWORK') { c.d.reject({}); } else { c.d.resolve(st); }
+      if (H.timers.length === timersBefore) { return i + 1; }
+      H.timers[H.timers.length - 1]();
+    }
+    return -1;
+  }
+  // 9. Close button: the window is closed; it is handled like any closed window (the buyer may have just paid): the
+  // checkout comes back only after the last check of the close window says not_paid.
   (function () {
     var v = view(), s = openOne(v, 'L2'), o = overlayOf(v), checks = completeCalls().length;
     o.handlers.close();
     var during = {layer: o.state, window_closed: s.closedCount > 0, checks: completeCalls().length - checks};
     last('/complete').d.resolve({status: 'not_paid'});
-    out.close_button_not_paid = {during: during, after_layer: o.state, notice: v.popupNotice(), busy: v.popupBusy(),
-      allowed: v.isPlaceOrderActionAllowed(), retry_timers: 0};
+    var afterFirst = {layer: o.state, allowed: v.isPlaceOrderActionAllowed()};
+    H.timers[H.timers.length - 1]();
+    var answered = 1 + drain([{status: 'not_paid'}]);
+    out.close_button_not_paid = {during: during, after_first_not_paid: afterFirst, checks: answered, after_layer: o.state,
+      notice: v.popupNotice(), busy: v.popupBusy(), allowed: v.isPlaceOrderActionAllowed(),
+      pass: afterFirst.layer === 'confirming' && afterFirst.allowed === false && answered === 9 && o.state === null && v.isPlaceOrderActionAllowed() === true};
   })();
   // 10. Window seen closed (no message): loader, retries every 3 s while Aplazo says not paid, then paid -> success.
   (function () {
@@ -266,6 +286,54 @@ SCENARIOS = r"""
     last('/complete').d.resolve({status: 'completed', notice: 'Your order 1 was confirmed.'});
     out.completed_notice = {layer_while_checking: layerChecking, after_layer: o.state, notice: v.popupNotice(),
       busy: v.popupBusy(), invalidated: H.invalidated.slice(inv)};
+  })();
+  // 14. Window closed, the server never decides (pending to the end): the checkout is NOT given back. The layer shows
+  // the uncertain message with "Check again"; that action asks again, and only a final not_paid releases the checkout.
+  (function () {
+    var v = view(), s = openOne(v, 'L7'), o = overlayOf(v), checks = completeCalls().length;
+    s.isOpenFlag = false;
+    s.handlers.closed();
+    var answered = drain([{status: 'pending'}]);
+    var uncertain = {layer: o.state, text: o.text, action: o.actionLabel, allowed: v.isPlaceOrderActionAllowed(), checks: completeCalls().length - checks};
+    o.handlers.action();
+    var afterAction = {layer: o.state, new_check: completeCalls().length - checks > uncertain.checks};
+    var answered2 = drain([{status: 'not_paid'}]);
+    out.closed_uncertain_pending = {answered: answered, uncertain: uncertain, after_action: afterAction, answered_after_action: answered2,
+      final_layer: o.state, final_allowed: v.isPlaceOrderActionAllowed(),
+      pass: uncertain.layer === 'message' && uncertain.allowed === false && !!uncertain.action && afterAction.layer === 'confirming'
+        && afterAction.new_check && o.state === null && v.isPlaceOrderActionAllowed() === true};
+  })();
+  // 15. Window closed, every check fails on the network: never "not paid"; the checkout stays blocked (uncertain).
+  (function () {
+    var v = view(), s = openOne(v, 'L8'), o = overlayOf(v);
+    s.isOpenFlag = false;
+    s.handlers.closed();
+    var answered = drain(['NETWORK']);
+    out.closed_network_errors = {answered: answered, layer: o.state, action: o.actionLabel, notice: v.popupNotice(),
+      allowed: v.isPlaceOrderActionAllowed(), pass: o.state === 'message' && v.isPlaceOrderActionAllowed() === false};
+  })();
+  // 16. Paid without an order (rejected) / under review / not in this session: the checkout is never given back.
+  (function () {
+    var res = {};
+    ['rejected', 'review', 'unknown_attempt'].forEach(function (st, i) {
+      var v = view(), s = openOne(v, 'R' + i), o = overlayOf(v);
+      s.isOpenFlag = false;
+      s.handlers.closed();
+      last('/complete').d.resolve({status: st, message: 'server says ' + st});
+      res[st] = {layer: o.state, text: o.text, action: o.actionLabel || null, allowed: v.isPlaceOrderActionAllowed(),
+        checks_after: completeCalls().filter(function (c) { return c.data.attempt === 'R' + i; }).length};
+    });
+    out.paid_or_unknown_not_released = {res: res, pass: Object.keys(res).every(function (k) {
+      return res[k].layer === 'message' && res[k].allowed === false && res[k].action === null && res[k].checks_after === 1; })};
+  })();
+  // 17. An answer the page does not know (empty or unexpected status): treated like pending, never "not paid".
+  (function () {
+    var v = view(), s = openOne(v, 'L9'), o = overlayOf(v);
+    s.isOpenFlag = false;
+    s.handlers.closed();
+    var answered = drain([{}, {status: 'weird'}]);
+    out.unknown_answer_is_uncertain = {answered: answered, layer: o.state, allowed: v.isPlaceOrderActionAllowed(),
+      pass: answered === 9 && o.state === 'message' && v.isPlaceOrderActionAllowed() === false};
   })();
   }
   return JSON.stringify(out);

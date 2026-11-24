@@ -72,12 +72,14 @@ def prerequisites(m):
     if not os.path.isfile(chrome):
         problems.append('Chrome not found at %s (set CHROME)' % chrome)
     try:
-        status = subprocess.run(['bin/clinotty', 'bin/magento', 'module:status', 'LocalDev_AplazoStub'], cwd=m,
-                                capture_output=True, text=True, timeout=120).stdout
-        if 'Module is enabled' not in status:
-            problems.append('LocalDev_AplazoStub is not enabled (the stub replaces the Aplazo API)')
+        # kit_guard.php: stub enabled, the plugin's API/log/tracking services are the stub's, local store URL.
+        out = subprocess.run(['bin/clinotty', 'php', '--'], cwd=m, stdin=open(os.path.join(HERE, 'kit_guard.php')),
+                             capture_output=True, text=True, timeout=120).stdout
+        guard = json.loads(out[out.index('{'):]) if '{' in out else {}
+        if guard.get('ok') is not True:
+            problems.append('kit guard failed (the store could reach a real Aplazo API): %s' % (guard.get('problems') or out.strip()[:200]))
     except Exception as e:  # noqa: BLE001
-        problems.append('bin/clinotty failed: %s' % type(e).__name__)
+        problems.append('kit guard could not run: %s' % type(e).__name__)
     return problems
 
 

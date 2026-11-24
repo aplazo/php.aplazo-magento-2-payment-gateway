@@ -6,6 +6,10 @@
 // While held, var/localdev_pf_sidebar_probe.inside exists. Prints one JSON line; no personal data.
 require 'app/bootstrap.php';
 $om = \Magento\Framework\App\Bootstrap::create(BP, $_SERVER)->getObjectManager();
+// Never against a real Aplazo environment: stub enabled, plugin services stubbed, local store (kit_guard.php).
+define('KIT_GUARD_LIBRARY', true);
+require BP . '/app/code/Aplazo/AplazoPayment/dev/popup-harness/magento-e2e/kit_guard.php';
+kit_guard_or_exit($om);
 $om->get(\Magento\Framework\App\State::class)->setAreaCode('frontend');
 [$_, $quoteId, $hold] = array_pad($argv, 3, 0);
 $out = ['quote_id' => (int)$quoteId];

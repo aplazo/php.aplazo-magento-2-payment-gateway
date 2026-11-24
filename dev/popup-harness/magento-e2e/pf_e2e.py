@@ -1065,6 +1065,57 @@ def t_h1(route, point='load'):
         b.quit()
 
 
+def t_h1_inflight(variant):
+    """H-1, Mike's point 6: why step (b) of KeepConvertedQuoteClosed asks for ANY attempt of the quote.
+    Ordering (two kit pauses):
+      1. a cart write (sidebar updateItemQty) passes Magento's own checks and stops inside its quote save, before the
+         module's guard (QuoteSavePause point "model", S1 = 12 s);
+      2. the webhook starts the conversion: it locks the quote rows (FOR UPDATE) and stops at convert_before, before
+         submit and before the attempt is linked to its order (SyncPoint, 25 s);
+      3. the write resumes and runs the guard while the conversion is still open.
+    variant 'current': step (b) finds the attempt, the guard's FOR UPDATE waits for the commit, reads is_active=0 and
+    refuses the save. variant 'order_only' (stub H1VariantProbe: Mike's "attempt with order", plain read): the order
+    is not committed yet, so step (b) answers no, the guard returns, the write waits on the row lock and then writes
+    is_active=1 over the converted quote.
+    ok = the predicted outcome: protected for 'current', the race reproduced for 'order_only'."""
+    r = Run(); b = Browser(); default_loan('REQUEST')
+    try:
+        ok, a = open_popup(b, plan='stay')
+        qid = int(a['quote_id'])
+        tab = b.new_tab(); tab.send('Page.navigate', {'url': BASE + '/checkout/cart/'}); time.sleep(4)
+        path, form, body = h1_request('update_qty', qid)
+        stub('localdev_pf_h1_variant', 'order_only' if variant == 'order_only' else None)
+        line = stub_log_len()
+        loan(a['cart_id'], 'OUTSTANDING')
+        stub('localdev_pf_quote_save_pause', 'model:%d:12' % qid)
+        tw, write = in_thread(evaluate, tab, FETCH_JS % (json.dumps(path), json.dumps(form), json.dumps(body)), 120)
+        write_held = wait_until(lambda: sh('cat var/localdev_pf_quote_save_pause.inside 2>/dev/null').strip(), 30)
+        stub('localdev_pf_convert_before', 'pause:25')
+        th, hook = in_thread(webhook, a['cart_id'], 'stub-' + a['cart_id'])
+        conversion_held = wait_until(lambda: sh('ls var/localdev_pf_convert_before.inside 2>/dev/null').strip(), 30)
+        # The write must resume while the conversion is still paused.
+        write_resumed_during_conversion = bool(wait_until(
+            lambda: not sh('ls var/localdev_pf_quote_save_pause.inside 2>/dev/null').strip()
+            and sh('ls var/localdev_pf_convert_before.inside 2>/dev/null').strip(), 30))
+        tw.join(); th.join()
+        stub('localdev_pf_convert_before', None); stub('localdev_pf_h1_variant', None)
+        orders_of_quote = [o for o in r.orders() if o['quote_id'] == str(qid)]
+        after = dict(quote=quote(qid), items=rows('SELECT sku, qty FROM quote_item WHERE quote_id=%d AND parent_item_id IS NULL' % qid, ('sku', 'qty')),
+                     orders=[o['increment_id'] for o in orders_of_quote], attempt=attempt(a['entity_id']))
+        reactivated = after['quote']['is_active'] == '1' and bool(orders_of_quote)
+        step_b = [c for c in stub_calls_since(line) if c.get('method') == 'h1_step_b' and c.get('quote_id') == qid]
+        ordered = bool(write_held) and bool(conversion_held) and write_resumed_during_conversion
+        expected = reactivated if variant == 'order_only' else (not reactivated and bool(orders_of_quote))
+        record('h1_inflight_%s' % variant, ordered and expected, variant=variant, write_held=bool(write_held),
+               conversion_held=bool(conversion_held), write_resumed_during_conversion=write_resumed_during_conversion,
+               reactivated=reactivated, step_b=step_b, write_response=write.get('v'), webhook=hook.get('v'), after=after)
+    finally:
+        stub('localdev_pf_quote_save_pause', None)
+        stub('localdev_pf_convert_before', None)
+        stub('localdev_pf_h1_variant', None)
+        b.quit()
+
+
 def config_row(path, scope, scope_id):
     return sql("SELECT value FROM core_config_data WHERE path='%s' AND scope='%s' AND scope_id=%d" % (path, scope, scope_id))
 
@@ -1188,6 +1239,44 @@ def cron_job():
     with open(os.path.join(HERE, 'cron_job.php')) as fh:
         out = run(['bin/clinotty', 'php'], stdin=fh, timeout=240)
     return json.loads(out[out.index('{'):]) if '{' in out else {'raw': out.strip()[:200]}
+
+
+IN_USE = 'payment/aplazo_gateway/payment_first_in_use'
+
+
+def t_switch_off(via):
+    """Review point 2 / Mike's point 5: turning popup off stops NEW attempts, not the reconciliation of existing ones.
+    The store starts without the payment_first_in_use flag; the start writes it before the attempt row. Then popup is
+    turned off: a new click from the same session gets use_redirect and creates no attempt, and the existing attempt,
+    paid afterwards, still becomes its order through the webhook or through the cron entry point
+    (Cron\\ReconcilePaymentAttempts::execute, not the ungated CLI)."""
+    r = Run(); b = Browser(); default_loan('REQUEST')
+    flag_before = config_row(IN_USE, 'stores', 1)
+    set_config_sql(IN_USE, 'stores', 1, None)
+    try:
+        ok, a = open_popup(b, plan='stay')
+        flag_after_start = config_row(IN_USE, 'stores', 1)
+        website_mode('redirect')
+        again = post(b.ws, '/aplazo/popup/start')['body']
+        new_attempts = attempts_after(int(a['entity_id']))
+        loan(a['cart_id'], 'OUTSTANDING')
+        if via == 'webhook':
+            result = webhook(a['cart_id'], 'stub-' + a['cart_id'])
+        else:
+            sh("printf '%s\\n' > var/localdev_pf_cron_allowlist" % a['entity_id'])
+            try:
+                result = cron_job()
+            finally:
+                sh('rm -f var/localdev_pf_cron_allowlist')
+        att = attempt(a['entity_id'])
+        orders = [o['increment_id'] for o in r.orders()]
+        passed = (flag_after_start == '1' and again.get('status') == 'use_redirect' and not new_attempts
+                  and att['status'] == 'completed' and a['cart_id'] in orders)
+        record('switch_off_%s' % via, passed, via=via, flag_before_test=flag_before, flag_after_start=flag_after_start,
+               start_with_popup_off=again, new_attempts_after_off=len(new_attempts), result=result, attempt=att, orders=orders)
+    finally:
+        website_mode('popup')
+        b.quit()
 
 
 def rejected_attempt(b):
@@ -2643,18 +2732,25 @@ TESTS = {
     'h1_crash_window_cart': lambda: t_h1_crash_window('cart'),
     'h1_add_to_cart_cart': lambda: t_h1('add_to_cart', 'cart'),
     'h1_update_qty': lambda: t_h1('update_qty'),
+    'switch_off_webhook': lambda: t_switch_off('webhook'),
+    'switch_off_cron': lambda: t_switch_off('cron'),
+    'h1_inflight_current': lambda: t_h1_inflight('current'),
+    'h1_inflight_order_only': lambda: t_h1_inflight('order_only'),
     'h1_shipping_information': lambda: t_h1('shipping_information'),
     'h1_payment_information': lambda: t_h1('payment_information'),
 }
 
 def require_stub():
-    """Refuse to run unless LocalDev_AplazoStub is enabled: without it the store calls the configured Aplazo API (STG)
-    and the scenarios create real loans there. Same check as qa_selection.py."""
-    status = subprocess.run(['bin/clinotty', 'bin/magento', 'module:status', 'LocalDev_AplazoStub'], cwd=M,
-                            capture_output=True, text=True, timeout=120).stdout
-    if 'Module is enabled' not in status:
-        sys.exit('LocalDev_AplazoStub is not enabled: refusing to run (the scenarios would reach the configured Aplazo API)')
-
+    """Stops the suite before any request unless kit_guard.php proves, inside this Magento, that LocalDev_AplazoStub is
+    enabled, the plugin's ApiService / LogService / TrackingService are the stub's and the store URL is local. Without
+    that the store calls the configured Aplazo API (STG) and the scenarios create real loans there."""
+    try:
+        out = php('kit_guard.php', timeout=120)
+    except Exception as e:  # noqa: BLE001
+        sys.exit('kit guard could not run (%s): refusing to run' % type(e).__name__)
+    if not isinstance(out, dict) or out.get('ok') is not True:
+        sys.exit('kit guard failed, refusing to run: %s' % (out.get('problems') if isinstance(out, dict) else out))
+    print('kit guard ok: %s' % json.dumps({'hosts': out.get('hosts'), 'resolved': out.get('resolved')}))
 
 if __name__ == '__main__':
     if not M or not os.path.isfile(os.path.join(M, 'bin', 'clinotty')):

@@ -6,11 +6,14 @@ for the Aplazo API, mock_https.py for Aplazo's window), same requirements as QA_
 
 Scenarios (all by default):
   layer          the layer covers the checkout while Aplazo's window is open, and blocks it (clicks and focus)
-  close_button   the layer's close button closes Aplazo's window; not paid -> layer removed, checkout usable, message
+  close_button   the layer's close button closes Aplazo's window; the whole close window of checks runs (the buyer may
+                 have just paid) and only a last "not paid" removes the layer: checkout usable, message
   closed_paid    the window closes with no message and the payment is recorded ~7 s later: loader, retries, success
                  page, and the minicart is empty
   closed_unpaid  the window closes with no message and nothing is ever paid: loader during the retries, then the
                  "closed without paying" message and the checkout usable again
+  closed_uncertain  the window closes and the status API never answers: the checkout stays blocked with "Check again";
+                 once Aplazo answers "not paid", that action gives the checkout back
 Writes one line per scenario to ../.out/magento-e2e/pf.jsonl (like pf_e2e.py) and screenshots ux-*.png next to it.
 """
 import base64, json, os, sys, time
@@ -33,11 +36,13 @@ LAYER_JS = r"""
   const blocked = Array.from(document.body.children).filter(el => el !== o);
   const spinner = o && o.querySelector('.aplazo-popup-overlay__spinner');
   const close = o && o.querySelector('.aplazo-popup-overlay__close'), link = o && o.querySelector('.aplazo-popup-overlay__focus');
+  const action = o && o.querySelector('.aplazo-popup-overlay__action');
   return {
     shown: !!o, state: o ? o.getAttribute('data-state') : null,
     message: o ? o.querySelector('.aplazo-popup-overlay__message').innerText.trim() : null,
     close_visible: !!(close && !close.hidden), focus_link_visible: !!(link && !link.hidden), focus_link_text: link ? link.innerText.trim() : null,
     spinner_visible: !!(spinner && getComputedStyle(spinner).display !== 'none'),
+    action_visible: !!(action && !action.hidden), action_text: action && !action.hidden ? action.innerText.trim() : null,
     page_children_inert: blocked.length > 0 && blocked.every(el => el.hasAttribute('inert')),
     place_order_covered: placeOrder ? at(placeOrder) : null,
     other_method_covered: otherMethod ? at(otherMethod) : null,
@@ -101,14 +106,18 @@ def t_close_button():
         time.sleep(0.3)
         during = layer(b)
         png1 = shot(b, 'close-confirming')
-        st = k.wait_notice(b.ws, 'closed the Aplazo window', 'Cerraste', timeout=20)
+        time.sleep(6)
+        mid = layer(b)
+        st = k.wait_notice(b.ws, 'closed the Aplazo window', 'Cerraste', timeout=45)
         after = layer(b)
         png2 = shot(b, 'close-not-paid')
         checks = len(r.calls('getLoanStatus'))
-        # The close button asks once: "not paid" ends it at once (no retries), unlike a window seen closed.
-        good = (ok and popups_before == 1 and len(b.popups()) == 0 and after['shown'] is False and st
-                and st['placeOrderDisabled'] is False and not r.orders() and checks == 1)
-        k.record('ux_close_button_not_paid', good, during=during, after=after, page=st, popups_left=len(b.popups()), loan_checks=checks,
+        # The buyer may have just paid: like a window seen closed, the checkout comes back only after the whole close
+        # window (1 check + 8 retries every 3 s) ends with "not paid".
+        good = (ok and popups_before == 1 and len(b.popups()) == 0 and during['state'] == 'confirming'
+                and mid['state'] == 'confirming' and after['shown'] is False and st
+                and st['placeOrderDisabled'] is False and not r.orders() and checks == 9)
+        k.record('ux_close_button_not_paid', good, during=during, mid=mid, after=after, page=st, popups_left=len(b.popups()), loan_checks=checks,
                  screenshots=[png1, png2], orders=r.orders())
     finally:
         b.quit()
@@ -167,7 +176,41 @@ def t_closed_unpaid():
         b.quit()
 
 
-TESTS = {'layer': t_layer, 'close_button': t_close_button, 'closed_paid': t_closed_paid, 'closed_unpaid': t_closed_unpaid}
+def t_closed_uncertain():
+    """Review point 1: the window closes and the status API never answers (stub ERROR): after the checks the checkout is
+    NOT given back. The layer shows the uncertain message and "Check again", and the page stays blocked. Then Aplazo
+    answers "not paid" and "Check again" runs a new close window; only its last "not paid" gives the checkout back."""
+    r = k.Run(); b = k.Browser(); k.default_loan('ERROR')
+    try:
+        ok, a = k.open_popup(b, plan='stay')
+        b.close_popups()
+        uncertain = k.wait_until(lambda: (lambda st: st if st.get('state') == 'message' else False)(layer(b)), 45)
+        checks_uncertain = len(r.calls('getLoanStatus'))
+        time.sleep(4)
+        still = layer(b)
+        png1 = shot(b, 'closed-uncertain')
+        k.default_loan('REQUEST')
+        evaluate(b.ws, "document.querySelector('.aplazo-popup-overlay__action').click()", timeout=20)
+        time.sleep(1)
+        rechecking = layer(b)
+        st = k.wait_notice(b.ws, 'closed the Aplazo window', 'Cerraste', timeout=45)
+        after = layer(b)
+        png2 = shot(b, 'closed-uncertain-then-not-paid')
+        q = k.quote(a['quote_id'])
+        good = (ok and bool(uncertain) and uncertain['action_visible'] and uncertain['page_children_inert']
+                and uncertain['place_order_covered'] and uncertain['other_method_covered'] is not False and checks_uncertain == 9
+                and still['state'] == 'message' and rechecking['state'] == 'confirming' and st and after['shown'] is False
+                and st['placeOrderDisabled'] is False and not r.orders() and q['is_active'] == '1')
+        k.record('ux_closed_uncertain', good, uncertain=uncertain, checks_while_uncertain=checks_uncertain, still=still,
+                 rechecking=rechecking, after=after, page=st, loan_checks=len(r.calls('getLoanStatus')), quote=q,
+                 orders=r.orders(), screenshots=[png1, png2])
+    finally:
+        k.default_loan('REQUEST')
+        b.quit()
+
+
+TESTS = {'layer': t_layer, 'close_button': t_close_button, 'closed_paid': t_closed_paid, 'closed_unpaid': t_closed_unpaid,
+         'closed_uncertain': t_closed_uncertain}
 
 if __name__ == '__main__':
     if not k.M or not os.path.isfile(os.path.join(k.M, 'bin', 'clinotty')):

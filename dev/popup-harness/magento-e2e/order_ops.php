@@ -13,6 +13,10 @@
 // Prints one JSON line. Never prints tokens or customer data.
 require 'app/bootstrap.php';
 $om = \Magento\Framework\App\Bootstrap::create(BP, $_SERVER)->getObjectManager();
+// Never against a real Aplazo environment: stub enabled, plugin services stubbed, local store (kit_guard.php).
+define('KIT_GUARD_LIBRARY', true);
+require BP . '/app/code/Aplazo/AplazoPayment/dev/popup-harness/magento-e2e/kit_guard.php';
+kit_guard_or_exit($om);
 $om->get(\Magento\Framework\App\State::class)->setAreaCode('adminhtml');
 [$_, $command] = array_pad($argv, 2, null);
 $out = ['command' => $command];

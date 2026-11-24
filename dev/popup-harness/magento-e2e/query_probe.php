@@ -11,6 +11,10 @@
 // Synthetic data only (pf-probe@example.invalid); prints no tokens or customer data.
 require 'app/bootstrap.php';
 $om = \Magento\Framework\App\Bootstrap::create(BP, $_SERVER)->getObjectManager();
+// Never against a real Aplazo environment: stub enabled, plugin services stubbed, local store (kit_guard.php).
+define('KIT_GUARD_LIBRARY', true);
+require BP . '/app/code/Aplazo/AplazoPayment/dev/popup-harness/magento-e2e/kit_guard.php';
+kit_guard_or_exit($om);
 $om->get(\Magento\Framework\App\State::class)->setAreaCode('frontend');
 $sku = (string)($argv[1] ?? '');
 if (strpos($sku, 'APLAZO-1664-') !== 0) {
@@ -71,7 +75,8 @@ $newQuote = function (string $method) use ($om, $store, $product, $cartRepositor
     return $quote;
 };
 
-$out = ['switch_store_1' => $helper->isPaymentFirstEnabled(1), 'switch_any_store' => $helper->isPaymentFirstEnabledInAnyStore(),
+$out = ['switch_store_1' => $helper->isPaymentFirstEnabled(1), 'in_use_store_1' => $helper->isPaymentFirstInUse(1),
+    'in_use_any_store' => $helper->isPaymentFirstInUseInAnyStore(),
     'sku' => $sku, 'steps' => []];
 try {
     $quote = $newQuote('checkmo');

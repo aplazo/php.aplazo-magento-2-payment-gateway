@@ -26,6 +26,10 @@
         </arguments>
     </type>
     <!-- BNPL-1664: observes the order email (see Plugin/OrderSenderProbe.php); rethrows unchanged. -->
+    <!-- BNPL-1664 H-1 / Mike's point 6: Mike's "attempt with order" condition, only with var/localdev_pf_h1_variant. -->
+    <type name="Aplazo\AplazoPayment\Model\PaymentFirst\AttemptStore">
+        <plugin name="localdev_pf_h1_variant_probe" type="LocalDev\AplazoStub\Plugin\H1VariantProbe"/>
+    </type>
     <type name="Magento\Sales\Model\Order\Email\Sender\OrderSender">
         <plugin name="localdev_pf_order_sender_probe" type="LocalDev\AplazoStub\Plugin\OrderSenderProbe"/>
     </type>
