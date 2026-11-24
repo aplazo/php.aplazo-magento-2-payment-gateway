@@ -15,9 +15,9 @@ done, where the code deliberately differs from the request, and the local eviden
 |---|---|---|---|
 | 1 | Layer over the checkout while Aplazo's window is open; link to focus it; close button | Done | `view/frontend/web/js/model/popup-overlay.js`, renderer |
 | 2 | "Confirming your payment…" loader | Done | renderer `showConfirming()` |
-| 3 | Retries after the window is seen closed (every 3 s, ~15–30 s) | Done, with a stricter end (§1) | renderer `CLOSE_RETRIES` = 8 (~24 s) |
+| 3 | Retries after the window is seen closed (every 3 s, ~15–30 s) | Done, with a stricter end (§1). **Close without payment: decision pending for Mike (§1)** | renderer `CLOSE_RETRIES` = 8 (~24 s) |
 | 4 | Empty minicart after success | Done | `etc/frontend/sections.xml`, `customerData.invalidate()` |
-| 5 | One configuration-only switch, checked first | Done, split in two (§2) | `Helper\Data::isPaymentFirstEnabled()` / `isPaymentFirstInUse()` |
+| 5 | One configuration-only switch, checked first | Done, split in two; **deviation: a store that used popup keeps 1 indexed read per cart save after turning it off (§2)** | `Helper\Data::isPaymentFirstEnabled()` / `isPaymentFirstInUse()` |
 | 6 | `KeepConvertedQuoteClosed`: switch → attempt lookup → `FOR UPDATE` only if an attempt **with order** | Done, **differs** (§3) | step (b) asks for **any** attempt |
 | 7 | Drop `magento/module-sales-rule` and `laminas/laminas-uri` | Done | `composer.json`, `CheckoutUrlValidator` (`parse_url()`) |
 | 8 | `setup:di:compile` and a redirect checkout without MSI | **Not approved**: fails, also on master (§4) | pre-existing `Model/Product/MSIStock.php` |
@@ -43,21 +43,52 @@ done, where the code deliberately differs from the request, and the local eviden
 | `rejected`, `review`, `unknown_attempt` | layer stays with the server's message, no action |
 | `completed` | success page (or the order number when the session holds another cart) |
 
-**What `not_paid` does not prove.** It means "not paid now", not "can no longer be paid": how long an Aplazo checkout
-stays payable is unknown (C3) and there is no "cancel only if unpaid" call (C5). So a loan that is still payable is
-**not prevented** from being paid after the buyer pays another way. What exists instead (fact for the first three,
-`pf_e2e.py`):
-- the attempt stays `open` and under reconciliation; it is never closed by an unpaid or unknown answer;
-- clicking Aplazo again with the same cart reuses the same attempt and loan (no second Aplazo loan);
-- a late payment on a quote still active becomes its order (cron or webhook);
-- a late payment on a quote already turned into another order ends `rejected / quote_not_active`, visible with
-  `bin/magento aplazo:payment-first:attempts --attention`; the reversal is manual until C5 is confirmed.
-
-Closing the gap needs Aplazo: either an expiry for unpaid checkouts (C3) or a cancel that is refused once paid (C5).
-Then the page could cancel the loan before giving the checkout back.
-
 **Recovery when the page stays uncertain:** "Check again"; reloading the page (the next Aplazo click reuses the same
 loan); the order arrives by webhook or reconciliation if the loan was paid.
+
+### 1a. Close without payment: open decision (not resolved)
+
+**The exact path:** `not_paid` → checkout enabled → second payment → possible late payment of the first loan.
+
+1. The window closes. During ~25 s the page asks `complete` 9 times; the last answer is `not_paid` (Aplazo listed
+   the loan, not `OUTSTANDING`).
+2. The checkout is given back with the cart intact. The attempt stays `open`, with its loan and checkout URL; the
+   reconciliation keeps checking it (`ReconcileSchedule`: 60 s … 3600 s, then every 10800 s, with no end).
+3. The buyer pays again. Three cases:
+   - **Aplazo again, same cart:** `StartService` reuses the same `open` attempt (same fingerprint) → same loan and URL.
+     No second Aplazo loan. (fact: `close_unpaid_and_reuse`, `uncertain_start_normal_and_reuse`)
+   - **Aplazo again, cart changed:** the old attempt goes `superseded` (never cancelled, comment in
+     `StartService`: "Their loans may still be paid"), a new loan is created. Two payable loans exist.
+   - **Another payment method (or redirect):** Magento places that order and the quote becomes inactive. The first
+     loan is still payable.
+4. If the first loan is paid afterwards (the buyer reopens its URL, or Aplazo records a payment made before the close
+   more than ~25 s late), the webhook or the cron confirms `PAID` and the finalizer cannot convert the quote:
+   attempt `rejected / quote_not_active` or `cart_changed`, `loan_cancel_state = pending`, listed by
+   `bin/magento aplazo:payment-first:attempts --attention`. The buyer has paid twice. The reversal is manual:
+   `Reconciler::$autoCancelRejected = false` because what `cancelLoan` does after a payment is not known (C5).
+   (fact against the stub: `two_attempts_both_paid_*`, `popup_pending_redirect_other_tab`, `cart_changed_*`)
+
+**Does the first loan stop being payable? Not as far as the code and the known contracts show.**
+- The module never cancels an unpaid loan: `cancelLoan` is only called for a `rejected` attempt (already paid) and only
+  when `autoCancelRejected` is on (off by default).
+- The `createLoan` payload (`QuoteLoanPayloadBuilder`) sends no expiry; nothing in the plugin assumes one.
+- Closing the window, the 25 s wait and placing another order do not reach Aplazo at all.
+- How long an Aplazo checkout stays payable is unknown (contract C3), and there is no "cancel only if unpaid" call
+  (C5). Whether the buyer can reach the first checkout again after closing the window (browser history, a link from
+  Aplazo) is not known either.
+
+**Alternatives for Mike (none implemented beyond A):**
+
+| | Option | Double-payment risk | Buyer impact | Needs |
+|---|---|---|---|---|
+| A | **Current**: give the checkout back on the final `not_paid` | open: late recording > ~25 s, or a reopened old checkout | cart intact after ~25 s (epic BNPL-1022/1028) | — |
+| B | After `not_paid`, keep the layer and ask the buyer to choose: "Volver a Aplazo" (same loan) or "Pagar de otra forma" with a warning | lower (explicit choice), still open | one more click | frontend only |
+| C | Longer close window (e.g. 60–120 s) | lower for late recording only | longer wait after every close | frontend only |
+| D | Cancel the loan before giving the checkout back, only if Aplazo guarantees cancel-if-unpaid (refused once paid) | closed, if the contract holds | none | Aplazo contract C5 (+ C3) |
+| E | Turn on the automatic reversal of `rejected` attempts | the second charge is refunded, not prevented | refund delay | C5 (what cancel does after payment) |
+
+Recommendation: D as the target (ask Aplazo/Gus for cancel-if-unpaid and checkout expiry); until then A or B is Mike's
+call. Whatever is chosen, an operator must watch `--attention` for `rejected` attempts during the pilot.
 
 Evidence (fact): `js_cycle_test.py` scenarios 9, 14–17 and `ux_e2e.py closed_uncertain` (status API failing → layer with
 "Check again" after 9 checks, page inert; then "not paid" → checkout back, no order, quote active).
@@ -85,6 +116,34 @@ popup off was loaded after popup was turned off, so after that commit too.
 
 Before this change the cron and the webhook stopped at "popup off", so an attempt paid after the switch was turned off
 waited for someone to run the CLI. That is no longer the only way out.
+
+**How `payment_first_in_use` works:**
+- **Write:** `Model/PaymentFirst/InUseFlag::ensure($storeId)`, called by `StartService` right before the attempt row is
+  inserted. Path `payment/aplazo_gateway/payment_first_in_use`, value `1`, scope `stores`, scope id = the quote's
+  store, through Magento's `WriterInterface` (core_config_data). If the cached configuration already has it, nothing is
+  read; otherwise one indexed read of `core_config_data`, and a write only if the row is missing. A failed write throws,
+  and the attempt is not created. Only the popup start path runs this.
+- **Read:** `Helper\Data::isPaymentFirstInUse($storeId)` through `ScopeConfig` (store scope, cached, no query);
+  `isPaymentFirstInUseInAnyStore()` loops over the stores for the cron and the webhook.
+- **Scope:** per store view. A store that never started an attempt stays at zero queries even if another store of the
+  same installation uses popup. It is not in `system.xml`: `bin/magento config:set` refuses the path; it can only be
+  set by the module or by SQL.
+- **Never cleared by the module.** Clearing it (SQL) is only safe when the store has no attempt left in a reconciled
+  state (`starting`, `open`, `uncertain`, `superseded`, `order_created`, `rejected` with an open reversal).
+
+**Attempts created before 4.0.14 (no flag).** Builds up to `b2f1ccb` did not write the flag. A store upgraded to
+4.0.14 with older attempts has no flag until its first new popup start. While popup stays on nothing changes (the
+switch covers it). If popup is turned off **before** any new start, the cron, the webhook routing and the H-1 guard
+ignore those older attempts, as in `b2f1ccb`; only the CLI reaches them. Affected installations: the local store (fact:
+attempts since 2026-10-28, flag written today) and magento-test (attempts from Mike's tests on `b2f1ccb`; not checked).
+Production has none (popup is sandbox-only). Options: a data patch that writes the flag for every store with
+attempts in a reconciled state (not implemented), or setting it by SQL on magento-test before turning popup off.
+
+**Deviation from the original requirement.** Mike asked that, with popup off, nothing new costs anything. That holds
+for stores that never used popup (0 module queries, table above). A store that used popup and turned it off keeps
+**one indexed read of `aplazo_payment_attempt` per active-cart save** (43 → 44 queries in `query_probe`), plus the
+cron's and the webhook's attempt lookups. This is deliberate, so that turning popup off does not abandon a paid
+attempt; it needs Mike's agreement.
 
 **Cost (fact, `query_probe.php`, MySQL profiler, synthetic data):**
 
@@ -152,7 +211,7 @@ So the branch adds no compile failure of its own without MSI, but it cannot be c
 breaks compilation. A redirect checkout without MSI was **not** repeated on the final version: it needs a full store
 without MSI (the earlier one, in developer mode, ran on the shared store before the merge).
 
-**Finding to report (prepared, no ticket created yet):**
+**Finding to report (prepared, no ticket created yet; full report with reproduction in `DEFECT-no-msi-compile-4.0.13.md`):**
 > **Magento plugin 4.0.13 does not compile on stores without MSI.** `Model/Product/MSIStock.php` (MG-763) requires
 > `Magento\InventoryCatalogApi\Model\GetSkusByProductIdsInterface` and other MSI interfaces in its constructor.
 > `bin/magento setup:di:compile` fails with "Impossible to process constructor argument … of
@@ -178,3 +237,31 @@ See `INCIDENT-2026-11-24-stg-loans.md`.
 can reach the API (`order_ops`, `webhook_sim`, `cron_job`, `store_ops`, `query_probe`, `sidebar_probe`) exit early too.
 Fact: with the stub disabled the guard listed the four problems and `ux_e2e.py` stopped before any request (the
 plugin's Aplazo log did not grow).
+
+## 7. Observational cases of the full run (50): what they show, what is still unverified
+
+These cases record evidence and have no pass/fail criterion in the kit (`record(..., None)`, stored as `ok=false`).
+Below is what their records show on `cd64d09` (kit `b9f9410`). **They are not approvals.** Where the local setup
+cannot show something, it is listed as unverified.
+
+| Group (cases) | Observed | Not verifiable here / still to check |
+|---|---|---|
+| **Inventory** `msi_fix_*` (8), `msi_*` (5), `msi_backlog_drain` (1) | Successful conversion: one `-1 order_placed` reservation, salable qty of the last unit goes to 0, the salability message is published **after** the commit (probe: transaction level 0). Abort, rollback and synthetic definitive failure: no reservation, unit still salable, attempt `needs_review`, no order. Crash then recovery, and repeated finalization: one reservation only. Publish failure after the commit (`publish_exception`/`_error`): the order completes, the probe records the error, nothing is queued for that order. Redirect: message published at once, as in Magento | The stock index flag (`stock_index_view.is_salable`) stays `1` in **every** case, redirect included, also after a reindex, so the index side of salability is not observed in this setup. The queue depth was not measured (`RABBITMQ_CONTAINER` unset); Magento's consumer reported "nothing to consume" every time. After a publish failure the message is lost; whether a reindex or cron restores the index flag is not shown |
+| **Coupons** `coupon_fix_*` (10), `coupon_counters_*` (5), `coupon_success`, `coupon_link_fail` | Coupon `times_used` +1 exactly once per order: on success, on crash then recovery, on submit failure then recovery, and not again on a repeated finalization. Abort or definitive link failure: no change. Registered customer: per-customer counters +1 once. Limits: a second use by the same customer and a third guest use are refused. Bulk message scheduled after the commit (`coupon_bulk_publish` with no callbacks left) | The rule-level counter (`rule_times_used`, updated asynchronously) never moved, redirect included: the consumer had nothing to consume. After a bulk-publish failure (`publish_exception`/`_error`) the coupon counter moved but no bulk was recorded, so the rule-level increment for that order would be missing. The real consumer path is still unverified |
+| **Email** `email_webhook`, `email_fix_*` (3), `email_reconcile_*` (2) | One `OrderSender::send` per order, no exception, for webhook, CLI reconciliation and the cron class; repeated finalization sends nothing more; one `order_paid` tracking event. Synchronous sending: `email_sent=1`. Asynchronous: `send_email=1`, `email_sent` empty (left for Magento's `sales_send_order_emails` cron) | No mail transport is configured, so delivery is not shown. The asynchronous cron was not run |
+| **Uncertain start** `uncertain_start_*` (4) | `createLoan` failure or a process dying during it: one attempt `uncertain`/`starting`, **one** `createLoan` call in total across re-clicks, a cart change and a reconciliation; no order, no reservation. Normal start: the same click reuses the open attempt (one `createLoan`) | While such an attempt is unresolved, that cart cannot use Aplazo again; the reconciliation keeps it as it is. How it ends depends on C2 (lookup after a lost `createLoan`) |
+| **Order link** `link_conflict_concurrent_complete`, `link_conflict_then_reconcile`, `link_conflict_then_cart_write`, `link_definitive_failure_synthetic` | A buyer's `complete` during the conversion: one order, one invoice, one reservation, attempt `completed`; a later cart write is refused ("The quote item isn't found"), the quote stays inactive. Synthetic definitive failure: no order, no reservation, quote active, a later cart write is accepted (qty 3), attempt `needs_review` | The synthetic case leaves a paid loan without an order for an operator (by design); its follow-up is manual |
+| **Approval** `approval_*` (4), `crash_inside_tx_after_writes` | `processing` with the configured status (default or custom), one invoice, the email requested once, one `order_paid` event; a repeated finalization changes nothing. Crash after the invoice and an operator invoice: the repeat completes without a second invoice. Crash inside the transaction after writes: no order, quote active, attempt `open`; the reconciliation completes with one order and one reservation | Delivery of the email (as above) |
+
+**Counts.** The full run executed the 106 entries of `TESTS` and wrote **107** records: `link_conflict` writes two
+(`link_conflict_concurrent_complete` and `link_conflict_then_reconcile`); no name repeats.
+- 52 records with an assertion passed;
+- 4 records with an assertion failed (`status_unknown_then_paid`, `create_loan_fail_then_early_webhook`,
+  `h3_registered_cron_class_crash_then_complete`, `shipment_and_physical_stock`);
+- 1 entry was interrupted before its assertion (`mutation_during_convert`, recorded under that name with the error);
+- 50 records are observational.
+
+**Reruns after the full run (separate, 6 records, kit `64cbe2c`, same production code):**
+`cart_mutation_waits_for_conversion` pass, `status_unknown_then_paid` pass, `create_loan_fail_then_early_webhook`
+pass, `h3_registered_cron_class_crash_then_complete` pass, `shipment_and_physical_stock` fail (indexers in realtime
+without a prior reindex: salable −2, the index caught up with an earlier shipment) then pass (after a reindex).

@@ -163,12 +163,12 @@ only change `dev/`. Kit: `b9f9410` for the full run, `64cbe2c` for the five reru
 | `query_probe.php` | popup off / never used: no module query in cart save and cancels (details in REVIEW §2) |
 | `Test/Unit` (from master, PHPUnit 10.5) | 15 pass, 25 assertions; 1 runner warning (Allure config file missing in the container) |
 
-## Full matrix `pf_e2e.py all` (107 records)
+## Full matrix `pf_e2e.py all` (106 entries, 107 records: `link_conflict` writes two)
 
 | Category | Count | Detail |
 |---|---|---|
 | Assertion, passed | 52 | incl. all H-1, H-4, H-5, H-8, H-9, concurrency, redirect and webview cases |
-| Assertion, failed | 4 | all four pass on rerun after the changes below |
+| Assertion, failed | 4 | all four pass on rerun after the changes below (reruns are separate records) |
 | Interrupted before its assertion | 1 | `mutation_during_convert` (`TypeError`: no attempt after the second click) |
 | Observational (`ok=None`, recorded as false) | 50 | `msi_*` (14), `coupon_*` (17), `email_*` (6), `uncertain_start_*` (4), `link_*` (4), `approval_*` (4), `crash_inside_tx_after_writes` |
 
@@ -182,9 +182,11 @@ only change `dev/`. Kit: `b9f9410` for the full run, `64cbe2c` for the five reru
 | `h3_registered_cron_class_crash_then_complete` | expected `open` after a crash at `order_saved`; since the H-1 addendum the attempt is linked in the conversion transaction, so it is `order_created` | expect `order_created` | pass (second cron run completes it, attention report cleared) |
 | `shipment_and_physical_stock` | environment: inventory indexers in "Update by Schedule" with no cron, so salable qty did not move | rerun with the indexers in realtime after a reindex, then restored to schedule | pass (physical −1, salable −1, reservations net 0) |
 
-**Observational cases:** their records were collected, not asserted. Nothing in them was compared against an
-expected value in this round; reading them (deferred coupon and salability messages, email hand-off, uncertain start,
-link conflicts) is still to do.
+**Reruns** (6 records after the full run, kit `64cbe2c`): the five above passed; `shipment_and_physical_stock` also
+has one failed rerun (indexers in realtime without a prior reindex).
+
+**Observational cases:** their records were read after the run; what they show and what this setup cannot show is in
+`REVIEW-BNPL-1664-mike-2026-11-20.md` §7. They are not counted as passed.
 
 ## Not run in this round
 
