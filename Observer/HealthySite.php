@@ -67,7 +67,7 @@ class HealthySite implements ObserverInterface
                     case self::TEST_AUTH:
                         $finalLog .= "\n2. Test de auth:\n";
                         try {
-                            $this->authAplazoBearerToken = $this->aplazoService->getAuthorizationToken();
+                            $this->authAplazoBearerToken = $this->aplazoService->getAuthorizationToken(false);
                             if (!empty($this->authAplazoBearerToken)) {
                                 $finalLog .= "Auth correcto con token: $this->authAplazoBearerToken \n";
                             } else {

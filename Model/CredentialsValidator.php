@@ -38,7 +38,8 @@ class CredentialsValidator
         $result = self::USER_NOT_AUTHENTICATED;
         if($this->aplazoHelper->getMerchantId() != '' && $this->aplazoHelper->getApiToken() != ''){
             try {
-                if($token = $this->aplazoService->getAuthorizationToken()){
+                // Always against /api/auth: a cached token would hide a changed or revoked apiToken
+                if($token = $this->aplazoService->getAuthorizationToken(false)){
                     if($token) {
                         $result = self::USER_AUTHENTICATED;
                     }

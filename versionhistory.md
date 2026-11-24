@@ -173,3 +173,7 @@
 ## 4.0.12
 * Webhook JWT validation compatible with firebase/php-jwt 7 (Magento 2.4.8-p5+): HS512 key padded to 64 bytes, same signature
 * Accept the v2 webhook signing key (derived from the apiToken) when Aplazo enables it per merchant
+## 4.0.13
+* Cache the /api/auth token until its exp (minus 10 min) instead of authenticating on every loan; credential validation and the health check still call /api/auth
+* Datadog logs (/api/v1/ps/logs) carry Authorization: Bearer <token> when a cached token is available; the logger never authenticates on its own
+* createLoan retries once with a fresh token if the cached one gets a 401/403
