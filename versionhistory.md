@@ -177,3 +177,8 @@
 * Cache the /api/auth token until its exp (minus 10 min) instead of authenticating on every loan; credential validation and the health check still call /api/auth
 * Datadog logs (/api/v1/ps/logs) carry Authorization: Bearer <token> when a cached token is available; the logger never authenticates on its own
 * createLoan retries once with a fresh token if the cached one gets a 401/403
+## 4.0.14
+* Popup checkout mode, payment-first (sandbox only, opt-in per website; redirect stays the default and unchanged): the order is created only after Aplazo confirms the payment, and closing the Aplazo window without paying leaves the cart intact
+* While Aplazo's window is open the checkout is covered by a layer (link back to the window, close button); after it closes the payment is confirmed with retries, and the checkout comes back only when Aplazo reports the loan not paid
+* Stores that never use popup run no new queries; reconciliation keeps running for a store that started popup attempts even after popup is turned off
+* No new Composer dependencies; etc/db_schema_whitelist.json added
