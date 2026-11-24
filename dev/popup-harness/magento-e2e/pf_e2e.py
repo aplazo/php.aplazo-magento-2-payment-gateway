@@ -562,8 +562,13 @@ def t_mutation_during_convert():
     try:
         ok, a = open_popup(b, plan='stay')
         tab = b.new_tab(); add_to_cart(tab); tab.send('Page.navigate', {'url': BASE + '/' + PRODUCT}); time.sleep(4)
-        # The tab's add above changed the cart before the payment: start again on the current cart.
-        b.close_popups(); time.sleep(4)
+        # The tab's add above changed the cart before the payment: start again on the current cart. Since the BNPL-1664
+        # review a closed window runs its whole close window behind the layer (~25 s) and the checkout comes back only
+        # on the final "not paid": wait for it before clicking again (a click on the layer starts nothing).
+        b.close_popups()
+        if not wait_notice(b.ws, 'closed the Aplazo window', 'Cerraste', timeout=60):
+            raise RuntimeError('the checkout did not come back after closing the first window')
+        time.sleep(1)
         before = max_id('aplazo_payment_attempt'); mock_plan('stay')
         click_place_order(b.ws); a = wait_attempt(before, status=('open',)); time.sleep(2)
         loan(a['cart_id'], 'OUTSTANDING')
@@ -667,14 +672,21 @@ def t_redirect_other_tab():
         b.quit()
 
 
+OVERLAY_STATE_JS = r"""(() => { const o = document.querySelector('.aplazo-popup-overlay');
+  return o ? {state: o.getAttribute('data-state'), message: o.querySelector('.aplazo-popup-overlay__message').innerText.trim(),
+    inert: Array.from(document.body.children).filter(el => el !== o).every(el => el.hasAttribute('inert'))} : null; })()"""
+
+
 def t_status_unknown():
-    """The status API fails: the page shows "not confirmed yet", the attempt is not closed; it completes once paid."""
+    """The status API fails: the page says "not confirmed yet" and keeps the checkout BLOCKED (since the BNPL-1664
+    review an undecided close never gives it back), the attempt is not closed; it completes once paid."""
     r = Run(); b = Browser(); default_loan('REQUEST')
     try:
         ok, a = open_popup(b, plan='stay')
         loan(a['cart_id'], 'ERROR')
         b.close_popups()
-        st = wait_notice(b.ws, 'could not confirm your payment yet', 'Todavía')
+        st = wait_until(lambda: (lambda o: o if o and o.get('state') == 'message' and 'could not confirm your payment yet' in (o.get('message') or '') else False)(
+            evaluate(b.ws, OVERLAY_STATE_JS, timeout=20)), 60)
         time.sleep(2)
         rec1 = reconcile(a['entity_id']); x1 = attempt(a['entity_id'])
         loan(a['cart_id'], 'EMPTY'); time.sleep(2)
@@ -682,7 +694,7 @@ def t_status_unknown():
         loan(a['cart_id'], 'OUTSTANDING'); time.sleep(2)
         rec3 = reconcile(a['entity_id'])
         o = r.orders()
-        good = (ok and st and not st['placeOrderDisabled'] and rec1 and rec1[0]['result'] == 'unknown'
+        good = (ok and st and st['inert'] and rec1 and rec1[0]['result'] == 'unknown'
                 and x1['status'] == 'open' and int(x1['check_count']) >= 1 and rec2 and rec2[0]['result'] == 'unknown'
                 and x2['status'] == 'open' and rec3 and rec3[0]['result'] == 'completed' and len(o) == 1)
         record('status_unknown_then_paid', good, page=st, error=rec1, empty=rec2, paid=rec3, attempt_after_errors=x2, orders=o)
@@ -698,7 +710,7 @@ def t_create_loan_fail():
         add_to_cart(b.ws); ok = to_payment(b.ws); mock_plan('stay')
         click_place_order(b.ws)
         a = wait_attempt(r.a, status=('uncertain',))
-        st = wait_notice(b.ws, 'could not confirm that Aplazo opened', 'confirmar que Aplazo')
+        st = wait_notice(b.ws, 'could not confirm whether Aplazo received', 'confirmar si Aplazo')
         stub('localdev_aplazo_stub_createloan', None)
         mid = dict(orders=r.orders(), popups=len(b.popups()), reservations=r.res())
         loan(a['cart_id'], 'OUTSTANDING')
@@ -1374,7 +1386,7 @@ def t_h3_cron_registered():
         cust = sql('SELECT customer_id, customer_is_guest FROM sales_order WHERE entity_id=%s' % o[0]['entity_id']).split('\t') if o else None
         attention_after = attempts_cli('--attention', '--older-than=0')
         good = (ok and logged_in and hook['body'].get('message') == 'scheduled' and mid['paid_confirmed'] == '1'
-                and len(mid['orders']) == 1 and mid['orders'][0]['invoices'] == '0' and mid['attempt']['status'] == 'open'
+                and len(mid['orders']) == 1 and mid['orders'][0]['invoices'] == '0' and mid['attempt']['status'] == 'order_created'
                 and int(a['entity_id']) in attention[1]['paid_without_order'] and attention[1]['cron_stale']
                 and len(o) == 1 and o[0]['invoices'] == '1' and cust == [str(c['customer_id']), '0']
                 and attempt(a['entity_id'])['status'] == 'completed' and r.res() == ['-1.0000 order_placed ' + a['cart_id']]
