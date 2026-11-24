@@ -11,6 +11,11 @@ use Aplazo\AplazoPayment\Model\Config\Source\CheckoutMode;
 class Data extends \Magento\Payment\Helper\Data
 {
     const GENERAL_SECTION = 'payment/aplazo_gateway/';
+    /**
+     * BNPL-1664: written (store scope) before a store's first payment-first attempt is created, never by the admin, and
+     * never cleared by the module. Read from configuration only. See isPaymentFirstInUse().
+     */
+    const PAYMENT_FIRST_IN_USE_PATH = 'payment/aplazo_gateway/payment_first_in_use';
     const APLAZO_WEBHOOK_RECEIVED = 'aplazo_webhook_received';
     const APLAZO_ORDER_CANCELLED = 'aplazo_order_cancelled';
     const LOGS_VVV = 2;
@@ -245,13 +250,32 @@ class Data extends \Magento\Payment\Helper\Data
     }
 
     /**
-     * The switch for work that has no store of its own (reconciliation cron, webhook routing): on in at least one store.
-     * Configuration only (the store list comes from the config cache).
+     * Whether this store may hold payment-first attempts: popup is on now, or an attempt was ever started here (the
+     * flag written by StartService before the attempt row). Configuration only, no query.
+     *
+     * The switch (isPaymentFirstEnabled) decides NEW flows only: whether a click starts an attempt. Everything that
+     * looks after attempts that already exist (reconciliation cron, webhook routing, KeepConvertedQuoteClosed) asks
+     * this instead, so turning popup off never abandons a loan that is open or paid. A store that never started an
+     * attempt answers false and pays nothing.
+     *
+     * Why the flag is always visible when it matters: it is committed before the first attempt row, and a cached
+     * configuration that shows popup off was loaded after popup was turned off, so after that commit as well.
+     *
+     * @param int|null $storeId null: the current store
      */
-    public function isPaymentFirstEnabledInAnyStore(): bool
+    public function isPaymentFirstInUse(?int $storeId = null): bool
+    {
+        return (bool)$this->getConfigData(self::PAYMENT_FIRST_IN_USE_PATH, $storeId)
+            || $this->isPaymentFirstEnabled($storeId);
+    }
+
+    /**
+     * isPaymentFirstInUse() for work with no store of its own (reconciliation cron, webhook routing).
+     */
+    public function isPaymentFirstInUseInAnyStore(): bool
     {
         foreach ($this->storeManager->getStores() as $store) {
-            if ($this->isPaymentFirstEnabled((int)$store->getId())) {
+            if ($this->isPaymentFirstInUse((int)$store->getId())) {
                 return true;
             }
         }

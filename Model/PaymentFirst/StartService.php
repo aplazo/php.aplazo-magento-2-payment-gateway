@@ -62,7 +62,8 @@ class StartService
         private RemoteAddress $remoteAddress,
         private ReconcileSchedule $schedule,
         private AttemptContext $context,
-        private Trace $trace
+        private Trace $trace,
+        private InUseFlag $inUseFlag
     ) {
     }
 
@@ -151,6 +152,8 @@ class StartService
             }
         }
         $this->saveBuyerAddress($quote);
+        // Before the attempt row: once a store holds an attempt, reconciliation keeps running for it even with popup off.
+        $this->inUseFlag->ensure((int)$quote->getStoreId());
         $attempt = $this->attemptStore->create([
             'quote_id' => (int)$quote->getId(),
             'store_id' => (int)$quote->getStoreId(),

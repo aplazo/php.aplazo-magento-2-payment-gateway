@@ -30,7 +30,6 @@
 "We could not start the payment. Please try again.","No pudimos iniciar el pago. Intenta de nuevo."
 "Aplazo is confirming your payment.","Aplazo está confirmando tu pago."
 "You closed the Aplazo window without completing the payment. Your cart is still available.","Cerraste la ventana de Aplazo sin completar el pago. Tu carrito sigue disponible."
-"We could not confirm your payment yet. If you paid, your order will be confirmed by email.","Todavía no pudimos confirmar tu pago. Si pagaste, tu pedido se confirmará por correo."
 "Aplazo: payment confirmed through the loan status API before the order was created (popup).","Aplazo: pago confirmado con la API de estado del préstamo antes de crear la orden (popup)."
 "Your session has expired. Please reload the page.","Tu sesión expiró. Recarga la página."
 "This order was paid and approved while it was being cancelled; it was not cancelled.","Esta orden se pagó y aprobó mientras se cancelaba; no se canceló."
@@ -38,3 +37,5 @@
 "Go to the Aplazo window","Ir a la ventana de Aplazo"
 "Close the Aplazo window","Cerrar la ventana de Aplazo"
 "Confirming your payment…","Confirmando tu pago…"
+"We could not confirm your payment yet. If you already paid in Aplazo, do not pay again: your order will be confirmed by email.","Todavía no pudimos confirmar tu pago. Si ya pagaste en Aplazo, no vuelvas a pagar: tu pedido se confirmará por correo."
+"Check again","Volver a consultar"

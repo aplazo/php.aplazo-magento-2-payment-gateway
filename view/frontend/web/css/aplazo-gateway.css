@@ -47,6 +47,7 @@ div.aplazo-font-text-item .aplazo-item-bull-container{position:relative; width: 
 .aplazo-popup-overlay__close:hover,.aplazo-popup-overlay__close:focus{color:#000;background:none;border:0}
 .aplazo-popup-overlay__spinner{display:none;width:32px;height:32px;margin:0 auto 16px;border:3px solid #ddd;border-top-color:#1a1a1a;border-radius:50%;animation:aplazo-popup-spin .8s linear infinite}
 .aplazo-popup-overlay[data-state="confirming"] .aplazo-popup-overlay__spinner{display:block}
+.aplazo-popup-overlay__action{margin-top:8px}
 .aplazo-popup-overlay [hidden]{display:none}
 @keyframes aplazo-popup-spin{to{transform:rotate(360deg)}}
 @media (prefers-reduced-motion:reduce){.aplazo-popup-overlay__spinner{animation-duration:2.4s}}

@@ -228,8 +228,9 @@ define(
             },
 
             /**
-             * The buyer closed Aplazo's window from the layer: the server is asked once (and again only while it
-             * cannot decide); if it was not paid, the layer goes away and the checkout can be used again.
+             * The buyer closed Aplazo's window from the layer. The buyer may have just paid, so this is handled like
+             * any other closed window: the server is asked during the whole close window, and the checkout comes back
+             * only if the last answer is not_paid (see onComplete).
              */
             closeFromOverlay: function (session) {
                 session.close();
@@ -240,7 +241,7 @@ define(
                     return;
                 }
                 this.retries = CLOSE_RETRIES;
-                this.retryNotPaid = false;
+                this.retryNotPaid = true;
                 this.showConfirming();
                 this.checkPayment();
             },
@@ -408,20 +409,59 @@ define(
                             // Still paying in Aplazo's window: the layer stays as it is.
                             return;
                         }
-                        this.finishPopup(response.status === 'not_paid'
-                            ? $t('You closed the Aplazo window without completing the payment. Your cart is still available.')
-                            : $t('We could not confirm your payment yet. If you paid, your order will be confirmed by email.'));
+                        if (response.status === 'not_paid') {
+                            // The only answer that gives the checkout back: the server asked Aplazo and Aplazo listed
+                            // this loan as not paid (LoanStatusChecker::NOT_PAID), and it still did at the end of the
+                            // checks. It proves "not paid now", not "can no longer be paid" (contract C3): the attempt
+                            // stays under reconciliation and the next Aplazo click reuses the same loan.
+                            this.finishPopup($t('You closed the Aplazo window without completing the payment. Your cart is still available.'));
+
+                            return;
+                        }
+                        // pending, a busy or unknown server answer, or a network error: the payment may exist.
+                        this.showUncertain(cycle);
 
                         return;
-                    default:
+                    case 'rejected':
+                    case 'review':
+                    case 'unknown_attempt':
+                        // Paid without an order, under review, or not in this session: never give the checkout back
+                        // for another payment from this page.
                         this.completed = true;
                         if (this.popupSession) {
                             this.popupSession.close();
                         }
-                        this.overlay.hide();
                         this.popupNotice(response.message || '');
-                        this.popupBusy(false);
+                        this.overlay.showMessage(response.message
+                            || $t('We are reviewing your payment. You will receive the confirmation by email.'), null);
+
+                        return;
+                    default:
+                        // An answer this page does not know (or an empty one) decides nothing: like pending.
+                        this.onComplete({status: 'pending'}, cycle);
                 }
+            },
+
+            /**
+             * The checks ended without a not_paid answer: the checkout stays blocked, the buyer can ask again.
+             * Recovery without this page: the reconciliation and the webhook keep checking the attempt and create the
+             * order if it was paid; reloading the page and clicking Aplazo again reuses the same loan.
+             */
+            showUncertain: function (cycle) {
+                var self = this;
+
+                this.popupNotice('');
+                this.overlay.showMessage($t('We could not confirm your payment yet. If you already paid in Aplazo, do not pay again: your order will be confirmed by email.'), {
+                    label: $t('Check again'),
+                    handler: function () {
+                        if (self.isCurrent(cycle) && !self.completed) {
+                            self.retries = CLOSE_RETRIES;
+                            self.retryNotPaid = true;
+                            self.showConfirming();
+                            self.checkPayment();
+                        }
+                    }
+                });
             },
 
             finishPopup: function (notice) {

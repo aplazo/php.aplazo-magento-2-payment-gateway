@@ -19,7 +19,8 @@ use Magento\Framework\Exception\NoSuchEntityException;
  *
  * Runs on sales_quote_save_before, which Magento dispatches inside the quote save's own transaction, for every quote
  * save of every store, so it is ordered from cheapest to most expensive and most saves stop at the first step:
- *  (a) popup payment-first off for the quote's store (configuration only): nothing else, no query;
+ *  (a) the quote's store never started an attempt and popup is off there (AplazoHelper::isPaymentFirstInUse,
+ *      configuration only): nothing else, no query;
  *  (b) the quote never started an attempt (indexed read of aplazo_payment_attempt by quote_id): nothing else. Attempts
  *      are committed at start, long before any conversion, so a quote without one cannot be in conversion;
  *  (c) only then the quote row is read with FOR UPDATE, which waits for a conversion in progress (the finalizer holds
@@ -31,8 +32,8 @@ use Magento\Framework\Exception\NoSuchEntityException;
  * an order, the save is refused the way Magento refuses an inactive cart (NoSuchEntityException on cartId) and rolled
  * back. Inactive quotes of any other origin are left alone, so Magento's restoreQuote() keeps working for them.
  *
- * With the switch off this guard does not run, also for attempts left from when it was on (accepted: the stale save
- * needs a cart request racing the conversion itself).
+ * Turning popup off does not turn this guard off for a store that started attempts: the reconciliation and the
+ * webhook can still convert them, and a stale save could still race that conversion.
  */
 class KeepConvertedQuoteClosed implements ObserverInterface
 {
@@ -47,7 +48,7 @@ class KeepConvertedQuoteClosed implements ObserverInterface
     {
         $quote = $observer->getEvent()->getQuote();
         if (!$quote || !$quote->getId() || !$quote->getIsActive()
-            || !$this->aplazoHelper->isPaymentFirstEnabled((int)$quote->getStoreId())
+            || !$this->aplazoHelper->isPaymentFirstInUse((int)$quote->getStoreId())
         ) {
             return;
         }

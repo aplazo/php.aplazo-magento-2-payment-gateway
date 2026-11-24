@@ -82,8 +82,9 @@ class Notifications implements NotificationsInterface
                 // Popup payment-first (BNPL-1664): the cartId may name an attempt, with no order yet. The signal only
                 // starts the trusted payment check; redirect orders continue below unchanged. A cartId that matches an
                 // attempt and another store's order without a clear merchant is refused, never guessed.
-                // With popup off in every store (configuration only) no attempt is looked up: redirect as before.
-                $route = $this->aplazoHelper->isPaymentFirstEnabledInAnyStore()
+                // Stores that never started an attempt (configuration only) look none up: redirect as before. A store that
+                // did keeps routing its attempts after popup is turned off.
+                $route = $this->aplazoHelper->isPaymentFirstInUseInAnyStore()
                     ? $this->paymentFirstRouter->route((string)($aplazoData[self::APLAZO_PAYLOAD_ORDER_ID_INDEX] ?? ''), $aplazoData)
                     : ['route' => WebhookRouter::REDIRECT];
                 if ($route['route'] === WebhookRouter::ATTEMPT) {
