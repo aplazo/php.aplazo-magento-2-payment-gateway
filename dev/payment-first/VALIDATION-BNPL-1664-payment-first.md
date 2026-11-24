@@ -201,3 +201,17 @@ has one failed rerun (indexers in realtime without a prior reindex).
   accurate for this store.
 - Inventory indexers temporarily set to realtime for `shipment`, restored to schedule.
 - The no-MSI check ran in a separate Docker volume, removed afterwards; the live store was not touched.
+
+## Round 4 addendum (2026-11-24, after `e3de859`)
+
+**Migration `Setup/Patch/Data/MarkPaymentFirstInUseStores`** (production code `e3de859`; the only change since
+`cd64d09` is this patch and its version note). Local store, no suite:
+- flag rows removed (as a store upgraded from `b2f1ccb`); synthetic attempts added: `completed` in store 2, `open` in a
+  store id that does not exist (99);
+- `setup:upgrade`: patch recorded in `patch_list`; flag written for store 1 (130 attempts in reconciled states) only;
+- `apply()` run twice more and `setup:upgrade` again: still one row, same value;
+- with popup off: `isPaymentFirstInUse(1)` = true, `isPaymentFirstInUse(2)` = false;
+- synthetic attempts removed; popup restored.
+
+**Publish failures, targeted** (8 observational cases, `RABBITMQ_CONTAINER` set so Magento's consumer runs; queues
+drained first): see REVIEW §7b. The full run had not exercised the consumers.

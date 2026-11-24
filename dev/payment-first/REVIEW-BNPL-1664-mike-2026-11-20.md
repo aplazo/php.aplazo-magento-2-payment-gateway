@@ -87,8 +87,10 @@ loan); the order arrives by webhook or reconciliation if the loan was paid.
 | D | Cancel the loan before giving the checkout back, only if Aplazo guarantees cancel-if-unpaid (refused once paid) | closed, if the contract holds | none | Aplazo contract C5 (+ C3) |
 | E | Turn on the automatic reversal of `rejected` attempts | the second charge is refunded, not prevented | refund delay | C5 (what cancel does after payment) |
 
-Recommendation: D as the target (ask Aplazo/Gus for cancel-if-unpaid and checkout expiry); until then A or B is Mike's
-call. Whatever is chosen, an operator must watch `--attention` for `rejected` attempts during the pilot.
+**None of A, B or C resolves the risk.** Asking the buyer (B) or waiting longer (C) only makes an accidental second
+payment less likely; the first loan stays payable either way. Only D prevents the double charge, and it depends on
+Aplazo. E refunds it afterwards. Until Aplazo confirms C5/C3 this stays an **open risk of the pilot**: Mike chooses A
+or B as the interim behaviour, and an operator watches `--attention` for `rejected` attempts.
 
 Evidence (fact): `js_cycle_test.py` scenarios 9, 14–17 and `ux_e2e.py closed_uncertain` (status API failing → layer with
 "Check again" after 9 checks, page inert; then "not paid" → checkout back, no order, quote active).
@@ -136,8 +138,8 @@ waited for someone to run the CLI. That is no longer the only way out.
 switch covers it). If popup is turned off **before** any new start, the cron, the webhook routing and the H-1 guard
 ignore those older attempts, as in `b2f1ccb`; only the CLI reaches them. Affected installations: the local store (fact:
 attempts since 2026-10-28, flag written today) and magento-test (attempts from Mike's tests on `b2f1ccb`; not checked).
-Production has none (popup is sandbox-only). Options: a data patch that writes the flag for every store with
-attempts in a reconciled state (not implemented), or setting it by SQL on magento-test before turning popup off.
+Production has none (popup is sandbox-only). Resolved by the data patch `Setup/Patch/Data/MarkPaymentFirstInUseStores` (`e3de859`): on `setup:upgrade` it writes
+the flag for every existing store with an attempt in a reconciled state; idempotent (validated, VALIDATION round 4 addendum).
 
 **Deviation from the original requirement.** Mike asked that, with popup off, nothing new costs anything. That holds
 for stores that never used popup (0 module queries, table above). A store that used popup and turned it off keeps
@@ -246,12 +248,53 @@ cannot show something, it is listed as unverified.
 
 | Group (cases) | Observed | Not verifiable here / still to check |
 |---|---|---|
-| **Inventory** `msi_fix_*` (8), `msi_*` (5), `msi_backlog_drain` (1) | Successful conversion: one `-1 order_placed` reservation, salable qty of the last unit goes to 0, the salability message is published **after** the commit (probe: transaction level 0). Abort, rollback and synthetic definitive failure: no reservation, unit still salable, attempt `needs_review`, no order. Crash then recovery, and repeated finalization: one reservation only. Publish failure after the commit (`publish_exception`/`_error`): the order completes, the probe records the error, nothing is queued for that order. Redirect: message published at once, as in Magento | The stock index flag (`stock_index_view.is_salable`) stays `1` in **every** case, redirect included, also after a reindex, so the index side of salability is not observed in this setup. The queue depth was not measured (`RABBITMQ_CONTAINER` unset); Magento's consumer reported "nothing to consume" every time. After a publish failure the message is lost; whether a reindex or cron restores the index flag is not shown |
-| **Coupons** `coupon_fix_*` (10), `coupon_counters_*` (5), `coupon_success`, `coupon_link_fail` | Coupon `times_used` +1 exactly once per order: on success, on crash then recovery, on submit failure then recovery, and not again on a repeated finalization. Abort or definitive link failure: no change. Registered customer: per-customer counters +1 once. Limits: a second use by the same customer and a third guest use are refused. Bulk message scheduled after the commit (`coupon_bulk_publish` with no callbacks left) | The rule-level counter (`rule_times_used`, updated asynchronously) never moved, redirect included: the consumer had nothing to consume. After a bulk-publish failure (`publish_exception`/`_error`) the coupon counter moved but no bulk was recorded, so the rule-level increment for that order would be missing. The real consumer path is still unverified |
+| **Inventory** `msi_fix_*` (8), `msi_*` (5), `msi_backlog_drain` (1) | Successful conversion: one `-1 order_placed` reservation, salable qty of the last unit goes to 0, the salability message is published **after** the commit (probe: transaction level 0). Abort, rollback and synthetic definitive failure: no reservation, unit still salable, attempt `needs_review`, no order. Crash then recovery, and repeated finalization: one reservation only. Publish failure after the commit (`publish_exception`/`_error`): the order completes, the probe records the error, nothing is queued for that order. Redirect: message published at once, as in Magento | In the full run the kit did not run Magento's consumer (it only consumes when it can count the queue, and `RABBITMQ_CONTAINER` was unset), so the index flag never moved there. Measured afterwards with the consumer: §7b |
+| **Coupons** `coupon_fix_*` (10), `coupon_counters_*` (5), `coupon_success`, `coupon_link_fail` | Coupon `times_used` +1 exactly once per order: on success, on crash then recovery, on submit failure then recovery, and not again on a repeated finalization. Abort or definitive link failure: no change. Registered customer: per-customer counters +1 once. Limits: a second use by the same customer and a third guest use are refused. Bulk message scheduled after the commit (`coupon_bulk_publish` with no callbacks left) | In the full run the consumer did not run (same reason), so the rule-level counter never moved there. Measured afterwards with the consumer: §7b |
 | **Email** `email_webhook`, `email_fix_*` (3), `email_reconcile_*` (2) | One `OrderSender::send` per order, no exception, for webhook, CLI reconciliation and the cron class; repeated finalization sends nothing more; one `order_paid` tracking event. Synchronous sending: `email_sent=1`. Asynchronous: `send_email=1`, `email_sent` empty (left for Magento's `sales_send_order_emails` cron) | No mail transport is configured, so delivery is not shown. The asynchronous cron was not run |
 | **Uncertain start** `uncertain_start_*` (4) | `createLoan` failure or a process dying during it: one attempt `uncertain`/`starting`, **one** `createLoan` call in total across re-clicks, a cart change and a reconciliation; no order, no reservation. Normal start: the same click reuses the open attempt (one `createLoan`) | While such an attempt is unresolved, that cart cannot use Aplazo again; the reconciliation keeps it as it is. How it ends depends on C2 (lookup after a lost `createLoan`) |
 | **Order link** `link_conflict_concurrent_complete`, `link_conflict_then_reconcile`, `link_conflict_then_cart_write`, `link_definitive_failure_synthetic` | A buyer's `complete` during the conversion: one order, one invoice, one reservation, attempt `completed`; a later cart write is refused ("The quote item isn't found"), the quote stays inactive. Synthetic definitive failure: no order, no reservation, quote active, a later cart write is accepted (qty 3), attempt `needs_review` | The synthetic case leaves a paid loan without an order for an operator (by design); its follow-up is manual |
 | **Approval** `approval_*` (4), `crash_inside_tx_after_writes` | `processing` with the configured status (default or custom), one invoice, the email requested once, one `order_paid` event; a repeated finalization changes nothing. Crash after the invoice and an operator invoice: the repeat completes without a second invoice. Crash inside the transaction after writes: no order, quote active, attempt `open`; the reconciliation completes with one order and one reservation | Delivery of the email (as above) |
+
+### 7b. Publish failures after the commit (inventory salability, coupon usage)
+
+Payment-first converts the quote inside its own transaction. Two Magento messages that the core publishes **inside**
+`submit` are deferred by the module until that transaction commits (`DeferredSalabilityPublisher`,
+`Plugin/PaymentFirst/DeferCouponUsagePublish`), so a rolled-back conversion never leaves a message behind. The cost is
+what happens when that late publish fails.
+
+**Reproduction (fact, `cd64d09`, 2026-11-24, kit stub, RabbitMQ queue measured, Magento's own consumer):**
+`pf_e2e.py mf_success_then_consume mf_publish_exception mf_publish_error mf_redirect cf_guest_success
+cf_guest_publish_exception cf_guest_publish_error cf_redirect` with `RABBITMQ_CONTAINER` set. The failures are
+injected by the stub (`SalabilityPublishProbe`, `BulkPublishProbe`: one `RuntimeException` or `\Error` in the
+publisher). Queues were drained before the run.
+
+| | Normal (payment-first) | Publish failure (payment-first) | Redirect / Magento core |
+|---|---|---|---|
+| **Inventory** order, reservation | order completed, `-1 order_placed` | same: order completed, `-1 order_placed`, salable qty 0 | order placed, reservation in the same transaction |
+| salability message | published after the commit (1 queued) | **not queued**; `error` trace "stock salability message not published" | published inside `submit` |
+| stock index `is_salable` after the consumer | `0` | **stays `1`**; a full `indexer:reindex inventory` does not change it | `0` |
+| **Coupon** `times_used` (coupon) and per-customer usage | +1 (synchronous) | +1 (synchronous) | +1 (synchronous) |
+| rule-level usage message (`sales.rule.update.coupon.usage`) | 1 bulk queued after the commit; consumer: rule `times_used` +1 | **no bulk**; `error` trace "coupon usage message not published"; rule `times_used` not incremented | queued inside `submit`; consumer +1 |
+| If the core publish fails in the core flow | — | — | the exception aborts `submit`: no order |
+
+**Impact:**
+- **Inventory:** the order and its reservation are correct, and checkout keeps refusing the unit (salable qty is computed
+  from reservations: fact, salable = false). What is wrong is the stored index flag: the SKU can keep showing as in stock
+  in listings until another salability message for that SKU is consumed (fact: the next shipment of that SKU published
+  one and the consumer set `is_salable = 0`). A full reindex does not repair it (fact).
+- **Coupon:** coupon limits and per-customer limits are synchronous and stay correct (fact). Only the rule-level usage
+  counter (`salesrule.times_used`, admin statistic; no limit in Magento 2.4.8 reads it, checked in
+  `Magento\SalesRule\Model\Utility`) stays one short per failed order.
+- **Compared with the core flow:** in redirect a publish failure fails the checkout (no order, buyer sees an error).
+  Payment-first cannot do that, because the loan is already paid; it keeps the order and loses the message.
+
+**Existing recovery:** none automatic. The failure is traced at `error` level through `LogService`, which in
+production posts to Aplazo's log endpoint (`/api/v1/ps/logs`, Datadog), fire-and-forget; the merchant's store keeps no
+local record. The inventory flag heals on the next salability message for the SKU (a later order, shipment, credit memo
+or source update); the coupon statistic needs a manual `UPDATE salesrule SET times_used = times_used + 1` per order.
+
+**Open:** whether to retry the publish (for example from the reconciliation cron) or to queue a repair message for the
+SKU. Not implemented; the frequency in production is unknown (a broker outage at that exact moment).
 
 **Counts.** The full run executed the 106 entries of `TESTS` and wrote **107** records: `link_conflict` writes two
 (`link_conflict_concurrent_complete` and `link_conflict_then_reconcile`); no name repeats.

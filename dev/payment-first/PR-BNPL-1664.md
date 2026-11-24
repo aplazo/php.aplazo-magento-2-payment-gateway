@@ -9,7 +9,9 @@ Replaces the order-first approach of #131 (to be closed with this PR).
 
 Jira: [BNPL-1664](https://aplazo.atlassian.net/browse/BNPL-1664) · parent [BNPL-1423](https://aplazo.atlassian.net/browse/BNPL-1423)
 
-**Tested version:** production code `cd64d09` (4.0.14, master 4.0.13 merged), identical in the PR head (later commits only touch `dev/`). Kit `b9f9410` (full run) and `64cbe2c` (reruns). Details: `dev/payment-first/VALIDATION-BNPL-1664-payment-first.md`, round 4.
+**Tested version:** production code `cd64d09` (4.0.14, master 4.0.13 merged) for the suites; `e3de859` adds only the data patch `MarkPaymentFirstInUseStores`, validated on its own. The PR head is identical to `e3de859` outside `dev/`. Details: `dev/payment-first/VALIDATION-BNPL-1664-payment-first.md`, round 4 and its addendum.
+
+**Draft: not ready for merge.** Open decisions and pending validations are listed at the end.
 
 ### How it works
 1. **Click** on "Pagar con Aplazo": checkout validated as today; the Aplazo window opens inside the click (blocked → today's redirect); payment data saved **without** placing the order.
@@ -40,21 +42,26 @@ Details and evidence: `dev/payment-first/REVIEW-BNPL-1664-mike-2026-11-20.md`.
 | Never used popup | no module query | no module query |
 | Used popup, now off | + 1 indexed read on `aplazo_payment_attempt` | no module query |
 
-### Testing (local Magento 2.4.8 + MSI, Aplazo API stubbed, Aplazo window mocked; no STG)
-- `kit_guard.php` ran before every suite: stub enabled, the plugin's API/log/tracking services stubbed, local store URL.
+### Testing — passed (with assertions)
+All local: Magento 2.4.8 + MSI, Aplazo API stubbed, Aplazo window mocked, `kit_guard.php` before every suite (stub enabled, the plugin's API/log/tracking services stubbed, local store URL). No STG.
 - QA selection (`qa_selection.py`): 6/6.
 - UX in a real browser (`ux_e2e.py`): 5/5 — layer, ×, loader, late payment → success with empty minicart, closed unpaid, closed uncertain.
-- Renderer cycles (`js_cycle_test.py`): 5 new/changed scenarios pass; scenarios 1–7 match the pre-review renderer.
-- H-1 focused (`h1_inflight_current` / `h1_inflight_order_only`), popup off with existing attempts (`switch_off_webhook`, `switch_off_cron`): pass.
-- Full kit (`pf_e2e.py all`, 106 entries, 107 records): 52 assertions pass; 4 failed and 1 was interrupted — all 5 pass on separate reruns after updating 4 stale kit expectations and fixing 1 stock-index setup issue. 50 records are observational (no pass/fail criterion): read and summarized in REVIEW §7, not counted as passed.
+- Renderer cycles (`js_cycle_test.py`): 5 new/changed scenarios; scenarios 1–7 match the pre-review renderer.
+- H-1 focused (`h1_inflight_current` / `h1_inflight_order_only`); popup off with existing attempts (`switch_off_webhook`, `switch_off_cron`).
+- Full kit (`pf_e2e.py all`, 106 entries, 107 records): 52 assertions passed in the run; 4 failed and 1 was interrupted, all 5 pass on separate reruns (4 stale kit expectations updated, 1 stock-index setup issue).
+- Query counter (`query_probe.php`): popup off and never used → no module query on cart save and order cancel.
+- Data patch `MarkPaymentFirstInUseStores`: marks only stores with attempts in progress, idempotent (validated locally).
 - Unit tests from master (`Test/Unit`): 15/15.
-- No-MSI compile (isolated container): fails on this branch, on `master` and on `b2f1ccb`, all in the pre-existing `MSIStock.php`.
 
-### Open before merge
-- **Mike:** close-without-payment decision (REVIEW §1a), the extra read after turning popup off (REVIEW §2), H-1 deviation (REVIEW §3).
-- **Manual:** STG purchases and the magento-test run with 4.0.14; on magento-test, attempts from `b2f1ccb` have no `payment_first_in_use` flag (REVIEW §2).
-- **Aplazo contracts** C1–C8 (design §9), in particular C3 (checkout expiry) and C5 (cancel-if-unpaid).
-- No-MSI compile: pre-existing defect, to be reported separately.
-- Mobile browsers (BNPL-1667), Universal Checkout (BNPL-1666).
+### Observational (evidence recorded, no pass/fail criterion — not counted as passed)
+- 50 records of the full run (inventory, coupons, email, uncertain start, order link, approval): summarized in REVIEW §7.
+- Publish failures after the commit (8 targeted records with Magento's consumer, REVIEW §7b): if the late publish fails, the order and its reservation are correct but the stock index can keep showing the last unit as in stock until the next message for that SKU (a reindex does not fix it), and the rule-level coupon statistic stays one short. Coupon and per-customer limits are unaffected. Traced as `error` to Aplazo's logs only; no automatic retry.
+
+### Pending validations and open decisions
+- **Late payment of an earlier loan (open risk, not resolved).** A loan reported `not_paid` stays payable: neither the plugin nor any known contract cancels or expires it (REVIEW §1a). If the buyer pays another way and the first loan is paid later, the buyer is charged twice; the attempt ends `rejected` and the refund is manual. Asking the buyer before giving the checkout back, or waiting longer, only lowers the chance. Preventing it needs Aplazo (cancel-if-unpaid, C5; checkout expiry, C3).
+- **Mike:** the interim close-without-payment behaviour, the extra read after turning popup off (REVIEW §2), the H-1 deviation (REVIEW §3), and whether to retry failed publishes (REVIEW §7b).
+- **No MSI:** `setup:di:compile` fails on this branch, on `master` `fe0573d` and on `b2f1ccb`, in the pre-existing `MSIStock.php` (`dev/payment-first/DEFECT-no-msi-compile-4.0.13.md`). Point 8 not approved; redirect checkout without MSI not repeated on the final version.
+- **Manual:** STG purchases and the magento-test run with this version (the data patch marks magento-test's older attempts on `setup:upgrade`).
+- **Not run:** Magento's cron scheduler (`cron:run`), email delivery (no mail transport), mobile browsers (BNPL-1667), Universal Checkout (BNPL-1666), the real Aplazo contracts C1–C8.
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
