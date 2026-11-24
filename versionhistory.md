@@ -181,4 +181,5 @@
 * Popup checkout mode, payment-first (sandbox only, opt-in per website; redirect stays the default and unchanged): the order is created only after Aplazo confirms the payment, and closing the Aplazo window without paying leaves the cart intact
 * While Aplazo's window is open the checkout is covered by a layer (link back to the window, close button); after it closes the payment is confirmed with retries, and the checkout comes back only when Aplazo reports the loan not paid
 * Stores that never use popup run no new queries; reconciliation keeps running for a store that started popup attempts even after popup is turned off
+* Data patch marks the stores that already have popup attempts in progress (created before this version), so turning popup off does not leave them unattended
 * No new Composer dependencies; etc/db_schema_whitelist.json added
