@@ -142,3 +142,60 @@
 - **Synthetic customers** `pf-*@example.invalid`.
 - **Kit stub updated** (sync points, cron allowlist, slow log).
 - **Cron:** no scheduler was run; the reconciliation cron class was invoked directly, allowlisted to the test's attempt.
+
+# Round 4 · Mike's review of 2026-11-20 (2026-11-24)
+
+**Code tested:** `cd64d09` (4.0.14, master 4.0.13 merged). The production code is identical in `64cbe2c`; later commits
+only change `dev/`. Kit: `b9f9410` for the full run, `64cbe2c` for the five reruns.
+- Local docker-magento 2.4.8 with MSI, `LocalDev_AplazoStub` enabled, `mock_https.py`. `kit_guard.php` passed before
+  every suite (stub enabled; the plugin's ApiService, LogService and TrackingService are the stub's; host `magento.test`).
+  **No STG call, no real Aplazo payment.**
+- What each point of the review means and its evidence: `REVIEW-BNPL-1664-mike-2026-11-20.md`.
+
+## Suites with assertions
+
+| Suite | Result |
+|---|---|
+| `qa_selection.py` (6) | 6 pass |
+| `ux_e2e.py` (5, real browser) | 5 pass: layer, close button, closed then paid late, closed without paying, closed uncertain |
+| `js_cycle_test.py` (17, isolated renderer) | 5 new/changed scenarios pass (9, 14–17); 1–7 give the same result as the pre-review renderer `b2f1ccb` with the same scenarios |
+| New store cases | `h1_inflight_current`, `h1_inflight_order_only`, `switch_off_webhook`, `switch_off_cron`: pass |
+| `query_probe.php` | popup off / never used: no module query in cart save and cancels (details in REVIEW §2) |
+| `Test/Unit` (from master, PHPUnit 10.5) | 15 pass, 25 assertions; 1 runner warning (Allure config file missing in the container) |
+
+## Full matrix `pf_e2e.py all` (107 records)
+
+| Category | Count | Detail |
+|---|---|---|
+| Assertion, passed | 52 | incl. all H-1, H-4, H-5, H-8, H-9, concurrency, redirect and webview cases |
+| Assertion, failed | 4 | all four pass on rerun after the changes below |
+| Interrupted before its assertion | 1 | `mutation_during_convert` (`TypeError`: no attempt after the second click) |
+| Observational (`ok=None`, recorded as false) | 50 | `msi_*` (14), `coupon_*` (17), `email_*` (6), `uncertain_start_*` (4), `link_*` (4), `approval_*` (4), `crash_inside_tx_after_writes` |
+
+**The five that did not pass in the full run:**
+
+| Case | Why | Change | Rerun |
+|---|---|---|---|
+| `mutation_during_convert` | clicked Place Order 4 s after closing the window; the layer now blocks the checkout during the close window (~25 s), so no attempt was started | wait for "closed without paying" before clicking | pass (order qty 2, change waited, converted quote inactive) |
+| `status_unknown_then_paid` | expected Place Order enabled after "not confirmed yet" — the behaviour the review removes | expect the layer in the uncertain state, page inert | pass (attempt stays open on unknown/empty, completes when paid) |
+| `create_loan_fail_then_early_webhook` | looked for the start message text reworded in `b2f1ccb` | current text | pass |
+| `h3_registered_cron_class_crash_then_complete` | expected `open` after a crash at `order_saved`; since the H-1 addendum the attempt is linked in the conversion transaction, so it is `order_created` | expect `order_created` | pass (second cron run completes it, attention report cleared) |
+| `shipment_and_physical_stock` | environment: inventory indexers in "Update by Schedule" with no cron, so salable qty did not move | rerun with the indexers in realtime after a reindex, then restored to schedule | pass (physical −1, salable −1, reservations net 0) |
+
+**Observational cases:** their records were collected, not asserted. Nothing in them was compared against an
+expected value in this round; reading them (deferred coupon and salability messages, email hand-off, uncertain start,
+link conflicts) is still to do.
+
+## Not run in this round
+
+- Redirect checkout without MSI on the final version (see REVIEW §4).
+- The cron scheduler (`cron:run`); the reconciliation class was invoked directly.
+- STG, magento-test, real devices, mobile browsers.
+
+## Environment changes (local only, restored)
+
+- Popup left on (as before). `LocalDev_AplazoStub` enabled for the runs and disabled again afterwards (as before).
+- `payment/aplazo_gateway/payment_first_in_use = 1` (stores/1): written by the kit and by real starts; kept, it is
+  accurate for this store.
+- Inventory indexers temporarily set to realtime for `shipment`, restored to schedule.
+- The no-MSI check ran in a separate Docker volume, removed afterwards; the live store was not touched.
