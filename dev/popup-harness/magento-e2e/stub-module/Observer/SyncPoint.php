@@ -12,9 +12,12 @@ use Magento\Framework\Event\ObserverInterface;
  *   pause:<seconds>  sleep there; var/localdev_pf_<event>.inside exists while sleeping
  *   once:<seconds>   like pause, but only for the first process that gets there (the file is removed)
  *   crash            the file is removed and the PHP process exits there (a process dying mid-way)
+ *   throw            the file is removed and a RuntimeException is thrown there (an ordinary failure)
  * <event> is the event name without the "aplazo_payment_first_" prefix: convert_before, order_saved, approve_before,
  * cancel_requested; or a core event name: order_cancel_after (between an admin cancellation and its save) or
- * sales_order_load_after (right after a process loaded an order; use once:).
+ * sales_order_load_after (right after a process loaded an order; use once:), sales_quote_save_after (after a quote
+ * row was written, e.g. the conversion's deactivation), sales_order_invoice_save_after (after an invoice was written) or
+ * sales_model_service_quote_submit_before (inside QuoteManagement::submit, before the order is saved).
  */
 class SyncPoint implements ObserverInterface
 {
@@ -28,6 +31,11 @@ class SyncPoint implements ObserverInterface
             @unlink($file);
             StubLog::write('sync', $name, ['plan' => 'crash']);
             exit(1);
+        }
+        if ($plan === 'throw') {
+            @unlink($file);
+            StubLog::write('sync', $name, ['plan' => 'throw']);
+            throw new \RuntimeException('kit: synthetic failure at ' . $name);
         }
         if (strpos($plan, 'once:') === 0) {
             // One-shot pause, for events that later fire in other processes too (sales_order_load_after).

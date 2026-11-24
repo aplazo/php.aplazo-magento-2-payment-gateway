@@ -8,6 +8,8 @@
 //   stock <sku> <qty>           sets the default source quantity of an APLAZO-1664- test product
 //   customer <email> <password> creates a synthetic pf-*@example.invalid customer if missing
 //   coupon <PFKIT...>           creates a synthetic 10% cart rule with that specific coupon if missing
+//   invoice <entity_id>         invoices the order as an operator would (invoice service, one transaction)
+//   order_status <aplazo_kit_*> creates a synthetic status assigned to the processing state
 // Prints one JSON line. Never prints tokens or customer data.
 require 'app/bootstrap.php';
 $om = \Magento\Framework\App\Bootstrap::create(BP, $_SERVER)->getObjectManager();
@@ -34,6 +36,28 @@ try {
         $order->cancel();
         $repo->save($order);
         $out['result'] = $order->getState();
+    } elseif ($command === 'invoice') {
+        // Invoices an order as an operator would (Magento's invoice service, online capture case, one transaction).
+        $order = $om->get(\Magento\Sales\Api\OrderRepositoryInterface::class)->get((int)$argv[2]);
+        $invoice = $om->get(\Magento\Sales\Model\Service\InvoiceService::class)->prepareInvoice($order);
+        $invoice->setRequestedCaptureCase(\Magento\Sales\Model\Order\Invoice::CAPTURE_ONLINE);
+        $invoice->register();
+        $om->create(\Magento\Framework\DB\Transaction::class)->addObject($invoice)->addObject($invoice->getOrder())->save();
+        $out['invoice_id'] = (int)$invoice->getId();
+        $out['state'] = $order->getState();
+        $out['status'] = $order->getStatus();
+    } elseif ($command === 'order_status') {
+        // A synthetic order status assigned to the processing state (BNPL-1664 approval test; aplazo_kit_* only).
+        $code = (string)$argv[2];
+        if (strpos($code, 'aplazo_kit_') !== 0) {
+            throw new \InvalidArgumentException('only aplazo_kit_* statuses');
+        }
+        $status = $om->create(\Magento\Sales\Model\Order\Status::class)->load($code);
+        if (!$status->getStatus()) {
+            $status->setData(['status' => $code, 'label' => 'Kit approved (' . $code . ')'])->save();
+        }
+        $status->assignState('processing', false, false);
+        $out['status'] = $code;
     } elseif ($command === 'ship') {
         $out['shipment_id'] = $om->get(\Magento\Sales\Api\ShipOrderInterface::class)->execute((int)$argv[2]);
     } elseif ($command === 'product') {
@@ -83,6 +107,7 @@ try {
         }
     } elseif ($command === 'coupon') {
         // A synthetic cart price rule with a specific coupon for the BNPL-1664 coupon test (PFKIT* codes only).
+        // Optional, only when the rule is created: <uses_per_coupon> <uses_per_customer> (0 = unlimited).
         $code = (string)$argv[2];
         if (strpos($code, 'PFKIT') !== 0) {
             throw new \InvalidArgumentException('only PFKIT* test coupons');
@@ -95,7 +120,8 @@ try {
             $rule = $om->create(\Magento\SalesRule\Model\Rule::class);
             $rule->setName('BNPL-1664 kit coupon ' . $code)->setIsActive(1)->setWebsiteIds([1])->setCustomerGroupIds([0, 1])
                 ->setCouponType(\Magento\SalesRule\Model\Rule::COUPON_TYPE_SPECIFIC)->setCouponCode($code)
-                ->setUsesPerCoupon(0)->setUsesPerCustomer(0)->setSimpleAction('by_percent')->setDiscountAmount(10)
+                ->setUsesPerCoupon((int)($argv[3] ?? 0))->setUsesPerCustomer((int)($argv[4] ?? 0))
+                ->setSimpleAction('by_percent')->setDiscountAmount(10)
                 ->setStopRulesProcessing(0);
             $rule->save();
             $out['created'] = true;

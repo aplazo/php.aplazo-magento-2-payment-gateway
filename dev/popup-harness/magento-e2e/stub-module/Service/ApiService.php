@@ -10,7 +10,8 @@ class ApiService extends \Aplazo\AplazoPayment\Service\ApiService
 {
     public const MOCK_CHECKOUT_URL = 'http://localhost:8099/mock-checkout.html';
 
-    public function getAuthorizationToken()
+    // Same signature as master's ApiService since BNPL-1928 (4.0.13); still compatible with the 4.0.12 parent.
+    public function getAuthorizationToken(bool $useCache = true)
     {
         StubLog::write('api', 'getAuthorizationToken');
         return 'local-stub-token';
@@ -19,8 +20,14 @@ class ApiService extends \Aplazo\AplazoPayment\Service\ApiService
     public function createLoan($orderData, $tokenBearer)
     {
         $cartId = (string)($orderData['cartId'] ?? $orderData['shopId'] ?? '');
-        // BNPL-1664 payment-first: var/localdev_aplazo_stub_createloan = fail (exception, like a timeout) | nourl.
+        // BNPL-1664 payment-first: var/localdev_aplazo_stub_createloan = fail (exception, like a timeout) | nourl |
+        // crash (the PHP process exits during the call, as a request killed while waiting for Aplazo; the file is removed).
         $mode = trim((string)@file_get_contents(BP . '/var/localdev_aplazo_stub_createloan'));
+        if ($mode === 'crash') {
+            @unlink(BP . '/var/localdev_aplazo_stub_createloan');
+            StubLog::write('api', 'createLoan', ['cartId' => $cartId, 'simulated' => 'crash']);
+            exit(1);
+        }
         if ($mode === 'fail') {
             StubLog::write('api', 'createLoan', ['cartId' => $cartId, 'simulated' => 'fail']);
             throw new \Magento\Framework\Exception\LocalizedException(__('stub: createLoan failed'));

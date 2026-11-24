@@ -1710,8 +1710,879 @@ def t_cart_changed_record():
         b.quit()
 
 
+def t_crash_after_writes():
+    """Point 1 (H-1): the PHP process exits inside the conversion transaction AFTER submit wrote the order, the MSI
+    reservation and the quote deactivation (crash at sales_quote_save_after). No catch runs; the database rolls back
+    because the connection closes. Compared with link_incompatible, where the catch rolls back."""
+    r = Run(); b = Browser(); default_loan('REQUEST')
+    try:
+        ok, a = open_popup(b, plan='stay')
+        qid = int(a['quote_id'])
+        loan(a['cart_id'], 'OUTSTANDING')
+        stub('localdev_pf_sales_quote_save_after', 'crash')
+        hook = webhook(a['cart_id'], 'stub-' + a['cart_id'])
+        stub('localdev_pf_sales_quote_save_after', None)
+        crashed_at = [c for c in r.calls() if c.get('service') == 'sync' and c.get('method') == 'sales_quote_save_after']
+        after = dict(orders=rows("SELECT entity_id, store_id FROM sales_order WHERE increment_id='%s'" % a['cart_id'], ('entity_id', 'store_id')),
+                     grid=sql("SELECT COUNT(*) FROM sales_order_grid WHERE increment_id='%s'" % a['cart_id']),
+                     reservations=r.res(), quote=quote(qid), attempt=attempt(a['entity_id']),
+                     order_placed_trace=[c.get('message') for c in r.calls() if c.get('service') == 'log' and c.get('order_id') == a['cart_id']])
+        rec = reconcile(a['entity_id'])
+        o = r.orders()
+        record('crash_inside_tx_after_writes', None, webhook_body=str((hook or {}).get('body'))[:300], crash_point=crashed_at,
+               after_crash=after, reconcile=rec, final_attempt=attempt(a['entity_id'])['status'],
+               final_orders=[x['increment_id'] + ':' + x['state'] + ':inv' + x['invoices'] for x in o], final_reservations=r.res())
+    finally:
+        stub('localdev_pf_sales_quote_save_after', None)
+        b.quit()
+
+
+def approval_snapshot(r, a):
+    o = rows("SELECT o.entity_id, o.state, o.status, JSON_UNQUOTE(JSON_EXTRACT(p.additional_information,'$.aplazo_status')), "
+             "(SELECT COUNT(*) FROM sales_order_status_history h WHERE h.parent_id=o.entity_id AND h.comment LIKE '%%loan status API%%'), "
+             "(SELECT COUNT(*) FROM sales_invoice i WHERE i.order_id=o.entity_id), o.send_email, o.email_sent "
+             "FROM sales_order o JOIN sales_order_payment p ON p.parent_id=o.entity_id WHERE o.increment_id='%s'" % a['cart_id'],
+             ('entity_id', 'state', 'status', 'aplazo_status', 'confirm_comment', 'invoices', 'send_email', 'email_sent'))
+    x = attempt(a['entity_id'])
+    calls = r.calls()
+    return dict(order=o[0] if o else None, attempt_status=x['status'], attempt_order_id=x['order_id'],
+                email_requested_at=x['email_requested_at'], reservations=r.res(),
+                tracking_order_paid_events=len([c for c in calls if c.get('service') == 'tracking' and c.get('event') == 'order_paid']),
+                invoice_probe=[{k: c.get(k) for k in ('state', 'status', 'is_in_process')} for c in calls
+                               if c.get('service') == 'probe' and c.get('order_id') == a['cart_id']])
+
+
+def t_approval(mode):
+    """Approval effects (state/status, aplazo_status, confirmation comment, tracking, email request) and what a repeated
+    finalization recovers. mode: default | custom_status | crash_after_invoice | operator_invoice."""
+    r = Run(); b = Browser(); default_loan('REQUEST')
+    custom = 'aplazo_kit_paid'
+    try:
+        if mode == 'custom_status':
+            php('order_ops.php', 'order_status', custom)
+            set_config_sql('payment/aplazo_gateway/approved_order_status', 'websites', 1, "'%s'" % custom)
+        ok, a = open_popup(b, plan='stay')
+        loan(a['cart_id'], 'OUTSTANDING')
+        steps = {}
+        if mode == 'crash_after_invoice':
+            stub('localdev_pf_sales_order_invoice_save_after', 'crash')
+            steps['webhook'] = str(webhook(a['cart_id'], 'stub-' + a['cart_id']).get('body'))[:200]
+            stub('localdev_pf_sales_order_invoice_save_after', None)
+            steps['after_crash'] = approval_snapshot(r, a)
+            steps['reconcile_1'] = reconcile(a['entity_id'])
+        elif mode == 'operator_invoice':
+            stub('localdev_pf_approve_before', 'crash')
+            steps['webhook'] = str(webhook(a['cart_id'], 'stub-' + a['cart_id']).get('body'))[:200]
+            stub('localdev_pf_approve_before', None)
+            o = r.orders()
+            steps['before_invoice'] = approval_snapshot(r, a)
+            steps['operator_invoice'] = php('order_ops.php', 'invoice', o[0]['entity_id'])
+            steps['after_operator_invoice'] = approval_snapshot(r, a)
+            steps['reconcile_1'] = reconcile(a['entity_id'])
+        else:
+            steps['webhook'] = webhook(a['cart_id'], 'stub-' + a['cart_id']).get('body')
+        steps['after_first_finalization'] = approval_snapshot(r, a)
+        # Repeated finalization: webhook again, then the reconciliation for this attempt.
+        steps['webhook_again'] = webhook(a['cart_id'], 'stub-' + a['cart_id']).get('body')
+        steps['reconcile_again'] = reconcile(a['entity_id'])
+        steps['after_repeat'] = approval_snapshot(r, a)
+        record('approval_%s' % mode, None, configured_approved_status=custom if mode == 'custom_status' else 'processing (default)',
+               steps=steps)
+    finally:
+        stub('localdev_pf_sales_order_invoice_save_after', None); stub('localdev_pf_approve_before', None)
+        if mode == 'custom_status':
+            set_config_sql('payment/aplazo_gateway/approved_order_status', 'websites', 1, None)
+        b.quit()
+
+
+def email_snapshot(r, a, since):
+    s = approval_snapshot(r, a)
+    s['order_sender_probe'] = [c for c in stub_calls_since(since)
+                               if c.get('service') == 'probe' and c.get('method', '').startswith('order_sender')
+                               and c.get('order_id') == a['cart_id']]
+    return s
+
+
+def t_email_path(mode):
+    """Order email per finalization path, one synthetic guest order each. mode: webhook | reconcile_cli (the operator
+    command, crontab area emulated) | reconcile_cron_class (Cron\\ReconcilePaymentAttempts::execute in the crontab area,
+    as cron_job.php; not the scheduler). The probe plugin records area/store and the full exception, rethrown unchanged."""
+    r = Run(); b = Browser(); default_loan('REQUEST')
+    try:
+        ok, a = open_popup(b, plan='stay')
+        loan(a['cart_id'], 'OUTSTANDING')
+        since = stub_log_len()
+        steps = {'before': email_snapshot(r, a, since)}
+        if mode == 'webhook':
+            steps['finalize'] = webhook(a['cart_id'], 'stub-' + a['cart_id']).get('body')
+        elif mode == 'reconcile_cli':
+            steps['finalize'] = reconcile(a['entity_id'])
+        else:
+            sh("printf '%s\\n' > var/localdev_pf_cron_allowlist" % a['entity_id'])
+            try:
+                steps['finalize'] = cron_job()
+            finally:
+                sh('rm -f var/localdev_pf_cron_allowlist')
+        steps['after'] = email_snapshot(r, a, since)
+        record('email_%s' % mode, None, cart_id=a['cart_id'], attempt_id=a['entity_id'], steps=steps)
+    finally:
+        b.quit()
+
+
+ASYNC_PATH = 'sales_email/general/async_sending'
+
+
+def async_selection(cart_id):
+    """Read-only: whether Magento's async order email job (EmailSenderHandler::sendEmails) would select this order now:
+    send_email=1, email_sent NULL, created at or after the async setting's updated_at. The job is not run."""
+    r = rows("SELECT o.send_email, o.email_sent, (o.created_at >= (SELECT updated_at FROM core_config_data WHERE path='%s' "
+             "AND scope='default' AND scope_id=0)) FROM sales_order o WHERE o.increment_id='%s'" % (ASYNC_PATH, cart_id),
+             ('send_email', 'email_sent', 'created_after_async_enabled'))
+    return dict(r[0], selected=bool(r and r[0]['send_email'] == '1' and r[0]['email_sent'] == 'NULL'
+                                    and r[0]['created_after_async_enabled'] == '1')) if r else None
+
+
+def t_email_fix(mode):
+    """PaymentAttemptsCommand area fix: CLI reconciliation (sync / async) and webhook, then a repeated finalization
+    (webhook + CLI reconciliation). One synthetic guest order each. mode: cli_sync | cli_async | webhook."""
+    r = Run(); b = Browser(); default_loan('REQUEST')
+    try:
+        if mode == 'cli_async':
+            set_config_sql(ASYNC_PATH, 'default', 0, "'1'")
+        ok, a = open_popup(b, plan='stay')
+        loan(a['cart_id'], 'OUTSTANDING')
+        since = stub_log_len()
+        steps = {'async_sending': '1' if mode == 'cli_async' else 'default (0)', 'before': email_snapshot(r, a, since)}
+        steps['finalize'] = webhook(a['cart_id'], 'stub-' + a['cart_id']).get('body') if mode == 'webhook' else reconcile(a['entity_id'])
+        steps['after'] = email_snapshot(r, a, since)
+        if mode == 'cli_async':
+            steps['async_job_would_select'] = async_selection(a['cart_id'])
+        steps['webhook_again'] = webhook(a['cart_id'], 'stub-' + a['cart_id']).get('body')
+        steps['reconcile_again'] = reconcile(a['entity_id'])
+        steps['after_repeat'] = email_snapshot(r, a, since)
+        steps['orders_for_cart'] = len([o for o in r.orders() if o['increment_id'] == a['cart_id']])
+        steps['order_sender_calls'] = len([c for c in steps['after_repeat']['order_sender_probe'] if c['method'] == 'order_sender_before'])
+        record('email_fix_%s' % mode, None, cart_id=a['cart_id'], attempt_id=a['entity_id'], steps=steps)
+    finally:
+        if mode == 'cli_async':
+            set_config_sql(ASYNC_PATH, 'default', 0, None)
+        b.quit()
+
+
+def coupon_counters(customer_id=None):
+    """Every counter the coupon touches, read from the database, plus the RabbitMQ queue and the bulk bookkeeping.
+    coupon: salesrule_coupon.times_used (sync, in the caller's transaction); rule: salesrule.times_used (only the queue
+    consumer writes it); customer_rule: salesrule_customer (sync); customer_coupon: salesrule_coupon_usage (sync)."""
+    c = coupon_usage()
+    out = {'coupon': c['coupon_times_used'], 'rule': c['rule_times_used']}
+    if customer_id:
+        out['customer_rule'] = sql("SELECT COALESCE(SUM(sc.times_used),0) FROM salesrule_customer sc JOIN salesrule_coupon c "
+                                   "ON c.rule_id=sc.rule_id WHERE c.code='%s' AND sc.customer_id=%d" % (COUPON, int(customer_id)))
+        out['customer_coupon'] = sql("SELECT COALESCE(SUM(u.times_used),0) FROM salesrule_coupon_usage u JOIN salesrule_coupon c "
+                                     "ON c.coupon_id=u.coupon_id WHERE c.code='%s' AND u.customer_id=%d" % (COUPON, int(customer_id)))
+    out['queued'] = rabbit_count(COUPON_QUEUE)
+    out['bulks_rule_processing'] = sql("SELECT COUNT(*) FROM magento_bulk WHERE description LIKE 'Rule processing%'")
+    out['operations'] = sql("SELECT COUNT(*) FROM magento_operation WHERE topic_name='%s'" % COUPON_QUEUE)
+    return out
+
+
+def coupon_cart(b, email):
+    """Cart with one unit and the kit coupon, payment step, Place Order: returns the attempt the click created."""
+    add_to_cart(b.ws)
+    applied = post(b.ws, '/checkout/cart/couponPost/', {'coupon_code': COUPON})
+    to_payment(b.ws, email)
+    before = max_id('aplazo_payment_attempt'); mock_plan('stay')
+    click_place_order(b.ws)
+    a = wait_attempt(before, status=('open',)); time.sleep(2)
+    return applied, a
+
+
+def t_coupon_counters(mode, who='guest'):
+    """Coupon counters around a payment-first conversion. mode: success | abort_terminal (definitive link failure after
+    submit, synthetic SQL; guest only) | crash_then_recover (kit crash at sales_quote_save_after inside the conversion
+    transaction, then the reconciliation creates the order). who: guest | registered (the webhook only schedules a
+    registered customer's attempt, so the CLI reconciliation converts it). Counters before, after each step without
+    consuming, and after Magento's own consumer for exactly the messages the step queued."""
+    r = Run(); b = Browser(); default_loan('REQUEST')
+    customer_id = None
+    email = 'pf-test@example.invalid'
+    steps = []
+    def snap(label, consume=False):
+        before = steps[-1]['counters']['queued'] if steps else None
+        entry = {'step': label, 'counters': coupon_counters(customer_id)}
+        if consume:
+            n = (entry['counters']['queued'] or 0)
+            entry['consumer'] = consume_coupon_queue(n)
+            entry['consumed'] = n
+            entry['counters_after_consumer'] = coupon_counters(customer_id)
+        steps.append(entry)
+    try:
+        php('order_ops.php', 'coupon', COUPON)
+        if who == 'registered':
+            email, password = 'pf-coupon@example.invalid', 'Kit-' + os.urandom(6).hex() + '-Aa1'
+            sql("DELETE FROM customer_entity WHERE email='%s'" % email)
+            customer_id = php('order_ops.php', 'customer', email, password)['customer_id']
+            b.ws.send('Page.navigate', {'url': BASE + '/customer/account/login/'})
+            wait_for(b.ws, "!!document.querySelector('#email')", 40)
+            evaluate(b.ws, LOGIN_JS % (json.dumps(email), json.dumps(password)), timeout=60)
+        snap('baseline')
+        applied, a = coupon_cart(b, email)
+        loan(a['cart_id'], 'OUTSTANDING')
+        snap('attempt_open')
+        finalize = (lambda: reconcile(a['entity_id'])) if who == 'registered' else (lambda: webhook(a['cart_id'], 'stub-' + a['cart_id']).get('body'))
+        result = {}
+        if mode == 'success':
+            result['finalize'] = finalize()
+            snap('after_conversion', consume=True)
+        elif mode == 'abort_terminal':
+            def interfere():
+                sql("UPDATE aplazo_payment_attempt SET status='needs_review', last_error='kit_synthetic_definitive', version=version+1 WHERE entity_id=%s" % a['entity_id'])
+                return 'SYNTHETIC: status set to needs_review by direct SQL'
+            result['held'] = {k: v for k, v in hold_conversion_and(a, interfere).items() if k in ('inside', 'webhook')}
+            snap('after_abort', consume=True)
+        else:
+            stub('localdev_pf_sales_quote_save_after', 'crash')
+            result['crashed'] = str(finalize())[:160]
+            stub('localdev_pf_sales_quote_save_after', None)
+            result['after_crash_orders'] = len([o for o in r.orders() if o['increment_id'] == a['cart_id']])
+            snap('after_crash', consume=True)
+            result['recover'] = reconcile(a['entity_id'])
+            snap('after_recovery', consume=True)
+        o = [x for x in r.orders() if x['increment_id'] == a['cart_id']]
+        record('coupon_counters_%s_%s' % (who, mode), None, cart_id=a['cart_id'], customer_id=customer_id,
+               coupon_applied=applied.get('http'), quote_coupon=sql('SELECT coupon_code FROM quote WHERE entity_id=%s' % a['quote_id']),
+               result=result, steps=steps, final_orders=[x['increment_id'] + ':' + x['state'] for x in o],
+               order_coupon=sql("SELECT coupon_code FROM sales_order WHERE increment_id='%s'" % a['cart_id']),
+               attempt=attempt(a['entity_id'])['status'], reservations=r.res())
+    finally:
+        stub('localdev_pf_sales_quote_save_after', None)
+        b.quit()
+
+
+def counters(code, customer_id=None):
+    """Coupon counters for one kit coupon (see coupon_counters), the coupon queue and the bulk bookkeeping."""
+    c = rows("SELECT c.times_used, r.times_used FROM salesrule_coupon c JOIN salesrule r ON r.rule_id=c.rule_id WHERE c.code='%s'" % code,
+             ('coupon', 'rule'))[0]
+    out = dict(c)
+    if customer_id:
+        out['customer_rule'] = sql("SELECT COALESCE(SUM(sc.times_used),0) FROM salesrule_customer sc JOIN salesrule_coupon c "
+                                   "ON c.rule_id=sc.rule_id WHERE c.code='%s' AND sc.customer_id=%d" % (code, int(customer_id)))
+        out['customer_coupon'] = sql("SELECT COALESCE(SUM(u.times_used),0) FROM salesrule_coupon_usage u JOIN salesrule_coupon c "
+                                     "ON c.coupon_id=u.coupon_id WHERE c.code='%s' AND u.customer_id=%d" % (code, int(customer_id)))
+    out['queued'] = rabbit_count(COUPON_QUEUE)
+    out['bulks_rule_processing'] = sql("SELECT COUNT(*) FROM magento_bulk WHERE description LIKE 'Rule processing%'")
+    return out
+
+
+def probe_lines(since):
+    """Kit observations since a log position: coupon publications (with transaction level and the newest committed kit
+    order seen from an independent session), after-submit callback pool, sync points, and the module's coupon log."""
+    keep = []
+    for c in stub_calls_since(since):
+        m = c.get('method', '')
+        if (c.get('service') == 'probe' and m in ('coupon_bulk_publish', 'callback_pool_after_submit')) or c.get('service') == 'sync' \
+                or (c.get('service') == 'log' and 'coupon' in (c.get('message') or '')):
+            keep.append({k: v for k, v in c.items() if k != 'at'})
+    return keep
+
+
+class CouponRun:
+    """Steps of one coupon scenario: counters before/after each step, Magento's consumer for exactly the messages the
+    step queued, and the kit observations of the step."""
+    def __init__(self, code, customer_id=None):
+        self.code, self.customer_id, self.steps, self.pos = code, customer_id, [], stub_log_len()
+
+    def snap(self, label, consume=True, **extra):
+        e = dict(step=label, counters=counters(self.code, self.customer_id), observed=probe_lines(self.pos), **extra)
+        self.pos = stub_log_len()
+        if consume:
+            n = e['counters']['queued'] or 0
+            e['consumed'] = n
+            e['consumer'] = consume_coupon_queue(n) if n else 'nothing to consume'
+            e['counters_after_consumer'] = counters(self.code, self.customer_id)
+        self.steps.append(e)
+        return e
+
+
+def order_state(cart_id):
+    r = rows("SELECT o.state, o.status, (SELECT COUNT(*) FROM sales_invoice i WHERE i.order_id=o.entity_id), o.coupon_code, "
+             "(SELECT COUNT(*) FROM sales_order_status_history h WHERE h.parent_id=o.entity_id AND h.comment LIKE '%%loan status API%%') "
+             "FROM sales_order o WHERE o.increment_id='%s'" % cart_id, ('state', 'status', 'invoices', 'coupon', 'confirm_comments'))
+    return dict(orders=len(r), **(r[0] if r else {}))
+
+
+def login(b, email, password=None):
+    """Logs a synthetic customer in. Without a password the customer is created anew (any older row is deleted) with a
+    random one, kept in LOGINS for a later login of the same customer."""
+    if password is None:
+        password = 'Kit-' + os.urandom(6).hex() + '-Aa1'
+        sql("DELETE FROM customer_entity WHERE email='%s'" % email)
+        LOGINS[email] = (php('order_ops.php', 'customer', email, password)['customer_id'], password)
+    b.ws.send('Page.navigate', {'url': BASE + '/customer/account/login/'})
+    wait_for(b.ws, "!!document.querySelector('#email')", 40)
+    evaluate(b.ws, LOGIN_JS % (json.dumps(email), json.dumps(password)), timeout=60)
+    return LOGINS[email][0]
+
+
+LOGINS = {}
+
+
+def coupon_attempt(b, code, email):
+    """Cart, coupon, payment step, Place Order. Returns (coupon kept on the quote, attempt or None)."""
+    add_to_cart(b.ws)
+    post(b.ws, '/checkout/cart/couponPost/', {'coupon_code': code})
+    before = max_id('aplazo_payment_attempt')
+    qid = sql("SELECT MAX(entity_id) FROM quote")
+    applied = sql("SELECT coupon_code FROM quote WHERE entity_id=%s" % qid)
+    to_payment(b.ws, email); mock_plan('stay')
+    click_place_order(b.ws)
+    a = wait_attempt(before, status=('open',)); time.sleep(2)
+    return sql("SELECT coupon_code FROM quote WHERE entity_id=%s" % a['quote_id']), a
+
+
+def t_coupon_fix(mode, who='guest'):
+    """Coupon usage with the deferred publication (BNPL-1664). mode: success (+ repeated finalization) | abort_terminal
+    (definitive link failure after submit, synthetic SQL) | crash_recover (kit crash inside the conversion transaction,
+    then reconciliation) | submit_failure (kit RuntimeException inside submit, then reconciliation) | publish_exception /
+    publish_error (kit RuntimeException / \Error from the bulk publisher after scheduleBulk opened its transaction)."""
+    r = Run(); b = Browser(); default_loan('REQUEST')
+    try:
+        php('order_ops.php', 'coupon', COUPON)
+        email, cid = 'pf-test@example.invalid', None
+        if who == 'registered':
+            email = 'pf-coupon@example.invalid'; cid = login(b, email)
+        run_ = CouponRun(COUPON, cid)
+        run_.snap('baseline', consume=False)
+        kept, a = coupon_attempt(b, COUPON, email)
+        loan(a['cart_id'], 'OUTSTANDING')
+        finalize = (lambda: reconcile(a['entity_id'])) if who == 'registered' else (lambda: webhook(a['cart_id'], 'stub-' + a['cart_id']).get('body'))
+        run_.snap('attempt_open', consume=False, quote_coupon=kept)
+        if mode == 'success':
+            res = finalize(); run_.snap('after_conversion', result=res, order=order_state(a['cart_id']), attempt=attempt(a['entity_id'])['status'])
+            res = dict(webhook=webhook(a['cart_id'], 'stub-' + a['cart_id']).get('body'), reconcile=reconcile(a['entity_id']))
+            run_.snap('after_repeat', result=res, order=order_state(a['cart_id']), attempt=attempt(a['entity_id'])['status'])
+        elif mode == 'abort_terminal':
+            def interfere():
+                sql("UPDATE aplazo_payment_attempt SET status='needs_review', last_error='kit_synthetic_definitive', version=version+1 WHERE entity_id=%s" % a['entity_id'])
+                return 'SYNTHETIC: status set to needs_review by direct SQL'
+            held = hold_conversion_and(a, interfere)
+            run_.snap('after_abort', result={k: held.get(k) for k in ('inside', 'webhook')}, order=order_state(a['cart_id']), attempt=attempt(a['entity_id'])['status'])
+        elif mode in ('crash_recover', 'submit_failure'):
+            point, plan = ('localdev_pf_sales_quote_save_after', 'crash') if mode == 'crash_recover' else ('localdev_pf_sales_model_service_quote_submit_before', 'throw')
+            stub(point, plan)
+            res = str(finalize())[:200]
+            stub(point, None)
+            run_.snap('after_failure', result=res, order=order_state(a['cart_id']), attempt=attempt(a['entity_id'])['status'])
+            res = reconcile(a['entity_id'])
+            run_.snap('after_recovery', result=res, order=order_state(a['cart_id']), attempt=attempt(a['entity_id'])['status'])
+        else:
+            stub('localdev_pf_bulk_publish_fault', 'error' if mode == 'publish_error' else 'exception')
+            res = finalize()
+            stub('localdev_pf_bulk_publish_fault', None)
+            run_.snap('after_conversion', result=res, order=order_state(a['cart_id']), attempt=attempt(a['entity_id'])['status'])
+        record('coupon_fix_%s_%s' % (who, mode), None, cart_id=a['cart_id'], customer_id=cid, steps=run_.steps,
+               reservations=r.res(), final_attempt=attempt(a['entity_id'])['status'])
+    finally:
+        for f in ('localdev_pf_sales_quote_save_after', 'localdev_pf_sales_model_service_quote_submit_before', 'localdev_pf_bulk_publish_fault'):
+            stub(f, None)
+        b.quit()
+
+
+def t_coupon_redirect():
+    """Redirect checkout with the kit coupon: the plugin must not change anything (publication from inside submit, as in
+    Magento; one message; rule +1 after the consumer)."""
+    r = Run(); b = Browser(); default_loan('REQUEST')
+    try:
+        website_mode('redirect')
+        php('order_ops.php', 'coupon', COUPON)
+        run_ = CouponRun(COUPON)
+        run_.snap('baseline', consume=False)
+        add_to_cart(b.ws)
+        post(b.ws, '/checkout/cart/couponPost/', {'coupon_code': COUPON})
+        to_payment(b.ws)
+        click_place_order(b.ws)
+        o = wait_until(lambda: r.orders(), 60)
+        inc = o[0]['increment_id'] if o else None
+        run_.snap('after_place_order', order=order_state(inc) if inc else None, attempts=len(r.attempts()))
+        hook = webhook(inc, '888002') if inc else None
+        run_.snap('after_webhook', result=(hook or {}).get('body'), order=order_state(inc) if inc else None)
+        record('coupon_fix_redirect', None, increment_id=inc, steps=run_.steps, reservations=r.res())
+    finally:
+        website_mode('popup')
+        b.quit()
+
+
+LIMIT_COUPON = 'PFKITLIM3'
+
+
+def t_coupon_limits():
+    """Configured limits (rule LIMIT_COUPON: 2 uses per coupon, 1 per customer). A registered customer crashes inside the
+    conversion and is recovered; the same customer is then refused the coupon. A guest aborts after submit, another
+    guest succeeds, and a third guest is refused (coupon limit). The limits read the synchronous counters only."""
+    r = Run(); default_loan('REQUEST')
+    out = {'rule': php('order_ops.php', 'coupon', LIMIT_COUPON, '2', '1')}
+    out['config'] = rows("SELECT r.uses_per_coupon, r.uses_per_customer, c.usage_limit, c.usage_per_customer FROM salesrule r JOIN salesrule_coupon c "
+                         "ON c.rule_id=r.rule_id WHERE c.code='%s'" % LIMIT_COUPON, ('uses_per_coupon', 'uses_per_customer', 'usage_limit', 'usage_per_customer'))[0]
+    email = 'pf-limit@example.invalid'
+    steps = []
+    def one(label, fn):
+        b = Browser()
+        try:
+            steps.append(dict(step=label, **fn(b)))
+        finally:
+            b.quit()
+    state = {}
+    def registered_crash(b):
+        state['cid'] = login(b, email)
+        kept, a = coupon_attempt(b, LIMIT_COUPON, email); loan(a['cart_id'], 'OUTSTANDING')
+        stub('localdev_pf_sales_quote_save_after', 'crash'); reconcile(a['entity_id']); stub('localdev_pf_sales_quote_save_after', None)
+        mid = counters(LIMIT_COUPON, state['cid'])
+        rec = reconcile(a['entity_id'])
+        c = counters(LIMIT_COUPON, state['cid']); n = c['queued'] or 0
+        return dict(cart_id=a['cart_id'], quote_coupon=kept, after_crash=mid, recover=rec, order=order_state(a['cart_id']), before_consumer=c,
+                    consumer=consume_coupon_queue(n) if n else 'nothing', after_consumer=counters(LIMIT_COUPON, state['cid']))
+    def registered_again(b):
+        login(b, email, LOGINS[email][1])  # the same customer, in a new browser
+        add_to_cart(b.ws)
+        resp = post(b.ws, '/checkout/cart/couponPost/', {'coupon_code': LIMIT_COUPON})
+        qid = sql("SELECT MAX(entity_id) FROM quote WHERE customer_id=%d" % state['cid'])
+        return dict(coupon_post=resp.get('http'), quote_coupon=sql("SELECT coupon_code FROM quote WHERE entity_id=%s" % qid),
+                    counters=counters(LIMIT_COUPON, state['cid']))
+    def guest_abort(b):
+        kept, a = coupon_attempt(b, LIMIT_COUPON, 'pf-test@example.invalid'); loan(a['cart_id'], 'OUTSTANDING')
+        def interfere():
+            sql("UPDATE aplazo_payment_attempt SET status='needs_review', last_error='kit_synthetic_definitive', version=version+1 WHERE entity_id=%s" % a['entity_id'])
+            return 'SYNTHETIC'
+        held = hold_conversion_and(a, interfere)
+        c = counters(LIMIT_COUPON); n = c['queued'] or 0
+        return dict(cart_id=a['cart_id'], quote_coupon=kept, webhook=held.get('webhook'), order=order_state(a['cart_id']), before_consumer=c,
+                    consumer=consume_coupon_queue(n) if n else 'nothing', after_consumer=counters(LIMIT_COUPON))
+    def guest_success(b):
+        kept, a = coupon_attempt(b, LIMIT_COUPON, 'pf-test@example.invalid'); loan(a['cart_id'], 'OUTSTANDING')
+        hook = webhook(a['cart_id'], 'stub-' + a['cart_id']).get('body')
+        c = counters(LIMIT_COUPON); n = c['queued'] or 0
+        return dict(cart_id=a['cart_id'], quote_coupon=kept, webhook=hook, order=order_state(a['cart_id']), before_consumer=c,
+                    consumer=consume_coupon_queue(n) if n else 'nothing', after_consumer=counters(LIMIT_COUPON))
+    def guest_refused(b):
+        add_to_cart(b.ws)
+        resp = post(b.ws, '/checkout/cart/couponPost/', {'coupon_code': LIMIT_COUPON})
+        qid = sql("SELECT MAX(entity_id) FROM quote")
+        return dict(coupon_post=resp.get('http'), quote_coupon=sql("SELECT coupon_code FROM quote WHERE entity_id=%s" % qid),
+                    counters=counters(LIMIT_COUPON))
+    try:
+        out['before'] = counters(LIMIT_COUPON)
+        one('registered_crash_then_recover', registered_crash)
+        one('registered_second_use_refused', registered_again)
+        one('guest_abort_after_submit', guest_abort)
+        one('guest_success', guest_success)
+        one('guest_third_use_refused', guest_refused)
+        record('coupon_fix_limits', None, steps=steps, reservations=r.res(), **out)
+    finally:
+        stub('localdev_pf_sales_quote_save_after', None)
+
+
+MSI_SKU, MSI_PRODUCT = 'APLAZO-1664-MSI', 'aplazo-1664-msi.html'
+MSI_QUEUE = 'inventory.reservations.updateSalabilityStatus'
+INVENTORY_QUEUES = ('inventory.reservations.updateSalabilityStatus', 'inventory.indexer.sourceItem', 'inventory.indexer.stock',
+                    'inventory.reservations.update', 'inventory.reservations.cleanup', 'inventory.source.items.cleanup',
+                    'inventory.mass.update')
+
+
+def msi_state(*orders, sku=MSI_SKU):
+    with open(os.path.join(HERE, 'msi_state.php')) as fh:
+        out = run(['bin/clinotty', 'php', '--', sku] + list(orders), stdin=fh)
+    return json.loads(out[out.index('{'):]) if '{' in out else {'raw': out.strip()[-300:]}
+
+
+def innodb_state():
+    """Open InnoDB transactions and lock waits, read-only, as the database container's root (the application user has no
+    PROCESS privilege; none is granted)."""
+    q = ("SELECT trx_id, trx_state, trx_started, trx_rows_locked, trx_rows_modified, trx_tables_locked, "
+         "LEFT(COALESCE(trx_query,''),60) FROM information_schema.INNODB_TRX ORDER BY trx_started; "
+         "SELECT COUNT(*) FROM information_schema.INNODB_LOCK_WAITS")
+    out = subprocess.run(['docker', 'exec', os.environ.get('DB_CONTAINER', 'magento248-db-1'), 'sh', '-c',
+                          'mariadb -uroot -p"$MYSQL_ROOT_PASSWORD" -N -B -e "%s"' % q.replace('"', '\\"')],
+                         capture_output=True, text=True).stdout.strip().splitlines()
+    cols = ('trx_id', 'state', 'started', 'rows_locked', 'rows_modified', 'tables_locked', 'query')
+    trx = [dict(zip(cols, l.split('\t'))) for l in out[:-1] if '\t' in l]
+    return {'transactions': trx, 'lock_waits': int(out[-1]) if out and out[-1].isdigit() else None}
+
+
+def inventory_queues():
+    return {q: rabbit_count(q) for q in INVENTORY_QUEUES}
+
+
+def consume_msi(n):
+    """Magento's own consumer for the salability topic, exactly n messages (only kit messages are queued)."""
+    if not n:
+        return {'consumed': 0, 'output': 'nothing to consume'}
+    t0 = time.time()
+    out = run(['bin/clinotty', 'bin/magento', 'queue:consumers:start', MSI_QUEUE, '--max-messages=%d' % n, '--single-thread'], timeout=240)
+    return {'consumed': n, 'seconds': round(time.time() - t0, 1), 'output': out.strip()[-200:] or 'ok'}
+
+
+def msi_ready():
+    """Exactly one salable unit of the synthetic product: default source quantity = 1 + units still reserved by earlier
+    kit orders (SourceItemsSave, as the 'stock' kit command; MSI keeps the legacy stock row in step synchronously)."""
+    php('order_ops.php', 'product', MSI_SKU, 1)
+    s = msi_state()
+    reserved = -float(s['reservations']['sum'])
+    out = php('order_ops.php', 'stock', MSI_SKU, int(1 + reserved))
+    after_stock = msi_state()
+    reindexed = None
+    # Indexers are "Update by Schedule" and Magento's cron is off: if the stock row did not follow the source quantity,
+    # the setup reindexes the two stock indexers (documented in the record; never between the steps under test).
+    status = after_stock.get('legacy_stock_status') or {}
+    if after_stock.get('salable_qty') != 1 or str(status.get('stock_status')) != '1':
+        reindexed = magento('indexer:reindex', 'cataloginventory_stock', 'inventory').strip()[-200:]
+    magento('cache:clean', 'full_page')
+    return dict(set_source_qty=int(1 + reserved), stock_command=out.get('ok'), state_after_stock_command=after_stock,
+                setup_reindex=reindexed, state=msi_state())
+
+
+def t_msi_drain():
+    """Consumes, with Magento's consumer, the salability messages left queued by earlier kit runs (all kit SKUs; listed
+    without consuming beforehand). Records each SKU's stored and computed salability before and after."""
+    skus = [r['sku'] for r in rows("SELECT DISTINCT sku FROM inventory_reservation WHERE sku LIKE 'APLAZO-%' ORDER BY sku", ('sku',))]
+    def states():
+        res = {}
+        for sku in skus:
+            st = rows("SELECT s.stock_status, s.qty FROM cataloginventory_stock_status s JOIN catalog_product_entity e ON e.entity_id=s.product_id "
+                      "WHERE e.sku='%s' AND s.stock_id=1" % sku, ('stock_status', 'qty'))
+            reserved = sql("SELECT COALESCE(SUM(quantity),0) FROM inventory_reservation WHERE sku='%s' AND stock_id=1" % sku)
+            res[sku] = dict(st[0] if st else {}, reservations=reserved)
+        return res
+    before, q = states(), rabbit_count(MSI_QUEUE)
+    cons = consume_msi(q or 0)
+    record('msi_backlog_drain', None, skus=skus, queued_before=q, consumer=cons, before=before, after=states(),
+           queued_after=rabbit_count(MSI_QUEUE))
+
+
+def t_msi(mode):
+    """Salability message of a payment-first conversion, synthetic product APLAZO-1664-MSI with one salable unit.
+    mode: abort_then_consume (definitive link failure after submit, synthetic SQL; consumer after the rollback) |
+    success_then_consume (consumer after the commit) | pause_consume_commit / pause_consume_abort (the conversion is held
+    by the kit at sales_quote_save_after, after submit wrote the reservation and published the message and before the
+    commit; Magento's consumer runs during the hold; then the conversion commits, or aborts by synthetic SQL)."""
+    r = Run(); b = Browser(); default_loan('REQUEST')
+    steps = []
+    def step(label, **extra):
+        e = dict(step=label, state=msi_state(*([a['cart_id']] if a else [])), innodb=innodb_state(), queues=inventory_queues(), **extra)
+        steps.append(e)
+        return e
+    a = None
+    try:
+        ready = msi_ready()
+        step('ready', setup={k: ready[k] for k in ('set_source_qty', 'stock_command', 'state_after_stock_command', 'setup_reindex')})
+        add_to_cart(b.ws, MSI_PRODUCT, MSI_SKU)
+        ok, a = open_popup(b, plan='stay', add=False)
+        loan(a['cart_id'], 'OUTSTANDING')
+        step('attempt_open')
+        def interfere():
+            sql("UPDATE aplazo_payment_attempt SET status='needs_review', last_error='kit_synthetic_definitive', version=version+1 WHERE entity_id=%s" % a['entity_id'])
+            return 'SYNTHETIC: status set to needs_review by direct SQL'
+        if mode == 'abort_then_consume':
+            held = hold_conversion_and(a, interfere)
+            e = step('after_rollback', result={k: held.get(k) for k in ('inside', 'webhook')})
+            cons = consume_msi(e['queues'][MSI_QUEUE] or 0)
+            step('after_consumer', consumer=cons)
+        elif mode == 'success_then_consume':
+            res = webhook(a['cart_id'], 'stub-' + a['cart_id']).get('body')
+            e = step('after_commit', result=res)
+            cons = consume_msi(e['queues'][MSI_QUEUE] or 0)
+            step('after_consumer', consumer=cons)
+        else:
+            stub('localdev_pf_sales_quote_save_after', 'pause:45')
+            t, box = in_thread(webhook, a['cart_id'], 'stub-' + a['cart_id'])
+            inside = wait_inside('sales_quote_save_after', 40)
+            e = step('paused_before_commit', inside=bool(inside))
+            cons = consume_msi(e['queues'][MSI_QUEUE] or 0)
+            still = sh('test -f var/localdev_pf_sales_quote_save_after.inside && echo y').strip() == 'y'
+            step('after_consumer_during_hold', consumer=cons, conversion_still_held=still)
+            if mode == 'pause_consume_abort':
+                interfere()
+            t.join(120)
+            stub('localdev_pf_sales_quote_save_after', None)
+            e = step('after_conversion_finished', result=(box.get('v') or {}).get('body'), aborted_by_kit=mode == 'pause_consume_abort')
+            if e['queues'][MSI_QUEUE]:
+                step('after_late_consumer', consumer=consume_msi(e['queues'][MSI_QUEUE]))
+            if mode == 'pause_consume_commit_followup':
+                # Consequences, without any intervention: nothing else is queued or scheduled to correct the row.
+                time.sleep(60)
+                magento('cache:clean', 'full_page')
+                page = run(['curl', '-sk', BASE + '/' + MSI_PRODUCT])
+                shown = 'Out of stock' if 'Out of stock' in page else ('In stock' if 'In stock' in page else 'unknown')
+                other = Browser()
+                try:
+                    other.ws.send('Page.navigate', {'url': BASE + '/' + MSI_PRODUCT})
+                    wait_for(other.ws, "document.readyState==='complete'", 60); time.sleep(2)
+                    button = evaluate(other.ws, "!!document.querySelector('#product-addtocart-button:not([disabled])')")
+                    if button:
+                        evaluate(other.ws, "document.querySelector('#product-addtocart-button').click(); true"); time.sleep(6)
+                    msgs = evaluate(other.ws, "Array.from(document.querySelectorAll('.message-error, .message-success, .mage-error'))"
+                                              ".map(e => e.innerText.trim()).filter(Boolean).join(' | ')")
+                finally:
+                    other.quit()
+                step('stale_60s_later_no_intervention', storefront_shows=shown, add_to_cart_button=bool(button), storefront_messages=msgs)
+                # Documented correction probe, after everything above was recorded: a full rebuild of the stock indexers.
+                out = magento('indexer:reindex', 'cataloginventory_stock', 'inventory').strip()[-200:]
+                step('after_documented_reindex', reindex=out)
+        record('msi_%s' % mode, None, cart_id=a['cart_id'], attempt_id=a['entity_id'], final_attempt=attempt(a['entity_id'])['status'],
+               steps=steps, reservations=r.res(MSI_SKU))
+    finally:
+        stub('localdev_pf_sales_quote_save_after', None)
+        b.quit()
+
+
+def rabbit_consumers(queue):
+    container = os.environ.get('RABBITMQ_CONTAINER')
+    if not container:
+        return None
+    out = subprocess.run(['docker', 'exec', container, 'rabbitmqctl', 'list_queues', 'name', 'consumers'],
+                         capture_output=True, text=True).stdout
+    for line in out.splitlines():
+        parts = line.split()
+        if len(parts) == 2 and parts[0] == queue:
+            return int(parts[1])
+    return None
+
+
+def stop_waiting_msi_consumer():
+    """Stops a salability consumer the kit started and that is still waiting (only that command line, in the PHP
+    container), so it cannot take messages of a later step."""
+    subprocess.run(['docker', 'exec', os.environ.get('PHP_CONTAINER', 'magento248-phpfpm-1'), 'pkill', '-f',
+                    'queue:consumers:start ' + MSI_QUEUE], capture_output=True)
+
+
+def salability_probes(since):
+    return [{k: v for k, v in c.items() if k != 'at'} for c in stub_calls_since(since)
+            if (c.get('service') == 'probe' and c.get('method') == 'salability_publish') or c.get('service') == 'sync'
+            or (c.get('service') == 'log' and 'salability' in (c.get('message') or ''))]
+
+
+def msi_module_log(since_line):
+    return [l for l in sh('tail -n +%d var/log/aplazo_payment/info.log 2>/dev/null' % (since_line + 1)).splitlines()
+            if 'salability' in l]
+
+
+def t_msi_fix(mode):
+    """Deferred salability message (DeferredSalabilityPublisher) with the synthetic product APLAZO-1664-MSI and one
+    salable unit. mode: abort_then_consume | success_then_consume | pause_consumer_waiting_commit (Magento's consumer is
+    started and waiting while the kit holds the conversion before its commit) | pause_abort | crash_recover (kit crash
+    inside the conversion transaction, reconciliation, then a repeated finalization) | publish_exception / publish_error
+    (kit failure in the queue publisher after the commit; then the native recovery checks)."""
+    r = Run(); b = Browser(); default_loan('REQUEST')
+    steps = []
+    a = None
+    log0 = int((sh('wc -l < var/log/aplazo_payment/info.log 2>/dev/null').strip() or '0'))
+    pos = [stub_log_len()]
+    def step(label, **extra):
+        e = dict(step=label, state=msi_state(*([a['cart_id']] if a else [])), innodb=innodb_state(),
+                 queue=rabbit_count(MSI_QUEUE), consumers=rabbit_consumers(MSI_QUEUE), observed=salability_probes(pos[0]), **extra)
+        pos[0] = stub_log_len()
+        steps.append(e)
+        return e
+    def consume_queued(label):
+        n = rabbit_count(MSI_QUEUE) or 0
+        return step(label, consumer=consume_msi(n))
+    try:
+        ready = msi_ready()
+        step('ready', setup={k: ready[k] for k in ('set_source_qty', 'stock_command', 'setup_reindex')})
+        add_to_cart(b.ws, MSI_PRODUCT, MSI_SKU)
+        ok, a = open_popup(b, plan='stay', add=False)
+        loan(a['cart_id'], 'OUTSTANDING')
+        step('attempt_open')
+        def interfere():
+            sql("UPDATE aplazo_payment_attempt SET status='needs_review', last_error='kit_synthetic_definitive', version=version+1 WHERE entity_id=%s" % a['entity_id'])
+            return 'SYNTHETIC: status set to needs_review by direct SQL'
+        hook = lambda: webhook(a['cart_id'], 'stub-' + a['cart_id']).get('body')
+        if mode == 'abort_then_consume':
+            held = hold_conversion_and(a, interfere)
+            step('after_rollback', result={k: held.get(k) for k in ('inside', 'webhook')})
+            consume_queued('after_consumer')
+        elif mode == 'success_then_consume':
+            step('after_commit', result=hook())
+            consume_queued('after_consumer')
+        elif mode in ('pause_consumer_waiting_commit', 'pause_abort'):
+            stub('localdev_pf_sales_quote_save_after', 'pause:45')
+            t, box = in_thread(webhook, a['cart_id'], 'stub-' + a['cart_id'])
+            inside = wait_inside('sales_quote_save_after', 40)
+            step('paused_before_commit', inside=bool(inside))
+            ct = cbox = None
+            if mode == 'pause_consumer_waiting_commit':
+                ct, cbox = in_thread(consume_msi, 1)
+                connected = wait_until(lambda: (rabbit_consumers(MSI_QUEUE) or 0) > 0, 30)
+                still = sh('test -f var/localdev_pf_sales_quote_save_after.inside && echo y').strip() == 'y'
+                step('consumer_waiting_during_hold', consumer_connected=bool(connected), conversion_still_held=still)
+            else:
+                interfere()
+            t.join(120)
+            stub('localdev_pf_sales_quote_save_after', None)
+            if ct:
+                ct.join(120)
+                step('after_commit_consumer_done', result=(box.get('v') or {}).get('body'), consumer=(cbox or {}).get('v'),
+                     consumer_thread_alive=ct.is_alive())
+            else:
+                step('after_abort', result=(box.get('v') or {}).get('body'))
+                consume_queued('after_consumer')
+        elif mode == 'crash_recover':
+            stub('localdev_pf_sales_quote_save_after', 'crash')
+            res = str(hook())[:160]
+            stub('localdev_pf_sales_quote_save_after', None)
+            step('after_crash', result=res)
+            step('after_recovery', result=reconcile(a['entity_id']))
+            consume_queued('after_consumer')
+            res = dict(webhook=hook(), reconcile=reconcile(a['entity_id']))
+            step('after_repeat', result=res)
+            consume_queued('after_repeat_consumer')
+        else:
+            stub('localdev_pf_msi_publish_fault', 'error' if mode == 'publish_error' else 'exception')
+            res = hook()
+            stub('localdev_pf_msi_publish_fault', None)
+            step('after_commit_publish_failed', result=res, module_log=msi_module_log(log0), attempt_row=attempt(a['entity_id'])['status'])
+            consume_queued('after_consumer_nothing_queued')
+            # Native recovery checks, in order, each recorded: a full rebuild of the stock indexers, then the order's
+            # shipment (MSI deducts the source and adds the shipment reservation, and publishes a salability message
+            # for the SKU outside any conversion).
+            step('after_reindex', reindex=magento('indexer:reindex', 'cataloginventory_stock', 'inventory').strip()[-160:])
+            o = r.orders()
+            oid = [x for x in o if x['increment_id'] == a['cart_id']][0]['entity_id']
+            step('after_shipment', ship=php('order_ops.php', 'ship', oid))
+            consume_queued('after_shipment_consumer')
+        record('msi_fix_%s' % mode, None, cart_id=a['cart_id'], attempt_id=a['entity_id'],
+               final_attempt=attempt(a['entity_id'])['status'],
+               orders_for_cart=len([x for x in r.orders() if x['increment_id'] == a['cart_id']]), steps=steps,
+               reservations=r.res(MSI_SKU))
+    finally:
+        for f in ('localdev_pf_sales_quote_save_after', 'localdev_pf_msi_publish_fault'):
+            stub(f, None)
+        stop_waiting_msi_consumer()
+        b.quit()
+
+
+def t_msi_fix_redirect():
+    """Redirect checkout with the synthetic product: the salability message must be published as before (at once, outside
+    any conversion), and its consumer must leave the last unit not salable."""
+    r = Run(); b = Browser(); default_loan('REQUEST')
+    steps = []
+    pos = [stub_log_len()]
+    inc = None
+    def step(label, **extra):
+        e = dict(step=label, state=msi_state(*([inc] if inc else [])), queue=rabbit_count(MSI_QUEUE),
+                 observed=salability_probes(pos[0]), **extra)
+        pos[0] = stub_log_len()
+        steps.append(e)
+        return e
+    try:
+        website_mode('redirect')
+        ready = msi_ready()
+        step('ready', setup={k: ready[k] for k in ('set_source_qty', 'stock_command', 'setup_reindex')})
+        add_to_cart(b.ws, MSI_PRODUCT, MSI_SKU); to_payment(b.ws)
+        click_place_order(b.ws)
+        o = wait_until(lambda: r.orders(), 60)
+        inc = o[0]['increment_id'] if o else None
+        step('after_place_order', attempts=len(r.attempts()))
+        step('after_consumer', consumer=consume_msi(rabbit_count(MSI_QUEUE) or 0))
+        record('msi_fix_redirect', None, increment_id=inc, steps=steps, reservations=r.res(MSI_SKU))
+    finally:
+        website_mode('popup')
+        b.quit()
+
+
+def start_state(r, quote_id):
+    rows_ = rows("SELECT entity_id, cart_id, status, last_error, next_check_at, loan_id, fingerprint FROM aplazo_payment_attempt "
+                 "WHERE quote_id=%d ORDER BY entity_id" % int(quote_id),
+                 ('entity_id', 'cart_id', 'status', 'last_error', 'next_check_at', 'loan_id', 'fingerprint'))
+    for x in rows_:
+        x['fingerprint'] = x['fingerprint'][:12]
+    return dict(attempts_for_quote=len(rows_), attempts=rows_, create_loan_calls=len(r.calls('createLoan')),
+                create_loan_cart_ids=[c.get('cartId') for c in r.calls('createLoan')])
+
+
+def select_aplazo(ws):
+    evaluate(ws, "require(['Magento_Checkout/js/action/set-payment-information'], f => f(null, {method: 'aplazo_gateway'})); true")
+    time.sleep(3)
+
+
+def t_uncertain_start(mode):
+    """An earlier start whose outcome is unknown blocks another loan for the quote. mode: uncertain_reclick (createLoan
+    fails, then the same click again) | uncertain_cart_change (createLoan fails, the cart changes, click again) |
+    starting_interrupted (the PHP process dies during createLoan: the attempt stays starting; click again, then change the
+    cart and click again) | normal_and_reuse (a normal start opens; the same click reuses the open attempt). The start
+    endpoint (POST aplazo/popup/start) is called as the payment button does, with the form key."""
+    r = Run(); b = Browser(); default_loan('REQUEST')
+    steps = []
+    try:
+        add_to_cart(b.ws); ok = to_payment(b.ws); select_aplazo(b.ws)
+        qid = int(sql("SELECT quote_id FROM aplazo_payment_attempt ORDER BY entity_id DESC LIMIT 1") or 0)
+        qid = int(sql("SELECT MAX(entity_id) FROM quote WHERE is_active=1 AND reserved_order_id IS NULL") or 0)
+        steps.append(dict(step='before', quote_id=qid, **start_state(r, qid)))
+        if mode in ('uncertain_reclick', 'uncertain_cart_change'):
+            stub('localdev_aplazo_stub_createloan', 'fail')
+        elif mode == 'starting_interrupted':
+            stub('localdev_aplazo_stub_createloan', 'crash')
+        first = post(b.ws, '/aplazo/popup/start')
+        stub('localdev_aplazo_stub_createloan', None)   # from here a createLoan call would succeed
+        steps.append(dict(step='first_start', response=first.get('body') if isinstance(first.get('body'), dict) else str(first)[:200],
+                          **start_state(r, qid)))
+        second = post(b.ws, '/aplazo/popup/start')
+        steps.append(dict(step='second_start_same_cart', response=second.get('body'), **start_state(r, qid)))
+        if mode in ('uncertain_cart_change', 'starting_interrupted'):
+            add_to_cart(b.ws); to_payment(b.ws); select_aplazo(b.ws)
+            items = sql("SELECT CONCAT(items_count,' items, qty ',items_qty) FROM quote WHERE entity_id=%d" % qid)
+            third = post(b.ws, '/aplazo/popup/start')
+            steps.append(dict(step='start_after_cart_change', quote=items, response=third.get('body'), **start_state(r, qid)))
+        if mode != 'normal_and_reuse':
+            # The attempt is kept for the reconciliation, which checks it (the stub loan is not paid).
+            a0 = steps[-1]['attempts'][0]
+            steps.append(dict(step='reconcile_keeps_it', reconcile=reconcile(a0['entity_id']), **start_state(r, qid)))
+        record('uncertain_start_%s' % mode, None, quote_id=qid, steps=steps, orders=len(r.orders()), reservations=r.res())
+    finally:
+        stub('localdev_aplazo_stub_createloan', None)
+        b.quit()
+
+
 TESTS = {
     'close_unpaid': t_close_unpaid,
+    'email_webhook': lambda: t_email_path('webhook'),
+    'us_uncertain_reclick': lambda: t_uncertain_start('uncertain_reclick'),
+    'us_uncertain_cart_change': lambda: t_uncertain_start('uncertain_cart_change'),
+    'us_starting_interrupted': lambda: t_uncertain_start('starting_interrupted'),
+    'us_normal_and_reuse': lambda: t_uncertain_start('normal_and_reuse'),
+    'mf_abort_then_consume': lambda: t_msi_fix('abort_then_consume'),
+    'mf_success_then_consume': lambda: t_msi_fix('success_then_consume'),
+    'mf_pause_consumer_waiting_commit': lambda: t_msi_fix('pause_consumer_waiting_commit'),
+    'mf_pause_abort': lambda: t_msi_fix('pause_abort'),
+    'mf_crash_recover': lambda: t_msi_fix('crash_recover'),
+    'mf_publish_exception': lambda: t_msi_fix('publish_exception'),
+    'mf_publish_error': lambda: t_msi_fix('publish_error'),
+    'mf_redirect': t_msi_fix_redirect,
+    'msi_drain': t_msi_drain,
+    'msi_abort_then_consume': lambda: t_msi('abort_then_consume'),
+    'msi_success_then_consume': lambda: t_msi('success_then_consume'),
+    'msi_pause_consume_commit': lambda: t_msi('pause_consume_commit'),
+    'msi_pause_consume_abort': lambda: t_msi('pause_consume_abort'),
+    'msi_pause_consume_commit_followup': lambda: t_msi('pause_consume_commit_followup'),
+    'cf_guest_success': lambda: t_coupon_fix('success'),
+    'cf_guest_abort': lambda: t_coupon_fix('abort_terminal'),
+    'cf_guest_crash_recover': lambda: t_coupon_fix('crash_recover'),
+    'cf_guest_submit_failure': lambda: t_coupon_fix('submit_failure'),
+    'cf_guest_publish_exception': lambda: t_coupon_fix('publish_exception'),
+    'cf_guest_publish_error': lambda: t_coupon_fix('publish_error'),
+    'cf_registered_success': lambda: t_coupon_fix('success', 'registered'),
+    'cf_registered_crash_recover': lambda: t_coupon_fix('crash_recover', 'registered'),
+    'cf_redirect': t_coupon_redirect,
+    'cf_limits': t_coupon_limits,
+    'cc_guest_success': lambda: t_coupon_counters('success'),
+    'cc_guest_abort': lambda: t_coupon_counters('abort_terminal'),
+    'cc_guest_crash_recover': lambda: t_coupon_counters('crash_then_recover'),
+    'cc_registered_success': lambda: t_coupon_counters('success', 'registered'),
+    'cc_registered_crash_recover': lambda: t_coupon_counters('crash_then_recover', 'registered'),
+    'email_fix_cli_sync': lambda: t_email_fix('cli_sync'),
+    'email_fix_cli_async': lambda: t_email_fix('cli_async'),
+    'email_fix_webhook': lambda: t_email_fix('webhook'),
+    'email_reconcile_cli': lambda: t_email_path('reconcile_cli'),
+    'email_reconcile_cron_class': lambda: t_email_path('reconcile_cron_class'),
     'paid_message': t_paid_message,
     'paid_closed': t_paid_closed_before_message,
     'concurrent_webhook_first': lambda: t_concurrent('webhook'),
@@ -1761,6 +2632,11 @@ TESTS = {
     'link_incompatible': t_link_incompatible,
     'coupon_success': lambda: t_coupon('success'),
     'cart_changed_record': t_cart_changed_record,
+    'crash_after_writes': t_crash_after_writes,
+    'approval_default': lambda: t_approval('default'),
+    'approval_custom_status': lambda: t_approval('custom_status'),
+    'approval_crash_after_invoice': lambda: t_approval('crash_after_invoice'),
+    'approval_operator_invoice': lambda: t_approval('operator_invoice'),
     'coupon_link_fail': lambda: t_coupon('link_fail'),
     'link_conflict_with_write': t_link_conflict_with_write,
     'link_definitive': t_link_definitive,
@@ -1771,9 +2647,19 @@ TESTS = {
     'h1_payment_information': lambda: t_h1('payment_information'),
 }
 
+def require_stub():
+    """Refuse to run unless LocalDev_AplazoStub is enabled: without it the store calls the configured Aplazo API (STG)
+    and the scenarios create real loans there. Same check as qa_selection.py."""
+    status = subprocess.run(['bin/clinotty', 'bin/magento', 'module:status', 'LocalDev_AplazoStub'], cwd=M,
+                            capture_output=True, text=True, timeout=120).stdout
+    if 'Module is enabled' not in status:
+        sys.exit('LocalDev_AplazoStub is not enabled: refusing to run (the scenarios would reach the configured Aplazo API)')
+
+
 if __name__ == '__main__':
     if not M or not os.path.isfile(os.path.join(M, 'bin', 'clinotty')):
         sys.exit('MAGENTO_DIR must point at the docker-magento directory')
+    require_stub()
     names = sys.argv[1:] or ['all']
     names = list(TESTS) if names == ['all'] else names
     if names and names[0] == 'setup':

@@ -25,4 +25,16 @@
             <argument name="autoCancelRejected" xsi:type="boolean">true</argument>
         </arguments>
     </type>
+    <!-- BNPL-1664: observes the order email (see Plugin/OrderSenderProbe.php); rethrows unchanged. -->
+    <type name="Magento\Sales\Model\Order\Email\Sender\OrderSender">
+        <plugin name="localdev_pf_order_sender_probe" type="LocalDev\AplazoStub\Plugin\OrderSenderProbe"/>
+    </type>
+    <!-- BNPL-1664 coupon: observes, and on request fails, the coupon usage publication (see Plugin/BulkPublishProbe.php). -->
+    <type name="Magento\Framework\MessageQueue\Bulk\Publisher">
+        <plugin name="localdev_pf_bulk_publish_probe" type="LocalDev\AplazoStub\Plugin\BulkPublishProbe"/>
+    </type>
+    <!-- BNPL-1664 MSI: observes, and on request fails, the salability publication (see Plugin/SalabilityPublishProbe.php). -->
+    <type name="Magento\Framework\MessageQueue\PublisherPool">
+        <plugin name="localdev_pf_salability_publish_probe" type="LocalDev\AplazoStub\Plugin\SalabilityPublishProbe"/>
+    </type>
 </config>
