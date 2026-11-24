@@ -145,6 +145,20 @@ class AttemptStore
     }
 
     /**
+     * Whether this quote ever started a payment-first attempt (any status). A plain indexed read (quote_id): attempts
+     * are committed when they start, long before any conversion, so a quote without one cannot be in conversion.
+     */
+    public function hasAttemptForQuote(int $quoteId): bool
+    {
+        $connection = $this->resource->getConnection();
+
+        return (bool)$connection->fetchOne(
+            $connection->select()->from($this->resource->getTableName(self::TABLE), ['entity_id'])
+                ->where('quote_id = ?', $quoteId)->limit(1)
+        );
+    }
+
+    /**
      * Whether an attempt of this quote already has an order (the quote was converted by the finalizer). The order_id
      * is written in the conversion transaction, so it is visible together with the inactive quote. A locking read:
      * inside a caller's transaction it returns the committed rows, never an older snapshot.

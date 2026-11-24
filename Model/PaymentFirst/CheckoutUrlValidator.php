@@ -4,11 +4,10 @@ declare(strict_types=1);
 namespace Aplazo\AplazoPayment\Model\PaymentFirst;
 
 use Aplazo\AplazoPayment\Model\Config\Source\CheckoutMode;
-use Laminas\Uri\Http as HttpUri;
 
 /**
  * The checkout URL returned by createLoan is opened in the popup only when it is on the configured checkout origin
- * (ported from BNPL-1664's PopupCheckout, commit d3d72ef).
+ * (ported from BNPL-1664's PopupCheckout, commit d3d72ef). Plain parse_url(), no URI library dependency.
  */
 class CheckoutUrlValidator
 {
@@ -20,11 +19,8 @@ class CheckoutUrlValidator
         if ($origin === null || !$this->isOnOrigin($url, $origin)) {
             return null;
         }
-        try {
-            return $this->withPopupMode($url);
-        } catch (\Throwable $e) {
-            return null;
-        }
+
+        return $this->withPopupMode($url);
     }
 
     /**
@@ -37,24 +33,16 @@ class CheckoutUrlValidator
         if ($url === '' || preg_match('/[\x00-\x20\x7f\\\\]/', $url) === 1) {
             return false;
         }
-        try {
-            $uri = new HttpUri($url);
-            $expected = new HttpUri($origin);
-        } catch (\Throwable $e) {
-            return false;
-        }
-        if (!$uri->isValid() || !$uri->isAbsolute()
-            || strtolower((string)$uri->getScheme()) !== 'https' || strtolower((string)$expected->getScheme()) !== 'https'
-            || (string)$uri->getUserInfo() !== ''
+        $uri = $this->parse($url);
+        $expected = $this->parse($origin);
+        if ($uri === null || $expected === null
+            || isset($uri['user']) || isset($uri['pass'])
+            || strpos(substr($url, 0, strcspn($url, '/?#', 8) + 8), '@') !== false
         ) {
             return false;
         }
-        $host = strtolower((string)$uri->getHost());
-        if ($host === '' || $host !== strtolower((string)$expected->getHost())) {
-            return false;
-        }
 
-        return ((int)$uri->getPort() ?: 443) === ((int)$expected->getPort() ?: 443);
+        return $uri['host'] === $expected['host'] && $uri['port'] === $expected['port'];
     }
 
     /**
@@ -63,13 +51,41 @@ class CheckoutUrlValidator
      */
     public function withPopupMode(string $url): string
     {
-        $uri = new HttpUri($url);
-        $pairs = array_filter(explode('&', (string)$uri->getQuery()), function ($pair) {
+        $fragment = '';
+        if (($hash = strpos($url, '#')) !== false) {
+            $fragment = substr($url, $hash);
+            $url = substr($url, 0, $hash);
+        }
+        $query = '';
+        if (($mark = strpos($url, '?')) !== false) {
+            $query = substr($url, $mark + 1);
+            $url = substr($url, 0, $mark);
+        }
+        $pairs = array_filter(explode('&', $query), function ($pair) {
             return $pair !== '' && urldecode(explode('=', $pair, 2)[0]) !== 'mode';
         });
         $pairs[] = 'mode=' . CheckoutMode::MODE_POPUP;
-        $uri->setQuery(implode('&', $pairs));
 
-        return $uri->toString();
+        return $url . '?' . implode('&', $pairs) . $fragment;
+    }
+
+    /**
+     * @return array{host: string, port: int}|null an absolute https URL with a host; the port defaults to 443
+     */
+    private function parse(string $url): ?array
+    {
+        $parts = parse_url($url);
+        if (!is_array($parts) || strtolower((string)($parts['scheme'] ?? '')) !== 'https'
+            || (string)($parts['host'] ?? '') === '' || strpos($url, '//') !== strlen((string)$parts['scheme']) + 1
+        ) {
+            return null;
+        }
+        if (isset($parts['port']) && (int)$parts['port'] === 0) {
+            return null;
+        }
+        $parts['host'] = strtolower((string)$parts['host']);
+        $parts['port'] = (int)($parts['port'] ?? 443);
+
+        return $parts;
     }
 }

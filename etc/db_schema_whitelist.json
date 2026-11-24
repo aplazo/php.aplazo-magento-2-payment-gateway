@@ -1,0 +1,87 @@
+{
+    "sales_order": {
+        "column": {
+            "aplazo_checkout_url": true
+        }
+    },
+    "aplazo_refund_request": {
+        "column": {
+            "entity_id": true,
+            "type": true,
+            "status": true,
+            "order_increment_id": true,
+            "order_id": true,
+            "creditmemo_id": true,
+            "rma_entity_id": true,
+            "rma_item_id": true,
+            "order_item_id": true,
+            "qty": true,
+            "amount_cents": true,
+            "currency": true,
+            "reason": true,
+            "reason_hash": true,
+            "items_hash": true,
+            "idempotency_key": true,
+            "payload_json": true,
+            "response_json": true,
+            "aplazo_refund_id": true,
+            "aplazo_refund_status": true,
+            "retries": true,
+            "last_error": true,
+            "next_attempt_at": true,
+            "created_at": true,
+            "updated_at": true
+        },
+        "index": {
+            "APLAZO_REFUND_REQUEST_STATUS_NEXT_ATTEMPT_AT": true
+        },
+        "constraint": {
+            "PRIMARY": true,
+            "APLAZO_REFUND_REQUEST_TYPE_IDEMPOTENCY_KEY": true
+        }
+    },
+    "aplazo_payment_attempt": {
+        "column": {
+            "entity_id": true,
+            "public_id": true,
+            "quote_id": true,
+            "store_id": true,
+            "customer_id": true,
+            "cart_id": true,
+            "loan_id": true,
+            "checkout_url": true,
+            "amount": true,
+            "currency": true,
+            "fingerprint": true,
+            "summary_json": true,
+            "status": true,
+            "version": true,
+            "order_id": true,
+            "reject_reason": true,
+            "loan_cancel_state": true,
+            "email_requested_at": true,
+            "check_count": true,
+            "next_check_at": true,
+            "last_error": true,
+            "environment": true,
+            "merchant_id": true,
+            "paid_confirmed_at": true,
+            "resolution": true,
+            "resolution_reference": true,
+            "resolution_note": true,
+            "resolved_by": true,
+            "resolved_at": true,
+            "created_at": true,
+            "updated_at": true
+        },
+        "index": {
+            "APLAZO_PAYMENT_ATTEMPT_QUOTE_ID_STATUS": true,
+            "APLAZO_PAYMENT_ATTEMPT_STATUS_NEXT_CHECK_AT": true
+        },
+        "constraint": {
+            "PRIMARY": true,
+            "APLAZO_PAYMENT_ATTEMPT_PUBLIC_ID": true,
+            "APLAZO_PAYMENT_ATTEMPT_CART_ID": true
+        }
+    }
+}

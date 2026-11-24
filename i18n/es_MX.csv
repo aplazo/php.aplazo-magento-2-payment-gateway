@@ -35,3 +35,6 @@
 "Your session has expired. Please reload the page.","Tu sesión expiró. Recarga la página."
 "This order was paid and approved while it was being cancelled; it was not cancelled.","Esta orden se pagó y aprobó mientras se cancelaba; no se canceló."
 "Aplazo: this order was paid before it was created (popup). Cancelling it did not request any loan reversal; check the loan with Aplazo.","Aplazo: esta orden se pagó antes de crearse (popup). Cancelarla no solicitó ninguna devolución del préstamo; revisa el préstamo con Aplazo."
+"Go to the Aplazo window","Ir a la ventana de Aplazo"
+"Close the Aplazo window","Cerrar la ventana de Aplazo"
+"Confirming your payment…","Confirmando tu pago…"

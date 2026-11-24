@@ -4,7 +4,6 @@ declare(strict_types=1);
 namespace Aplazo\AplazoPayment\Model\PaymentFirst;
 
 use Aplazo\AplazoPayment\Helper\Data as AplazoHelper;
-use Aplazo\AplazoPayment\Model\Config\Source\CheckoutMode;
 use Aplazo\AplazoPayment\Model\Ui\ConfigProvider;
 use Aplazo\AplazoPayment\Service\ApiService;
 use Magento\Checkout\Model\Session as CheckoutSession;
@@ -69,11 +68,15 @@ class StartService
 
     public function start(): array
     {
+        // The switch first (configuration only): with popup off nothing is read or written.
+        if (!$this->aplazoHelper->isPaymentFirstEnabled()) {
+            return $this->result(self::USE_REDIRECT);
+        }
         $quote = $this->checkoutSession->getQuote();
         if (!$quote->getId() || !$quote->getIsActive() || !$quote->hasItems()) {
             return $this->result(self::INVALID, __('Your cart is no longer available. Please reload the page.'));
         }
-        if ($this->aplazoHelper->getCheckoutMode((int)$quote->getStoreId()) !== CheckoutMode::MODE_POPUP) {
+        if (!$this->aplazoHelper->isPaymentFirstEnabled((int)$quote->getStoreId())) {
             return $this->result(self::USE_REDIRECT);
         }
         try {

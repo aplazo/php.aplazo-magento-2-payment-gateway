@@ -233,6 +233,32 @@ class Data extends \Magento\Payment\Helper\Data
         return CheckoutMode::MODE_REDIRECT;
     }
 
+    /**
+     * Popup payment-first switch (BNPL-1664): checkout_mode = popup and a known checkout origin. Reads configuration
+     * only, never the database, so everything payment-first asks it first and a store without popup pays nothing.
+     *
+     * @param int|null $storeId null: the current store
+     */
+    public function isPaymentFirstEnabled(?int $storeId = null): bool
+    {
+        return $this->getCheckoutMode($storeId) === CheckoutMode::MODE_POPUP;
+    }
+
+    /**
+     * The switch for work that has no store of its own (reconciliation cron, webhook routing): on in at least one store.
+     * Configuration only (the store list comes from the config cache).
+     */
+    public function isPaymentFirstEnabledInAnyStore(): bool
+    {
+        foreach ($this->storeManager->getStores() as $store) {
+            if ($this->isPaymentFirstEnabled((int)$store->getId())) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     public function getUrl($route, $params = []){
         return $this->_getUrl($route, $params);
     }

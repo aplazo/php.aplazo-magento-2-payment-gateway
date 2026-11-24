@@ -7,7 +7,6 @@ use Aplazo\AplazoPayment\Model\PaymentFirst\ConversionScope;
 use Aplazo\AplazoPayment\Model\PaymentFirst\Trace;
 use Magento\Framework\DB\Adapter\AdapterInterface;
 use Magento\SalesRule\Model\Coupon\Usage\UpdateInfo;
-use Magento\SalesRule\Model\Coupon\Usage\UpdateInfoFactory;
 use Magento\SalesRule\Model\ResourceModel\Coupon as CouponResource;
 use Magento\SalesRule\Model\Service\CouponUsagePublisher;
 
@@ -31,13 +30,11 @@ class DeferCouponUsagePublish
     /**
      * @param ConversionScope $scope
      * @param CouponResource $couponResource a resource model on the coupon tables, used for addCommitCallback()
-     * @param UpdateInfoFactory $updateInfoFactory
      * @param Trace $trace
      */
     public function __construct(
         private ConversionScope $scope,
         private CouponResource $couponResource,
-        private UpdateInfoFactory $updateInfoFactory,
         private Trace $trace
     ) {
     }
@@ -59,9 +56,10 @@ class DeferCouponUsagePublish
             return $proceed($updateInfo);
         }
         // Own copies, taken now: the caller may change or reuse its object before the commit, and the scope is
-        // already closed when the callback runs.
-        $copy = $this->updateInfoFactory->create();
-        $copy->setData($updateInfo->getData());
+        // already closed when the callback runs. UpdateInfo is a DataObject: a clone copies its data. (No
+        // UpdateInfoFactory in the constructor: it is generated from a SalesRule class that Magento < 2.4.3 lacks, and
+        // the plugin must not break setup:di:compile there; the plugin itself only runs where the class exists.)
+        $copy = clone $updateInfo;
         $attempt = $this->scope->attempt() ?? [];
         $this->couponResource->addCommitCallback(function () use ($subject, $copy, $connection, $attempt) {
             $this->publishAfterCommit($subject, $copy, $connection, $attempt);
