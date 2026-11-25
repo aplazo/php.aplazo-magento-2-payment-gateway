@@ -182,4 +182,7 @@
 * While Aplazo's window is open the checkout is covered by a layer (link back to the window, close button); after it closes the payment is confirmed with retries, and the checkout comes back only when Aplazo reports the loan not paid
 * Stores that never use popup run no new queries; reconciliation keeps running for a store that started popup attempts even after popup is turned off
 * Data patch marks the stores that already have popup attempts in progress (created before this version), so turning popup off does not leave them unattended
+* Before any order is placed for a cart that started popup attempts, those attempts are checked with Aplazo: a loan already paid becomes the order and the other order is refused, so the buyer is not charged twice
+* If the stock salability message of a popup order cannot be published, the same update is applied in process
+* The popup code no longer needs Magento 2.4.8 classes (own cart lock, same lock as the core one), so earlier Magento versions keep compiling with popup off
 * No new Composer dependencies; etc/db_schema_whitelist.json added

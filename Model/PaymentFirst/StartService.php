@@ -12,16 +12,14 @@ use Magento\Framework\App\ResourceConnection;
 use Magento\Framework\Exception\LocalizedException;
 use Magento\Framework\HTTP\PhpEnvironment\RemoteAddress;
 use Magento\Payment\Model\Method\AbstractMethod;
-use Magento\Quote\Model\CartLockedException;
-use Magento\Quote\Model\CartMutexInterface;
 use Magento\Quote\Model\Quote;
 use Magento\Quote\Model\SubmitQuoteValidator;
 
 /**
  * Starts a popup payment-first attempt for the session's quote (BNPL-1664). No order is created and no stock moves.
  *
- * It runs under the core cart lock (CartMutex, the one around placeOrder), so a double click or a redirect order being
- * placed for the same quote is answered "busy" instead of running alongside. The attempt row is committed before
+ * It runs under the cart lock (CartLock: the same `cart_lock_<quoteId>` as core placeOrder's CartMutex on Magento 2.4.8+),
+ * so a double click or a redirect order being placed for the same quote is answered "busy" instead of running alongside. The attempt row is committed before
  * createLoan, so a lost answer or an early webhook can still be matched by its cartId.
  *
  * Results: open (url to load in the window) · use_redirect (popup not effective now; no loan was requested) ·
@@ -49,7 +47,7 @@ class StartService
     public function __construct(
         private CheckoutSession $checkoutSession,
         private CustomerSession $customerSession,
-        private CartMutexInterface $cartMutex,
+        private CartLock $cartMutex,
         private SubmitQuoteValidator $submitQuoteValidator,
         private AttemptStore $attemptStore,
         private SessionAttempts $sessionAttempts,
@@ -84,7 +82,7 @@ class StartService
             return $this->cartMutex->execute((int)$quote->getId(), function () use ($quote) {
                 return $this->startLocked($quote);
             });
-        } catch (CartLockedException $e) {
+        } catch (CartBusyException $e) {
             return $this->result(self::BUSY, __('Your order is already being processed. Please wait a moment.'));
         } finally {
             $this->trace->flush();

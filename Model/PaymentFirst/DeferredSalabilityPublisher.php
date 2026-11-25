@@ -19,13 +19,22 @@ use Magento\Quote\Model\ResourceModel\Quote as QuoteResource;
  * the outermost commit and drops it on rollback). Every other topic, and this topic outside a conversion (redirect
  * checkout, admin, cancellations, shipments), goes to the original publisher at once.
  *
- * Residual window: if the process dies after the commit and before the callback publishes, or the publication fails,
- * there is no message: the product's stock status stays as it was until Magento publishes another salability message
- * for the SKU (for example when the order is shipped or cancelled). A failure is logged; nothing retries it.
+ * If the publication fails, the update the message stands for is applied in this process instead: MSI's own handler
+ * of the topic (UpdateIndexSalabilityStatus::execute, what the consumer runs) recalculates the salability of those SKUs
+ * from the committed source quantities and reservations. It counts nothing, so running it after a publication that
+ * did reach the broker (an exception after delivery) or twice gives the same result. The handler is resolved only on
+ * that path and only if MSI's class exists, as the module resolves other optional modules (no MSI type in the
+ * constructor, so this class still compiles without MSI).
+ *
+ * Residual window: if the process dies after the commit and before the callback runs, or the publication and the
+ * in-process update both fail, the product's stock status stays as it was until Magento publishes another salability
+ * message for the SKU (for example when the order is shipped or cancelled). Both failures are logged; nothing retries.
  */
 class DeferredSalabilityPublisher implements PublisherInterface
 {
     public const TOPIC = 'inventory.reservations.updateSalabilityStatus';
+    /** MSI's handler of TOPIC (communication.xml), what the consumer runs for each message. */
+    private const HANDLER = 'Magento\\InventoryIndexer\\Model\\Queue\\UpdateIndexSalabilityStatus';
 
     /**
      * @param PublisherInterface $publisher the original publisher (Magento's preference)
@@ -83,17 +92,36 @@ class DeferredSalabilityPublisher implements PublisherInterface
         try {
             $this->publisher->publish($topicName, $data);
         } catch (\Throwable $e) {
-            $this->trace->add('error', 'Payment-first stock salability message not published', ['module:checkout'], [
+            $context = [
                 'attempt_id' => $attempt['attempt_id'] ?? null,
                 'cart_id' => $attempt['cart_id'] ?? null,
                 'stock_id' => is_object($data) && method_exists($data, 'getStock') ? $data->getStock() : null,
                 'skus' => is_object($data) && method_exists($data, 'getSkus') ? implode(',', $data->getSkus()) : null,
                 'error' => get_class($e),
-            ]);
+            ];
+            try {
+                $this->applyInProcess($data);
+                $this->trace->add('warn', 'Payment-first stock salability message not published; applied in process', ['module:checkout'], $context);
+            } catch (\Throwable $fallback) {
+                $this->trace->add('error', 'Payment-first stock salability message not published', ['module:checkout'],
+                    $context + ['fallback_error' => get_class($fallback)]);
+            }
         } finally {
             while ($connection->getTransactionLevel() > $level) {
                 $connection->rollBack();
             }
         }
+    }
+
+    /**
+     * @param mixed $data MSI's ReservationData
+     * @throws \RuntimeException when MSI's handler is not available
+     */
+    private function applyInProcess($data): void
+    {
+        if (!class_exists(self::HANDLER)) {
+            throw new \RuntimeException('MSI salability handler not available');
+        }
+        \Magento\Framework\App\ObjectManager::getInstance()->get(self::HANDLER)->execute($data);
     }
 }

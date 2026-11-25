@@ -81,6 +81,15 @@
     <type name="Magento\Sales\Model\Order">
         <plugin name="aplazo_payment_first_refuse_stale_cancel" type="Aplazo\AplazoPayment\Plugin\PaymentFirst\RefuseStaleCancel"/>
     </type>
+    <!-- BNPL-1664: a paid popup attempt becomes the order before any other order is placed for its quote. -->
+    <type name="Magento\Quote\Api\CartManagementInterface">
+        <plugin name="aplazo_payment_first_settle_before_place" type="Aplazo\AplazoPayment\Plugin\PaymentFirst\SettlePaidAttemptsBeforePlaceOrder"/>
+    </type>
+    <type name="Aplazo\AplazoPayment\Plugin\PaymentFirst\SettlePaidAttemptsBeforePlaceOrder">
+        <arguments>
+            <argument name="finalizer" xsi:type="object">Aplazo\AplazoPayment\Model\PaymentFirst\Finalizer\Proxy</argument>
+        </arguments>
+    </type>
     <type name="Magento\SalesRule\Model\Service\CouponUsagePublisher">
         <plugin name="aplazo_payment_first_defer_coupon_usage" type="Aplazo\AplazoPayment\Plugin\PaymentFirst\DeferCouponUsagePublish"/>
     </type>

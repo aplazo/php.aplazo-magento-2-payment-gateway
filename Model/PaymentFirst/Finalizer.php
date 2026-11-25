@@ -13,8 +13,6 @@ use Magento\Framework\Event\ManagerInterface as EventManager;
 use Magento\Framework\Exception\LocalizedException;
 use Magento\Framework\Lock\LockManagerInterface;
 use Magento\Payment\Model\Method\AbstractMethod;
-use Magento\Quote\Model\CartLockedException;
-use Magento\Quote\Model\CartMutexInterface;
 use Magento\Quote\Model\Quote;
 use Magento\Quote\Model\QuoteFactory;
 use Magento\Quote\Model\QuoteManagement;
@@ -35,8 +33,8 @@ use Magento\Sales\Model\Order\Email\Sender\OrderSender;
  *     and a PAID answer stays true: the only thing that can undo it is the loan reversal, which runs only on rejected
  *     attempts under the same attempt lock. Everything is decided again on rows reloaded inside the locks.
  *  2. Locks, always in this order: the attempt (`aplazo_pf_attempt_<cartId>`, Magento's lock manager, shared by all
- *     nodes on the default DB backend), then the core cart lock (CartMutex `cart_lock_<quoteId>`, the one around
- *     placeOrder). The core never takes the first one, so the order cannot invert. A held lock is "busy", never a
+ *     nodes on the default DB backend), then the cart lock (CartLock `cart_lock_<quoteId>`, the same lock as core
+ *     placeOrder's CartMutex on Magento 2.4.8+). The core never takes the first one, so the order cannot invert. A held lock is "busy", never a
  *     rejection: the caller retries and the reconciliation catches up.
  *  3. The order is looked up first by increment_id = cartId and store (a process that died after saving it), and only
  *     adopted if it is this attempt's (same quote and mark).
@@ -81,7 +79,7 @@ class Finalizer
         private AttemptStore $attemptStore,
         private LoanStatusChecker $statusChecker,
         private LockManagerInterface $lockManager,
-        private CartMutexInterface $cartMutex,
+        private CartLock $cartMutex,
         private ResourceConnection $resource,
         private QuoteFactory $quoteFactory,
         private QuoteManagement $quoteManagement,
@@ -171,7 +169,7 @@ class Finalizer
             $outcome = $this->storeScope->run((int)$attempt['store_id'], function () use ($attempt) {
                 return $this->finalizeLocked($attempt);
             });
-        } catch (CartLockedException $e) {
+        } catch (CartBusyException $e) {
             $this->scheduleSoon($attempt);
 
             return ['status' => self::BUSY, 'attempt' => $attempt];
@@ -344,9 +342,15 @@ class Finalizer
     {
         if (!$quote->getId() || (int)$quote->getStoreId() !== (int)$attempt['store_id']
             || (int)$quote->getCustomerId() !== (int)$attempt['customer_id']
-            || $quote->getPayment()->getMethod() !== ConfigProvider::CODE
         ) {
             return 'quote_mismatch';
+        }
+        // The payment method currently selected on the quote is not a reason to refuse a paid loan: it is not part of the
+        // fingerprint, and checkout saves the method the buyer picks before placeOrder (savePaymentInformation). A paid
+        // Aplazo loan for exactly this cart becomes the order with Aplazo, even if the buyer then chose another method
+        // (SettlePaidAttemptsBeforePlaceOrder). The method is set back to Aplazo here, without the other method's data.
+        if ($quote->getPayment()->getMethod() !== ConfigProvider::CODE) {
+            $quote->getPayment()->setAdditionalInformation([]);
         }
         try {
             $quote->getPayment()->importData(['method' => ConfigProvider::CODE, 'checks' => self::PAYMENT_CHECKS]);

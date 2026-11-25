@@ -39,3 +39,5 @@
 "Confirming your payment…","Confirmando tu pago…"
 "We could not confirm your payment yet. If you already paid in Aplazo, do not pay again: your order will be confirmed by email.","Todavía no pudimos confirmar tu pago. Si ya pagaste en Aplazo, no vuelvas a pagar: tu pedido se confirmará por correo."
 "Check again","Volver a consultar"
+"Your Aplazo payment for this cart was already confirmed: order %1. No other order was placed and nothing else was charged.","Tu pago con Aplazo para este carrito ya se confirmó: pedido %1. No se creó otro pedido ni se hizo otro cargo."
+"We are confirming an Aplazo payment for this cart. Please wait a moment and try again.","Estamos confirmando un pago con Aplazo para este carrito. Espera un momento e inténtalo de nuevo."

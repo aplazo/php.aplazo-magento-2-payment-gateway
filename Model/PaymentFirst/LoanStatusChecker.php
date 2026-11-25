@@ -12,7 +12,7 @@ use Aplazo\AplazoPayment\Service\ApiService;
  * Only PAID is ever acted on. NOT_PAID means "no paid loan was reported now": it never closes an attempt, because a
  * loan can be paid later and its expiry is not known (contract C3). Any failure or unexpected answer is UNKNOWN.
  * ApiService::getLoanStatus returns false for every failure, including a loan that does not exist, so an absent loan
- * is UNKNOWN too.
+ * is UNKNOWN too, and so is an answer whose loans all carry another loan id than the attempt's.
  */
 class LoanStatusChecker
 {
@@ -44,6 +44,7 @@ class LoanStatusChecker
         if (!is_array($loans)) {
             return self::UNKNOWN;
         }
+        $matched = 0;
         foreach ($loans as $loan) {
             if (!is_array($loan) || !isset($loan['status'])) {
                 return self::UNKNOWN;
@@ -52,11 +53,14 @@ class LoanStatusChecker
             if (!empty($attempt['loan_id']) && isset($loan['loanId']) && (string)$loan['loanId'] !== (string)$attempt['loan_id']) {
                 continue;
             }
+            $matched++;
             if ($loan['status'] === ApiService::LOAN_SUCCESS_STATUS) {
                 return self::PAID;
             }
         }
 
-        return $loans === [] ? self::UNKNOWN : self::NOT_PAID;
+        // "Not paid" only from an answer about this attempt's loan: an empty list, or one whose loans all carry another
+        // loan id, says nothing about it and stays unknown (the buyer is never told "not paid" without evidence).
+        return $matched === 0 ? self::UNKNOWN : self::NOT_PAID;
     }
 }
