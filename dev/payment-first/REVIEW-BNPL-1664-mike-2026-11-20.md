@@ -15,13 +15,13 @@ done, where the code deliberately differs from the request, and the local eviden
 |---|---|---|---|
 | 1 | Layer over the checkout while Aplazo's window is open; link to focus it; close button | Done | `view/frontend/web/js/model/popup-overlay.js`, renderer |
 | 2 | "Confirming your payment…" loader | Done | renderer `showConfirming()` |
-| 3 | Retries after the window is seen closed (every 3 s, ~15–30 s) | Done, with a stricter end (§1). **Close without payment: decision pending for Mike (§1)** | renderer `CLOSE_RETRIES` = 8 (~24 s) |
+| 3 | Retries after the window is seen closed (every 3 s, ~15–30 s) | Done, with a stricter end (§1). **Late payment of an earlier loan: release blocker, needs Aplazo + product (§1a, §8)** | renderer `CLOSE_RETRIES` = 8 (~24 s) |
 | 4 | Empty minicart after success | Done | `etc/frontend/sections.xml`, `customerData.invalidate()` |
 | 5 | One configuration-only switch, checked first | Done, split in two; **deviation: a store that used popup keeps 1 indexed read per cart save after turning it off (§2)** | `Helper\Data::isPaymentFirstEnabled()` / `isPaymentFirstInUse()` |
 | 6 | `KeepConvertedQuoteClosed`: switch → attempt lookup → `FOR UPDATE` only if an attempt **with order** | Done, **differs** (§3) | step (b) asks for **any** attempt |
 | 7 | Drop `magento/module-sales-rule` and `laminas/laminas-uri` | Done | `composer.json`, `CheckoutUrlValidator` (`parse_url()`) |
 | 8 | `setup:di:compile` and a redirect checkout without MSI | **Not approved**: fails, also on master (§4) | pre-existing `Model/Product/MSIStock.php` |
-| 9 | Whitelist, merge master + version, PR closing #131 | Whitelist, merge and `4.0.14` done; PR not opened yet | `etc/db_schema_whitelist.json` |
+| 9 | Whitelist, merge master + version, PR closing #131 | Whitelist, merge and `4.0.14` done; PR #133 open as **draft** (#131 not closed yet) | `etc/db_schema_whitelist.json` |
 
 ## 1. Closing the window: what gives the checkout back
 
@@ -59,18 +59,28 @@ loan); the order arrives by webhook or reconciliation if the loan was paid.
      No second Aplazo loan. (fact: `close_unpaid_and_reuse`, `uncertain_start_normal_and_reuse`)
    - **Aplazo again, cart changed:** the old attempt goes `superseded` (never cancelled, comment in
      `StartService`: "Their loans may still be paid"), a new loan is created. Two payable loans exist.
-   - **Another payment method (or redirect):** Magento places that order and the quote becomes inactive. The first
-     loan is still payable.
-4. If the first loan is paid afterwards (the buyer reopens its URL, or Aplazo records a payment made before the close
-   more than ~25 s late), the webhook or the cron confirms `PAID` and the finalizer cannot convert the quote:
+   - **Another payment method (or redirect), from the same page, after a reload, from another tab or the cart page:**
+     since the review of 2026-11-24 `SettlePaidAttemptsBeforePlaceOrder` first settles every payable attempt of the
+     quote with Aplazo. If one is already paid (and the cart unchanged), it becomes the Aplazo order and the other
+     placeOrder is refused with that order number: nothing is charged twice. If a conversion of the quote is running,
+     the other order is refused as busy. Otherwise (not paid, or status unknown) Magento places that order, the quote
+     becomes inactive and the first loan is still payable. (fact: `place_other_paid`, `place_other_busy`,
+     `place_other_busy_checkout`, `place_other_unpaid`, `place_other_unknown`)
+4. If the first loan is paid **after** that other order (the buyer reopens its URL, or Aplazo records a payment made
+   before the close later than the moment of the other placeOrder), the webhook or the cron confirms `PAID` and the finalizer cannot convert the quote:
    attempt `rejected / quote_not_active` or `cart_changed`, `loan_cancel_state = pending`, listed by
    `bin/magento aplazo:payment-first:attempts --attention`. The buyer has paid twice. The reversal is manual:
    `Reconciler::$autoCancelRejected = false` because what `cancelLoan` does after a payment is not known (C5).
    (fact against the stub: `two_attempts_both_paid_*`, `popup_pending_redirect_other_tab`, `cart_changed_*`)
 
 **Does the first loan stop being payable? Not as far as the code and the known contracts show.**
-- The module never cancels an unpaid loan: `cancelLoan` is only called for a `rejected` attempt (already paid) and only
-  when `autoCancelRejected` is on (off by default).
+- The payment-first code never cancels an unpaid loan: `cancelLoan` is only called for a `rejected` attempt (already
+  paid) and only when `autoCancelRejected` is on (off by default).
+- The endpoint exists and master already calls it on unpaid loans: the redirect flow's `Cron/CancelOrders` asks
+  `shouldCancelOrder` (status not `OUTSTANDING`) and then `OrderService::cancelOrder` calls
+  `cancelLoan(['cartId', 'totalAmount' => 0, 'reason' => 'No payment'])` on `/api/pos/loan/cancel`. What is not known is
+  whether that makes the loan unpayable, and what it does if the loan is paid between the status check and the cancel
+  (the same race exists in master's cron). That is the narrower question for Aplazo behind D.
 - The `createLoan` payload (`QuoteLoanPayloadBuilder`) sends no expiry; nothing in the plugin assumes one.
 - Closing the window, the 25 s wait and placing another order do not reach Aplazo at all.
 - How long an Aplazo checkout stays payable is unknown (contract C3), and there is no "cancel only if unpaid" call
@@ -81,16 +91,18 @@ loan); the order arrives by webhook or reconciliation if the loan was paid.
 
 | | Option | Double-payment risk | Buyer impact | Needs |
 |---|---|---|---|---|
-| A | **Current**: give the checkout back on the final `not_paid` | open: late recording > ~25 s, or a reopened old checkout | cart intact after ~25 s (epic BNPL-1022/1028) | — |
+| A | **Current**: give the checkout back on the final `not_paid`; any later placeOrder first settles the earlier attempts (paid → that order, other order refused) | open only for a payment recorded **after** the other order | cart intact after ~25 s (epic BNPL-1022/1028) | — |
 | B | After `not_paid`, keep the layer and ask the buyer to choose: "Volver a Aplazo" (same loan) or "Pagar de otra forma" with a warning | lower (explicit choice), still open | one more click | frontend only |
 | C | Longer close window (e.g. 60–120 s) | lower for late recording only | longer wait after every close | frontend only |
-| D | Cancel the loan before giving the checkout back, only if Aplazo guarantees cancel-if-unpaid (refused once paid) | closed, if the contract holds | none | Aplazo contract C5 (+ C3) |
+| D | Cancel the loan (existing `cancelLoan`, as master's redirect cron does for unpaid loans) before the checkout is given back or before another order is placed, only if Aplazo guarantees it makes an unpaid loan unpayable and is refused once paid | closed, if the contract holds | none (a new start then needs a new loan) | Aplazo confirmation of C5 (+ C3); product decision |
 | E | Turn on the automatic reversal of `rejected` attempts | the second charge is refunded, not prevented | refund delay | C5 (what cancel does after payment) |
 
 **None of A, B or C resolves the risk.** Asking the buyer (B) or waiting longer (C) only makes an accidental second
-payment less likely; the first loan stays payable either way. Only D prevents the double charge, and it depends on
-Aplazo. E refunds it afterwards. Until Aplazo confirms C5/C3 this stays an **open risk of the pilot**: Mike chooses A
-or B as the interim behaviour, and an operator watches `--attention` for `rejected` attempts.
+payment less likely; the first loan stays payable either way. The placeOrder check of A closes the case "already paid
+before the other order", not "paid after it". Only D prevents the double charge, and it depends on Aplazo; E refunds it
+afterwards. **This is a release blocker, not an accepted risk:** it is not accepted because Mike is away. Until Aplazo
+confirms C5/C3 and the owner of the product decision chooses D, E or an explicit acceptance for a limited pilot, the PR
+stays draft; meanwhile an operator would watch `--attention` for `rejected` attempts.
 
 Evidence (fact): `js_cycle_test.py` scenarios 9, 14–17 and `ux_e2e.py closed_uncertain` (status API failing → layer with
 "Check again" after 9 checks, page inert; then "not paid" → checkout back, no order, quote active).
@@ -114,6 +126,7 @@ popup off was loaded after popup was turned off, so after that commit too.
 | Webhook | routes attempts first | redirect only, no attempt lookup | routes attempts (fact: `switch_off_webhook`) |
 | `bin/magento aplazo:payment-first:attempts` | not gated | not gated | not gated |
 | `KeepConvertedQuoteClosed` (cart save) | guard runs | no query | guard runs (1 indexed read per active-cart save) |
+| `SettlePaidAttemptsBeforePlaceOrder` (any placeOrder, since 2026-11-24) | 1 indexed read per placeOrder; status request per payable attempt of that quote | no query (no store of the site ever used popup) | same as popup on, for the whole site (gated by "any store in use") |
 | Order hooks (cancel, email, stock, cancel cron) | in-memory mark first | no query without the mark | no query without the mark |
 
 Before this change the cron and the webhook stopped at "popup off", so an attempt paid after the switch was turned off
@@ -308,3 +321,53 @@ SKU. Not implemented; the frequency in production is unknown (a broker outage at
 `cart_mutation_waits_for_conversion` pass, `status_unknown_then_paid` pass, `create_loan_fail_then_early_webhook`
 pass, `h3_registered_cron_class_crash_then_complete` pass, `shipment_and_physical_stock` fail (indexers in realtime
 without a prior reindex: salable −2, the index caught up with an earlier shipment) then pass (after a reindex).
+
+## 8. Technical review of 2026-11-24 (in Mike's absence)
+
+Mike is on vacation; the squad continued the review of PR #133 (draft). Read the whole production diff against
+`master`, plus `work-review` and one independent read of the same diff. Findings, by severity, with what was done.
+**fact** = reproduced on the local store with the kit; **inference** = from code. Commits: see the PR.
+
+| # | Severity | Finding | Walk-through | Done |
+|---|---|---|---|---|
+| R-1 | **High** (money) | A loan **already paid** in Aplazo was not checked before an order with another method | Popup open, buyer pays in Aplazo; the page does not get the confirmation (window closed early, reload, network). Buyer reloads (the layer is client-side only), picks check/money order or redirect, Place Order. Magento placed that order; the quote went inactive; the webhook or cron then found the paid loan → `rejected/quote_not_active`: charged twice, manual refund. Worse: `savePaymentInformation` writes the new method on the quote before `placeOrder`, and `Finalizer::rejectReason` refused any quote whose method was not `aplazo_gateway` (`quote_mismatch`), so even a quick conversion lost | **Fixed.** `Plugin/PaymentFirst/SettlePaidAttemptsBeforePlaceOrder` (before `CartManagementInterface::placeOrder`, outside the core cart lock) runs the shared finalization on every payable attempt of the quote: paid → it becomes the Aplazo order and the other placeOrder is refused with that number; busy → refused; not paid / unknown → placeOrder goes on (unknown cannot block: an absent loan also reads as unknown). `rejectReason` no longer refuses a quote for its selected method (not part of the fingerprint); the method is set back to Aplazo and the other method's data dropped. fact: `place_other_paid`, `_unpaid`, `_unknown`, `_busy`, `_busy_checkout` |
+| R-2 | **High** (compatibility) | The module required `Magento\Quote\Model\CartMutexInterface`, which exists **only from Magento 2.4.8** (checked on magento/magento2 tags: absent in 2.4.4–2.4.7-p5, present in 2.4.8). `Finalizer`/`StartService` are reached from `Notifications` (the webhook of every order, redirect included) | On 2.4.7 or earlier, popup off: `setup:di:compile` fails, and in developer mode every `/V1/aplazo/callback` fatals building the router → redirect orders never approved by webhook. A regression against 4.0.13 for every merchant below 2.4.8 | **Fixed.** `Model/PaymentFirst/CartLock`: the same lock as core `CartMutex` (`cart_lock_<quoteId>`, no wait) through `LockManagerInterface`, so on 2.4.8 it still excludes core placeOrder; no type that is missing before 2.4.8. All other Magento classes the diff uses exist in 2.4.4 and 2.4.7 (tags checked; MSI classes in magento/inventory 1.2.4/1.2.7, same constructor). inference: **not compiled on a real 2.4.7 store** (pending). Before 2.4.8 core placeOrder takes no cart lock: popup there is not recommended (the pilot is sandbox-only) |
+| R-3 | Medium | "Not paid" could be concluded from an answer about **another loan** | The status API lists loans by cartId; if all of them carried another `loanId` than the attempt's, `LoanStatusChecker` returned `NOT_PAID` → the page says "you closed the window without paying" and gives the checkout back without evidence | **Fixed.** No matching loan → `UNKNOWN`. Unit test `LoanStatusCheckerTest` (9 cases; "only another loan id" returned NOT_PAID before) |
+| R-4 | Medium | Failed deferred salability publish left the stock index wrong (§7b) | Publish fails after the commit → nothing queued → `is_salable` stays 1 until another message for the SKU | **Fixed.** On failure, `DeferredSalabilityPublisher` runs MSI's own handler of the topic in process (`UpdateIndexSalabilityStatus::execute`, what the consumer runs). It recalculates from committed quantities and reservations and counts nothing, so a duplicate (exception after delivery) or a repeat is harmless. Resolved only on that path and only if the MSI class exists (repo convention for optional modules: `class_exists` + ObjectManager), so no MSI type enters the constructor. fact: `msi_fix_publish_exception`, `msi_fix_publish_error` (asserted) |
+| R-5 | Low | Failed deferred coupon usage publish: rule-level `times_used` one short (§7b) | as §7b | **Not changed on purpose.** The consumer **increments** a counter: a retry after an exception that may follow delivery could count twice. No limit reads that counter (admin statistic). Not a release blocker; manual fix per order documented in §7b |
+| R-6 | Medium (availability) | An attempt `uncertain`/`starting` never leaves that state | `createLoan` fails (5xx, timeout, invalid URL) → `uncertain`; the status API cannot tell "no loan" from a failure (`getLoanStatus` → `false` for both) → every later popup start for that quote answers "uncertain" forever, polled every 3 h | **Pending.** No money risk: other methods stay available (R-1 lets placeOrder through on unknown). Resolving needs either an API answer that distinguishes "no loan for this cartId" (C2) or an operator resolution "no loan confirmed with Aplazo" in `aplazo:payment-first:attempts`. Not a blocker for the sandbox pilot; blocker for production enablement |
+| R-7 | Medium (operations) | Reconciliation backlog grows without bound | Unpaid `open`/`superseded` attempts are re-polled every 3 h forever (C3); 50 per run, every 5 min, in the `default` cron group; 90 s API timeout | **Pending.** Proposal: due order by `paid_confirmed_at` first, lower cadence for old unpaid attempts, own cron group. Needs C3 for an end. Blocker for production enablement, not for the sandbox pilot |
+| R-8 | Low | Order email lost if the process dies between `completed` and the email claim | Every later finalization returns through `settled()` and never claims the email | **Pending** (documented with the existing "exactly once not guaranteed" note in the design §8) |
+| R-9 | Info | Semgrep: 13 findings, all in `dev/popup-harness/` (unlink of fixed switch files under `var/`, one `eval` in a one-off comparison script, one `urlopen` on fixed local URLs) | `dev/` is `export-ignore` (`.gitattributes`): never in the Composer package | Marked `nosemgrep` with the reason on each line; no production finding |
+
+**What the placeOrder check guarantees, and what it does not (production code `ef63164`):**
+
+| Buyer path after the window closes | Guaranteed | Not guaranteed | Evidence |
+|---|---|---|---|
+| Reload, then pay with another method or redirect (the client layer is gone) | if the earlier loan is **already paid** and the cart unchanged: that loan becomes the Aplazo order; the other order is refused with its number; nothing charged with the other method | a loan paid **after** this placeOrder | `place_other_paid` (fact) |
+| Same, while the webhook/cron is converting that paid loan | the other order is refused (busy, the quote guard or the core cart lock, whichever meets it first); one Aplazo order | — | `place_other_busy`, `place_other_busy_checkout` (fact) |
+| Same, loan not paid yet | the other order is placed (no lock-out) | the earlier loan stays payable; paid later → `rejected/quote_not_active`, charged twice, manual refund | `place_other_unpaid` (fact, ends `rejected`) |
+| Same, status API fails or the loan was never created | the other order is placed (no lock-out) | a paid loan whose status could not be read at that moment is found later → `rejected` | `place_other_unknown` (fact) |
+| Change the cart, then Aplazo again | the old attempt is superseded, a new loan is created; a paid old loan is never converted onto changed contents | both loans payable; the old one paid → `rejected/cart_changed` | `two_attempts_both_paid_*` (fact, round 5) |
+| Change the cart, then another method | the check runs on the superseded attempt too; a paid loan for the old contents is recorded `rejected/cart_changed` at that moment (not silent) and the other order goes on, because refusing it would not avoid the refund | the refund of that loan (manual) | inference from `Finalizer::rejectReason` + the plugin (not run) |
+| Same cart, Aplazo again | the same open attempt and loan are reused | — | `close_unpaid_and_reuse` (fact) |
+| Flows that call `submit` directly (PayPal Express) | — | not checked | not run |
+
+So the double-payment risk is **reduced, not resolved**: it remains for any loan paid after the other order, and only
+Aplazo's cancellation/expiry semantics (C5/C3) plus a product decision can close it (§1a).
+
+**Mike's nine points after this review:** unchanged except 3 (the client end is the same; the server now refuses another
+order while a paid loan exists, and the late payment after another order is a release blocker, §1a) and 9 (PR #133
+draft).
+
+**Release blockers (the PR stays draft while any is open):**
+1. Late payment of an earlier loan after another order (§1a): needs Aplazo to confirm what `cancelLoan` does on an
+   unpaid loan and on a paid one (C5) and checkout validity (C3), then a product decision (D, E or an explicit,
+   time-boxed acceptance for the sandbox pilot). Owner: product + Aplazo backend, not this PR.
+2. Without MSI (§4): pre-existing in master; separate ticket (`DEFECT-no-msi-compile-4.0.13.md`).
+3. Manual STG purchases and the magento-test run of this head.
+4. A compile of this head on a Magento 2.4.7 store (R-2 is fixed by code; not run).
+
+**Decisions that need another owner (not blockers of the code):** R-6 and R-7 before any production enablement; the
+interim close behaviour (§1a A vs B); the extra indexed read per cart save in stores that used popup (§2, a documented
+deviation from "zero queries with popup off", not compliance); the H-1 deviation (§3).
