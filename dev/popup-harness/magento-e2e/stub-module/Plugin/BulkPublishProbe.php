@@ -43,7 +43,7 @@ class BulkPublishProbe
             'operations' => $info,
             'fault' => $fault ?: null,
         ]);
-        if ($fault !== '' && @unlink($file)) {
+        if ($fault !== '' && @unlink($file)) { // nosemgrep: php.lang.security.unlink-use.unlink-use -- local test kit (dev/ is export-ignore): fixed switch file under var/
             if ($fault === 'error') {
                 throw new \Error('kit: synthetic Error while publishing');
             }

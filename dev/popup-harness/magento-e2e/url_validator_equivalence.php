@@ -9,7 +9,7 @@ require 'app/bootstrap.php';
 $old = file_get_contents((string)($argv[1] ?? ''));
 $old = str_replace('declare(strict_types=1);', '', $old);
 $old = str_replace('namespace Aplazo\AplazoPayment\Model\PaymentFirst;', 'namespace KitOld;', $old);
-eval('?>' . $old);
+eval('?>' . $old); // nosemgrep: php.lang.security.eval-use.eval-use -- local one-off comparison (dev/ is export-ignore): evaluates the operator's own copy of the previous CheckoutUrlValidator
 $o = new \KitOld\CheckoutUrlValidator();
 $n = new \Aplazo\AplazoPayment\Model\PaymentFirst\CheckoutUrlValidator();
 $origin = 'https://checkout.aplazo.net';

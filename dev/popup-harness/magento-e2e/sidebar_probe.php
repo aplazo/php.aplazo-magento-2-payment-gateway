@@ -27,7 +27,7 @@ try {
     $out['read_is_active'] = (int)$om->get(\Magento\Checkout\Model\Cart::class)->getQuote()->getIsActive();
     @touch(BP . '/var/localdev_pf_sidebar_probe.inside');
     sleep(min(60, (int)$hold));
-    @unlink(BP . '/var/localdev_pf_sidebar_probe.inside');
+    @unlink(BP . '/var/localdev_pf_sidebar_probe.inside'); // nosemgrep: php.lang.security.unlink-use.unlink-use -- local test kit (dev/ is export-ignore): fixed switch file under var/
     $sidebar->updateQuoteItem((int)$item->getId(), 3);
     $out['saved'] = true;
 } catch (\Throwable $e) {

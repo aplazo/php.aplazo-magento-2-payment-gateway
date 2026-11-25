@@ -28,18 +28,18 @@ class SyncPoint implements ObserverInterface
         $file = BP . '/var/localdev_pf_' . $name;
         $plan = is_file($file) ? trim((string)@file_get_contents($file)) : '';
         if ($plan === 'crash') {
-            @unlink($file);
+            @unlink($file); // nosemgrep: php.lang.security.unlink-use.unlink-use -- local test kit (dev/ is export-ignore): fixed switch file under var/
             StubLog::write('sync', $name, ['plan' => 'crash']);
             exit(1);
         }
         if ($plan === 'throw') {
-            @unlink($file);
+            @unlink($file); // nosemgrep: php.lang.security.unlink-use.unlink-use -- local test kit (dev/ is export-ignore): fixed switch file under var/
             StubLog::write('sync', $name, ['plan' => 'throw']);
             throw new \RuntimeException('kit: synthetic failure at ' . $name);
         }
         if (strpos($plan, 'once:') === 0) {
             // One-shot pause, for events that later fire in other processes too (sales_order_load_after).
-            if (!@unlink($file)) {
+            if (!@unlink($file)) { // nosemgrep: php.lang.security.unlink-use.unlink-use -- local test kit (dev/ is export-ignore): fixed switch file under var/
                 return;
             }
             $plan = 'pause:' . substr($plan, 5);
@@ -49,7 +49,7 @@ class SyncPoint implements ObserverInterface
             StubLog::write('sync', $name, ['plan' => 'pause', 'seconds' => $seconds]);
             @touch($file . '.inside');
             sleep($seconds);
-            @unlink($file . '.inside');
+            @unlink($file . '.inside'); // nosemgrep: php.lang.security.unlink-use.unlink-use -- local test kit (dev/ is export-ignore): fixed switch file under var/
         }
     }
 }

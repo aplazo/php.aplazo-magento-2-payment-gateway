@@ -2550,7 +2550,15 @@ def t_msi_fix(mode):
             oid = [x for x in o if x['increment_id'] == a['cart_id']][0]['entity_id']
             step('after_shipment', ship=php('order_ops.php', 'ship', oid))
             consume_queued('after_shipment_consumer')
-        record('msi_fix_%s' % mode, None, cart_id=a['cart_id'], attempt_id=a['entity_id'],
+        verdict = None
+        if mode in ('publish_exception', 'publish_error'):
+            # Since the review of 2026-11-24 the module applies the failed message in process (MSI's own handler):
+            # right after the failure, before any consumer, the sold last unit is no longer salable in the stock index.
+            failed = [x for x in steps if x['step'] == 'after_commit_publish_failed'][0]
+            view = (failed['state'].get('stock_index_view') or {})
+            verdict = (str(view.get('is_salable')) == '0' and failed['attempt_row'] == 'completed'
+                       and 'applied in process' in json.dumps(failed['module_log']))
+        record('msi_fix_%s' % mode, verdict, cart_id=a['cart_id'], attempt_id=a['entity_id'],
                final_attempt=attempt(a['entity_id'])['status'],
                orders_for_cart=len([x for x in r.orders() if x['increment_id'] == a['cart_id']]), steps=steps,
                reservations=r.res(MSI_SKU))
@@ -2643,7 +2651,89 @@ def t_uncertain_start(mode):
         b.quit()
 
 
+OTHER_METHOD_JS = r"""
+(async (method) => {
+  const c = window.checkoutConfig;
+  const path = '/rest/' + c.storeCode + '/V1/guest-carts/' + c.quoteData.entity_id + '/payment-information';
+  const r = await fetch(path, {method: 'POST', credentials: 'same-origin', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({cartId: c.quoteData.entity_id, email: 'pf-test@example.invalid', paymentMethod: {method}})});
+  let t = await r.text(); try { t = JSON.parse(t); } catch (e) { t = t.slice(0, 200); }
+  return {http: r.status, body: t};
+})
+"""
+
+
+def order_methods(r):
+    return rows('SELECT o.increment_id, p.method FROM sales_order o JOIN sales_order_payment p ON p.parent_id=o.entity_id '
+                'WHERE o.entity_id > %d ORDER BY o.entity_id' % r.o, ('increment_id', 'method'))
+
+
+def t_place_other(mode):
+    """The popup attempt is left open, the buyer reloads the checkout (the page's block is gone) and places the order with
+    another method (check / money order, the same REST call Luma's Place Order makes). SettlePaidAttemptsBeforePlaceOrder
+    settles the attempt first. mode: paid (loan OUTSTANDING: the attempt becomes the Aplazo order and the other order is
+    refused) | unpaid (REQUEST: the other order is placed; a later payment of the loan ends rejected, the residual risk) |
+    unknown (status API fails: the other order is placed) | busy (the webhook is converting the paid attempt right now and
+    placeOrder is called with the method as a parameter, so it reaches the guard: refused as busy, the webhook's order
+    stands) | busy_checkout (same hold, through the checkout's REST call: refused by whichever check meets it first, the
+    quote guard, the core cart lock or the inactive quote; no other order)."""
+    r = Run(); b = Browser(); default_loan('REQUEST')
+    try:
+        ok, a = open_popup(b, plan='stay')
+        if mode in ('paid', 'busy', 'busy_checkout'):
+            loan(a['cart_id'], 'OUTSTANDING')
+        elif mode == 'unknown':
+            loan(a['cart_id'], 'ERROR')
+        b.ws.send('Page.navigate', {'url': BASE + '/checkout/'})
+        wait_for(b.ws, "!!(window.checkoutConfig && window.checkoutConfig.quoteData && document.querySelector('#checkout-step-shipping, #checkout-payment-method-load'))", 90)
+        time.sleep(2)
+        place = lambda: evaluate(b.ws, '(%s)(%s)' % (OTHER_METHOD_JS, json.dumps('checkmo')), timeout=150)
+        hold = None
+        if mode == 'busy':
+            box = {}
+            hold = hold_conversion_and(a, lambda: box.update(v=php('order_ops.php', 'place_checkmo', a['quote_id'])) or 'placed during hold')
+            answer = box.get('v')
+        elif mode == 'busy_checkout':
+            box = {}
+            hold = hold_conversion_and(a, lambda: box.update(v=place()) or 'placed during hold')
+            answer = box.get('v')
+        else:
+            answer = place()
+        x = attempt(a['entity_id'])
+        methods = order_methods(r)
+        msg = json.dumps(answer)
+        later = None
+        if mode == 'paid':
+            good = (ok and answer['http'] >= 400 and a['cart_id'] in msg and methods == [dict(increment_id=a['cart_id'], method='aplazo_gateway')]
+                    and x['status'] == 'completed' and quote(a['quote_id'])['is_active'] == '0')
+        elif mode == 'busy':
+            good = (ok and hold['inside'] and answer.get('ok') is False and 'confirming an Aplazo payment' in msg
+                    and methods == [dict(increment_id=a['cart_id'], method='aplazo_gateway')] and x['status'] == 'completed')
+        elif mode == 'busy_checkout':
+            # Refused whichever way the timing falls: KeepConvertedQuoteClosed on the quote save ("No such entity with
+            # cartId"), the core cart lock still held by the conversion, or the inactive quote after it.
+            good = (ok and hold['inside'] and answer['http'] >= 400
+                    and methods == [dict(increment_id=a['cart_id'], method='aplazo_gateway')] and x['status'] == 'completed')
+        else:
+            placed = [m for m in methods if m['method'] == 'checkmo']
+            good = (ok and answer['http'] == 200 and len(methods) == 1 and len(placed) == 1 and x['status'] == 'open')
+            if mode == 'unpaid':
+                loan(a['cart_id'], 'OUTSTANDING')
+                rec = reconcile(a['entity_id'])
+                later = dict(reconcile=rec, attempt=attempt(a['entity_id']))
+                good = good and later['attempt']['status'] == 'rejected' and later['attempt']['reject_reason'] == 'quote_not_active'
+        record('place_other_%s' % mode, good, answer=answer, attempt=x, orders=methods, hold=hold, later=later,
+               status_calls=[c.get('cartId') for c in r.calls('getLoanStatus')])
+    finally:
+        b.quit()
+
+
 TESTS = {
+    'po_paid': lambda: t_place_other('paid'),
+    'po_unpaid': lambda: t_place_other('unpaid'),
+    'po_unknown': lambda: t_place_other('unknown'),
+    'po_busy': lambda: t_place_other('busy'),
+    'po_busy_checkout': lambda: t_place_other('busy_checkout'),
     'close_unpaid': t_close_unpaid,
     'email_webhook': lambda: t_email_path('webhook'),
     'us_uncertain_reclick': lambda: t_uncertain_start('uncertain_reclick'),

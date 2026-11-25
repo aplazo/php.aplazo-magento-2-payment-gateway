@@ -4,6 +4,8 @@
 //   quote_save          an active guest cart (synthetic product) has its quantity changed and is saved (repository)
 //   cancel_checkmo      a check/money-order order is cancelled (OrderManagementInterface::cancel)
 //   cancel_aplazo       an Aplazo redirect order is cancelled (the stubbed API answers createLoan/cancelLoan)
+//   place_checkmo       a check/money-order cart is placed through CartManagementInterface::placeOrder (what checkout
+//                       calls; SettlePaidAttemptsBeforePlaceOrder runs before it)
 // Setup work (creating carts and orders) is not measured. For each step it prints the total number of queries and
 // every query the payment-first code could issue: on aplazo_payment_attempt, FOR UPDATE / LOCK IN SHARE MODE reads,
 // and invoice counts. Run once with popup off and once with popup on (control). From the Magento root:
@@ -90,6 +92,12 @@ try {
         $cartRepository->save($q);
     });
     $cartRepository->delete($cartRepository->get($quoteId));
+
+    $placeQuoteId = (int)$newQuote('checkmo')->getId();
+    $placed = null;
+    $out['steps'][] = $measure('place_checkmo', function () use ($om, $placeQuoteId, &$placed) {
+        $placed = $om->get(\Magento\Quote\Api\CartManagementInterface::class)->placeOrder($placeQuoteId);
+    }) + ['order_entity_id' => $placed];
 
     $management = $om->get(\Magento\Sales\Api\OrderManagementInterface::class);
     foreach (['checkmo' => 'cancel_checkmo', 'aplazo_gateway' => 'cancel_aplazo'] as $method => $step) {

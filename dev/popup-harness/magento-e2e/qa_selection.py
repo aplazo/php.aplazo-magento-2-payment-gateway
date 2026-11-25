@@ -65,7 +65,7 @@ def prerequisites(m):
     for label, url in (('Magento https://magento.test', 'https://magento.test/'),
                        ('mock_https.py on 127.0.0.1:8443', 'https://127.0.0.1:8443/__hits')):
         try:
-            urllib.request.urlopen(url, context=ctx, timeout=15).read(1)
+            urllib.request.urlopen(url, context=ctx, timeout=15).read(1)  # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected -- fixed local https URLs above
         except Exception as e:  # noqa: BLE001
             problems.append('%s not reachable: %s' % (label, type(e).__name__))
     chrome = os.environ.get('CHROME', '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome')

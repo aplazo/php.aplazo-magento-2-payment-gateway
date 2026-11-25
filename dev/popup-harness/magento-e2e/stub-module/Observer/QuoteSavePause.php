@@ -35,7 +35,7 @@ class QuoteSavePause implements ObserverInterface
         } else {
             $quote = $event === 'cart' ? $observer->getEvent()->getCart()->getQuote() : $observer->getEvent()->getQuote();
         }
-        if ($point !== $event || !$quote || (int)$quote->getId() !== $quoteId || !@unlink($file)) {
+        if ($point !== $event || !$quote || (int)$quote->getId() !== $quoteId || !@unlink($file)) { // nosemgrep: php.lang.security.unlink-use.unlink-use -- local test kit (dev/ is export-ignore): fixed switch file under var/
             return;
         }
         $seen = ['point' => $event, 'quote_id' => $quoteId, 'is_active_in_memory' => (int)$quote->getIsActive(),
@@ -43,6 +43,6 @@ class QuoteSavePause implements ObserverInterface
         StubLog::write('sync', 'quote_save_pause', $seen);
         @file_put_contents($file . '.inside', json_encode($seen));
         sleep($seen['seconds']);
-        @unlink($file . '.inside');
+        @unlink($file . '.inside'); // nosemgrep: php.lang.security.unlink-use.unlink-use -- local test kit (dev/ is export-ignore): fixed switch file under var/
     }
 }

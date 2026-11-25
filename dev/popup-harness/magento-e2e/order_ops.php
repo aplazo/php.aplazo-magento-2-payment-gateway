@@ -10,6 +10,8 @@
 //   coupon <PFKIT...>           creates a synthetic 10% cart rule with that specific coupon if missing
 //   invoice <entity_id>         invoices the order as an operator would (invoice service, one transaction)
 //   order_status <aplazo_kit_*> creates a synthetic status assigned to the processing state
+//   place_checkmo <quote_id>    CartManagementInterface::placeOrder(quote, check/money order) with the method as a parameter,
+//                               so nothing saves the quote before the plugins on placeOrder run (BNPL-1664 guard test)
 // Prints one JSON line. Never prints tokens or customer data.
 require 'app/bootstrap.php';
 $om = \Magento\Framework\App\Bootstrap::create(BP, $_SERVER)->getObjectManager();
@@ -35,7 +37,7 @@ try {
         if ($hold > 0) {
             @touch(BP . '/var/localdev_pf_cancel_direct.inside');
             sleep(min(60, $hold));
-            @unlink(BP . '/var/localdev_pf_cancel_direct.inside');
+            @unlink(BP . '/var/localdev_pf_cancel_direct.inside'); // nosemgrep: php.lang.security.unlink-use.unlink-use -- local test kit (dev/ is export-ignore): fixed switch file under var/
         }
         $order->cancel();
         $repo->save($order);
@@ -143,6 +145,9 @@ try {
         $sourceItem->setQuantity((float)$argv[3]);
         $sourceItem->setStatus(1);
         $om->get(\Magento\InventoryApi\Api\SourceItemsSaveInterface::class)->execute([$sourceItem]);
+    } elseif ($command === 'place_checkmo') {
+        $payment = $om->create(\Magento\Quote\Api\Data\PaymentInterface::class)->setMethod('checkmo');
+        $out['order_id'] = $om->get(\Magento\Quote\Api\CartManagementInterface::class)->placeOrder((int)$argv[2], $payment);
     } else {
         throw new \InvalidArgumentException('unknown command');
     }

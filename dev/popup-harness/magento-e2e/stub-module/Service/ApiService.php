@@ -24,7 +24,7 @@ class ApiService extends \Aplazo\AplazoPayment\Service\ApiService
         // crash (the PHP process exits during the call, as a request killed while waiting for Aplazo; the file is removed).
         $mode = trim((string)@file_get_contents(BP . '/var/localdev_aplazo_stub_createloan'));
         if ($mode === 'crash') {
-            @unlink(BP . '/var/localdev_aplazo_stub_createloan');
+            @unlink(BP . '/var/localdev_aplazo_stub_createloan'); // nosemgrep: php.lang.security.unlink-use.unlink-use -- local test kit (dev/ is export-ignore): fixed switch file under var/
             StubLog::write('api', 'createLoan', ['cartId' => $cartId, 'simulated' => 'crash']);
             exit(1);
         }
