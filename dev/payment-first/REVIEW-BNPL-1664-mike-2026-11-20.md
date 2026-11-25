@@ -367,7 +367,8 @@ draft).
    time-boxed acceptance for the sandbox pilot). Owner: product + Aplazo backend, not this PR.
 2. Without MSI (§4): pre-existing in master; separate ticket (`DEFECT-no-msi-compile-4.0.13.md`).
 3. Manual STG purchases and the magento-test run of this head.
-4. A compile of this head on a Magento 2.4.7 store (R-2 is fixed by code; not run).
+4. ~~A compile of this head on a Magento 2.4.7 store~~ **Compiled 2026-11-25** (§8c): `setup:di:compile` passes on a clean
+   Magento 2.4.7 + MSI with this module (`CartMutexInterface` absent there). Not installed or run on 2.4.7 (no DB, no checkout).
 5. R-10 verified on the real flow: an STG purchase after the fix (manual; the stub run passed, §8c), and Aplazo's confirmation that the status
    answer always carries `loanId` (it did in case 1; the module now depends on it to confirm any payment).
 
@@ -415,4 +416,10 @@ deviation from "zero queries with popup off", not compliance); the H-1 deviation
   browser's cart. No loan was created in STG. Not a product defect: a manual purchase must never overlap a kit run.
   Evidence (nginx lines of that browser, DB rows, stub log) is kept locally under `dev/popup-harness/.out/` (not in
   the repository).
+- **Magento 2.4.7 (R-2):** throwaway `magento/project-community-edition` 2.4.7 (Composer's security-advisory block
+  turned off only in that build: 2.4.7 has published advisories), all modules enabled (MSI included), this module copied
+  from the worktree (same content as `3cb604e`, `dev/` removed): `setup:di:compile` OK, 21 generated Aplazo classes.
+  `Magento\Quote\Model\CartMutexInterface` does not exist in that version, so the compile exercises R-2's fix. Not
+  installed, no runtime check. Without MSI is still the pre-existing failure of §4.
+- **magento-test:** not installed: no SSH key on this machine (`check-access`). Pending until the key is granted.
 
