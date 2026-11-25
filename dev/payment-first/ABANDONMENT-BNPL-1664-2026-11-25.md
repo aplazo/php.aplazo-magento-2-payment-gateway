@@ -72,9 +72,9 @@ were rerun.
 (`StartService.php`, the loop over `getForQuote(..., [OPEN])`). When Aplazo lists the loan as CANCELLED (or expired),
 `complete` answers `not_paid`, the checkout is given back, and every later Aplazo click for the same cart opens that
 dead loan again; a new loan is created only if the cart changes. Impact: the buyer cannot pay that cart with Aplazo
-(they can change the cart or use another method); no money risk. Not fixed here: which statuses are terminal and when a
-loan expires is contract C3 (and C5 for cancellation), and a status call per click is a design change. Proposal:
-persist the last status seen by `LoanStatusChecker` and supersede the attempt on a confirmed terminal status.
+(they can change the cart or use another method); no money risk. Not fixed: the minimal fix (remember the `CANCELLED`
+read by `complete`, supersede on the next click; no extra call) is safe only if `CANCELLED` is final. Not documented:
+question Q2 in REVIEW §8d.
 
 ## Still manual (STG)
 
