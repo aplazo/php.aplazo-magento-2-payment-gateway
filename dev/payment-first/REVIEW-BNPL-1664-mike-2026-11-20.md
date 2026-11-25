@@ -369,8 +369,9 @@ draft).
 3. Manual STG purchases and the magento-test run of this head.
 4. ~~A compile of this head on a Magento 2.4.7 store~~ **Compiled 2026-11-25** (§8c): `setup:di:compile` passes on a clean
    Magento 2.4.7 + MSI with this module (`CartMutexInterface` absent there). Not installed or run on 2.4.7 (no DB, no checkout).
-5. R-10 verified on the real flow: an STG purchase after the fix (manual; the stub run passed, §8c), and Aplazo's confirmation that the status
-   answer always carries `loanId` (it did in case 1; the module now depends on it to confirm any payment).
+5. R-10 on the real flow: **STG purchase after the fix done** (case 2, `MANUAL-STG-case2-2026-11-25.md`: own loan
+   matched among four for the cartId). Still pending: Aplazo's confirmation that the status
+   answer always carries `loanId` (it did in cases 1 and 2; the module now depends on it to confirm any payment).
 
 **Decisions that need another owner (not blockers of the code):** R-6 and R-7 before any production enablement; the
 interim close behaviour (§1a A vs B); the extra indexed read per cart save in stores that used popup (§2, a documented
