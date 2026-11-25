@@ -160,7 +160,7 @@ def mock_hits():
 
 # ---------- browser ----------
 class Browser:
-    def __init__(self, block_popups=False):
+    def __init__(self, block_popups=False, profile=None):
         # A port nobody listens on: attaching to another Chrome would reuse its session (and its cart).
         while True:
             PORT[0] += 1
@@ -169,7 +169,8 @@ class Browser:
             except Exception:
                 break
         self.port = PORT[0]
-        self.profile = tempfile.mkdtemp(prefix='bnpl1664pf-')
+        # profile: a directory kept between launches (scenario A, close Chrome and reopen it with the same profile).
+        self.profile = profile or tempfile.mkdtemp(prefix='bnpl1664pf-')
         if block_popups:
             os.makedirs(os.path.join(self.profile, 'Default'))
             with open(os.path.join(self.profile, 'Default', 'Preferences'), 'w') as fh:
@@ -214,9 +215,24 @@ class Browser:
             devtools_json(self.port, '/json/close/%s' % t['id'])
         time.sleep(1)
 
-    def quit(self):
-        self.proc.kill(); self.proc.wait()
-        shutil.rmtree(self.profile, ignore_errors=True)
+    def quit(self, keep=False):
+        if self.proc.poll() is None:
+            self.proc.kill(); self.proc.wait()
+        if not keep:
+            shutil.rmtree(self.profile, ignore_errors=True)
+
+    def stop(self, graceful):
+        """Closes the whole Chrome and keeps the profile. graceful: DevTools Browser.close, the same path as quitting
+        Chrome (it writes cookies and storage first; a SIGTERM to headless Chrome does not, it loses what changed in the
+        last ~30 s); else SIGKILL, an abrupt crash (whatever Chrome had not written yet is lost)."""
+        if graceful:
+            WS(json.loads(local_request(self.port, '/json/version'))['webSocketDebuggerUrl']).send('Browser.close')
+        else:
+            self.proc.kill()
+        try:
+            self.proc.wait(20)
+        except subprocess.TimeoutExpired:
+            self.proc.kill(); self.proc.wait()
 
 
 FILL = r"""
@@ -2833,7 +2849,322 @@ def t_place_other(mode):
         b.quit()
 
 
+# ---------- 2026-11-25: abandonment, recovery and communication failures (scenarios A-G) ----------
+OVERLAY_ACTION_JS = "(() => { const b = document.querySelector('.aplazo-popup-overlay__action'); if (!b || b.hidden) return false; b.click(); return true; })()"
+CART_ROWS_JS = "document.querySelectorAll('#shopping-cart-table tbody.cart.item').length"
+
+
+def cookie_meta(b):
+    """Names and persistence of magento.test's cookies, never their values."""
+    out = b.ws.send('Network.getCookies', {'urls': [BASE + '/']}).get('cookies', [])
+    return sorted('%s:%s' % (c['name'], 'session' if c.get('session') else 'persistent') for c in out)
+
+
+def cart_rows(ws):
+    ws.send('Page.navigate', {'url': BASE + '/checkout/cart/'})
+    wait_for(ws, "document.readyState==='complete' && !!document.querySelector('.cart-empty, #shopping-cart-table')", 60)
+    time.sleep(1)
+    return evaluate(ws, CART_ROWS_JS)
+
+
+def latest_quote():
+    return int(sql('SELECT MAX(entity_id) FROM quote') or 0)
+
+
+def wait_success(b, timeout=60):
+    return wait_until(lambda: '/checkout/onepage/success' in (page_state(b.ws) or {}).get('path', ''), timeout)
+
+
+def status_calls(r, cart_id):
+    return len([c for c in r.calls('getLoanStatus') if c.get('cartId') == cart_id])
+
+
+def mock_loads(cart_id):
+    return len([h for h in mock_hits() if h.get('kind') == 'page' and h['query'].get('quoteid') == 'stub-' + cart_id])
+
+
+def t_ab_restart(mode, graceful):
+    """A. The whole Chrome is closed (graceful: SIGTERM; else SIGKILL, a crash) and reopened on the SAME profile.
+    mode: before_aplazo (checkout filled, Aplazo never opened: no attempt, no loan; the cart is still there after
+    reopening and the purchase goes on with the same quote) | attempt_unpaid (Aplazo opened, attempt open, loan not paid:
+    after reopening the next Aplazo click reuses that attempt and its loan) | attempt_paid_webhook (the loan is paid while
+    Chrome is closed and the webhook arrives: the order exists before the buyer comes back, the cart is empty) |
+    attempt_paid_nosignal (paid while closed, no webhook or cron yet: the buyer comes back to a full cart; the next
+    Aplazo click reuses the paid attempt and the check creates the order, once)."""
+    r = Run(); P = tempfile.mkdtemp(prefix='bnpl1664pf-keep-')
+    b = Browser(profile=P); default_loan('REQUEST')
+    data = dict(graceful=graceful)
+    try:
+        if mode == 'before_aplazo':
+            add_to_cart(b.ws); ok = to_payment(b.ws, email='pf-restart@example.invalid', street='Calle Cierre 1')
+            qid = latest_quote()
+            data['before_close'] = dict(attempts=len(r.attempts()), create_loan=len(r.calls('createLoan')), quote=quote(qid),
+                                        cookies=cookie_meta(b))
+            time.sleep(2)
+            b.stop(graceful); b = Browser(profile=P)
+            data['cookies_after'] = cookie_meta(b)
+            data['cart_rows_after'] = cart_rows(b.ws)
+            data['after_reopen'] = dict(attempts=len(r.attempts()), create_loan=len(r.calls('createLoan')), quote=quote(qid))
+            persisted = data['cart_rows_after'] == 1
+            if persisted:
+                default_loan('OUTSTANDING')
+                to_payment(b.ws, email='pf-restart@example.invalid', street='Calle Cierre 1'); mock_plan('success')
+                click_place_order(b.ws)
+                a = wait_attempt(r.a, status=('open', 'completed'))
+                data['success'] = bool(wait_success(b))
+                data['attempt'] = attempt(a['entity_id']) if a else None
+            o = r.orders(); data['orders'] = o; data['reservations'] = r.res()
+            good = (ok and data['before_close']['attempts'] == 0 and data['before_close']['create_loan'] == 0
+                    and data['after_reopen']['attempts'] == 0 and data['after_reopen']['create_loan'] == 0
+                    and (persisted or not graceful))
+            if persisted:
+                good = (good and data['attempt'] and data['attempt']['quote_id'] == str(qid) and data['success'] and len(o) == 1
+                        and o[0]['quote_id'] == str(qid) and o[0]['invoices'] == '1' and len(data['reservations']) == 1)
+            data['cart_persisted'] = persisted
+        else:
+            ok, a = open_popup(b, email='pf-restart@example.invalid', plan='stay', street='Calle Cierre 2')
+            data['attempt_before'] = a
+            time.sleep(2)
+            b.stop(graceful)
+            if mode in ('attempt_paid_webhook', 'attempt_paid_nosignal'):
+                loan(a['cart_id'], 'OUTSTANDING')
+            if mode == 'attempt_paid_webhook':
+                data['webhook'] = webhook(a['cart_id'], 'stub-' + a['cart_id'])
+                data['orders_while_closed'] = r.orders()
+            b = Browser(profile=P)
+            data['cookies_after'] = cookie_meta(b)
+            data['cart_rows_after'] = cart_rows(b.ws)
+            data['quote_after_reopen'] = quote(a['quote_id'])
+            if mode == 'attempt_paid_webhook':
+                o = r.orders()
+                good = (ok and data['webhook']['body'].get('status') is True and len(data['orders_while_closed']) == 1
+                        and data['cart_rows_after'] == 0 and data['quote_after_reopen']['is_active'] == '0' and len(o) == 1
+                        and o[0]['invoices'] == '1' and len(r.res()) == 1 and len(r.calls('createLoan')) == 1)
+            elif data['cart_rows_after'] == 0:
+                # The browser lost its session (crash before Chrome wrote its cookies): the buyer starts over. Nothing
+                # must be created; the attempt stays open under reconciliation, its quote untouched.
+                data['attempt_after'] = attempt(a['entity_id'])
+                good = (ok and not graceful and not r.orders() and len(r.calls('createLoan')) == 1
+                        and data['attempt_after']['status'] == 'open' and data['quote_after_reopen']['is_active'] == '1')
+                if mode == 'attempt_paid_nosignal':
+                    data['reconcile'] = reconcile(a['entity_id'])
+                    o = r.orders()
+                    good = (ok and not graceful and data['reconcile'] and data['reconcile'][0]['result'] == 'completed'
+                            and len(o) == 1 and o[0]['invoices'] == '1')
+                data['cart_lost'] = True
+            else:
+                loads = mock_loads(a['cart_id'])
+                if mode == 'attempt_unpaid':
+                    loan(a['cart_id'], 'OUTSTANDING')
+                to_payment(b.ws, email='pf-restart@example.invalid', street='Calle Cierre 2'); mock_plan('close')
+                click_place_order(b.ws)
+                data['success'] = bool(wait_success(b))
+                data['attempts'] = [x['entity_id'] + ':' + x['status'] for x in r.attempts()]
+                data['same_url_loads'] = mock_loads(a['cart_id']) - loads
+                o = r.orders()
+                good = (ok and data['cart_rows_after'] == 1 and data['quote_after_reopen']['is_active'] == '1'
+                        and data['attempts'] == [a['entity_id'] + ':completed'] and len(r.calls('createLoan')) == 1
+                        and data['same_url_loads'] == 1 and data['success'] and len(o) == 1 and o[0]['attempt'] == a['public_id']
+                        and o[0]['invoices'] == '1' and len(r.res()) == 1)
+            data['orders'] = r.orders(); data['reservations'] = r.res()
+        record('ab_restart_%s_%s' % (mode, 'graceful' if graceful else 'crash'), good, **data)
+    finally:
+        b.quit()
+
+
+def t_ab_wait(mode):
+    """B. Aplazo's window stays open before the buyer goes on. wait_then_pay: a bounded 45 s wait (longer than the
+    page's whole check cycle, 1 + 8 checks every 3 s, so any timer-driven request would show) creates nothing and asks
+    nothing; then the payment completes once. expired: the stub lists the loan as CANCELLED (stands for an expired or
+    cancelled loan; STG's real expiry status and timing are contract C3, unknown): the close gives the checkout back;
+    a new Aplazo click must not send the buyer to that dead loan again."""
+    r = Run(); b = Browser(); default_loan('REQUEST')
+    try:
+        ok, a = open_popup(b, email='pf-wait@example.invalid', plan='stay', street='Calle Espera 1')
+        if mode == 'wait_then_pay':
+            n0 = status_calls(r, a['cart_id']); t0 = time.time()
+            time.sleep(45)
+            during = dict(seconds=round(time.time() - t0), status_calls=status_calls(r, a['cart_id']) - n0,
+                          create_loan=len(r.calls('createLoan')), attempts=len(r.attempts()), orders=len(r.orders()),
+                          popup_open=len(b.popups()))
+            loan(a['cart_id'], 'OUTSTANDING'); b.close_popups()
+            success = bool(wait_success(b)); o = r.orders()
+            good = (ok and during['status_calls'] == 0 and during['create_loan'] == 1 and during['attempts'] == 1
+                    and during['orders'] == 0 and during['popup_open'] == 1 and success and len(o) == 1
+                    and o[0]['invoices'] == '1' and len(r.res()) == 1 and len(r.calls('createLoan')) == 1)
+            record('ab_wait_then_pay', good, during=during, success=success, orders=o, reservations=r.res())
+        else:
+            loan(a['cart_id'], 'CANCELLED'); b.close_popups()
+            st = wait_notice(b.ws, 'closed the Aplazo window', 'Cerraste', timeout=60)
+            x1 = attempt(a['entity_id'])
+            loads = mock_loads(a['cart_id'])
+            mock_plan('stay'); click_place_order(b.ws); time.sleep(6)
+            again = dict(attempts=[x['entity_id'] + ':' + x['status'] for x in r.attempts()],
+                         create_loan=len(r.calls('createLoan')), dead_url_loads=mock_loads(a['cart_id']) - loads,
+                         popups=len(b.popups()))
+            good = (ok and st and not r.orders() and again['dead_url_loads'] == 0)
+            record('ab_wait_expired_loan', good, page_after_close=st, attempt_after_close=x1, again=again,
+                   note='expected: an Aplazo click after the loan is reported CANCELLED must not reopen that loan')
+    finally:
+        b.quit()
+
+
+def t_ab_close_processing(mode):
+    """C. The window is closed while the payment is still processing (status REQUEST). paid_during_checks: Aplazo
+    reports it paid during the page's checks after the close: the page finds it and goes to success, one order.
+    paid_after_checks: the checks end with not_paid (the checkout is given back), then the loan becomes paid and the
+    reconciliation (as the cron) creates the order: one order, the cart converted; the page told the buyer "not paid"."""
+    r = Run(); b = Browser(); default_loan('REQUEST')
+    try:
+        ok, a = open_popup(b, email='pf-proc@example.invalid', plan='stay', street='Calle Proceso 1')
+        b.close_popups()
+        if mode == 'paid_during_checks':
+            wait_until(lambda: status_calls(r, a['cart_id']) >= 3, 30)
+            seen = status_calls(r, a['cart_id'])
+            loan(a['cart_id'], 'OUTSTANDING')
+            success = bool(wait_success(b)); o = r.orders()
+            good = ok and seen >= 3 and success and len(o) == 1 and o[0]['invoices'] == '1' and len(r.res()) == 1
+            record('ab_close_paid_during_checks', good, status_calls_before_paid=seen, success=success, orders=o,
+                   reservations=r.res(), attempt=attempt(a['entity_id']))
+        else:
+            st = wait_notice(b.ws, 'closed the Aplazo window', 'Cerraste', timeout=60)
+            given_back = dict(page=st, orders=len(r.orders()), quote=quote(a['quote_id']), attempt=attempt(a['entity_id']))
+            loan(a['cart_id'], 'OUTSTANDING')
+            rec = reconcile(a['entity_id']); o = r.orders()
+            good = (ok and st and st['placeOrderDisabled'] is False and given_back['orders'] == 0
+                    and given_back['attempt']['status'] == 'open' and rec and rec[0]['result'] == 'completed' and len(o) == 1
+                    and o[0]['invoices'] == '1' and len(r.res()) == 1 and quote(a['quote_id'])['is_active'] == '0')
+            record('ab_close_paid_after_checks', good, given_back=given_back, reconcile=rec, orders=o, reservations=r.res(),
+                   quote_after=quote(a['quote_id']))
+    finally:
+        b.quit()
+
+
+def t_ab_reopen(mode):
+    """E. Close and choose Aplazo again. changed_qty: the buyer closes unpaid, adds a second unit and clicks Aplazo:
+    a new attempt and a new loan for the new amount; the earlier attempt is superseded (never reused for another
+    amount); the new one is paid: one order for 2 units. Then the EARLIER loan is paid late: it can never become a second
+    order (it ends rejected, its reversal is the kit's stub). double_click: two clicks in a row on the same tab: one
+    attempt, one loan, one window."""
+    r = Run(); b = Browser(); default_loan('REQUEST')
+    try:
+        if mode == 'changed_qty':
+            ok, a = open_popup(b, email='pf-reopen@example.invalid', plan='close', street='Calle Reabrir 1')
+            st = wait_notice(b.ws, 'closed the Aplazo window', 'Cerraste', timeout=60)
+            add_to_cart(b.ws); to_payment(b.ws, email='pf-reopen@example.invalid', street='Calle Reabrir 1')
+            mock_plan('stay'); click_place_order(b.ws)
+            a2 = wait_attempt(int(a['entity_id']), status=('open', 'uncertain'))
+            wait_until(lambda: b.popups(), 15); time.sleep(1.5)
+            old = attempt(a['entity_id'])
+            loan(a2['cart_id'], 'OUTSTANDING'); b.close_popups()
+            success = bool(wait_success(b)); o = r.orders()
+            loan(a['cart_id'], 'OUTSTANDING')
+            late = reconcile(a['entity_id']); old_after = attempt(a['entity_id'])
+            good = (ok and st and a2 and a2['entity_id'] != a['entity_id'] and old['status'] == 'superseded'
+                    and len(r.calls('createLoan')) == 2 and success and len(o) == 1 and o[0]['attempt'] != a['public_id']
+                    and order_items_qty(o[0]['entity_id']) == '2.0000' and len(r.orders()) == 1
+                    and old_after['status'] == 'rejected')
+            record('ab_reopen_changed_qty', good, first=a, second=a2, first_after_second=old, success=success, orders=o,
+                   late_payment_of_first=late, first_after_late_payment=old_after, reservations=r.res(),
+                   note='the first loan paid late is a second charge without order: rejected, refund by an operator (release blocker)')
+        else:
+            add_to_cart(b.ws); ok = to_payment(b.ws, email='pf-dbl@example.invalid', street='Calle Doble 1'); mock_plan('stay')
+            r2 = evaluate(b.ws, BUTTON_JS)
+            for _ in range(2):
+                for t in ('mousePressed', 'mouseReleased'):
+                    b.ws.send('Input.dispatchMouseEvent', {'type': t, 'x': r2['x'], 'y': r2['y'], 'button': 'left', 'clickCount': 1})
+            time.sleep(8)
+            data = dict(attempts=[x['entity_id'] + ':' + x['status'] for x in r.attempts()], create_loan=len(r.calls('createLoan')),
+                        popups=len(b.popups()))
+            good = ok and len(data['attempts']) == 1 and data['create_loan'] == 1 and data['popups'] == 1 and not r.orders()
+            record('ab_reopen_double_click', good, **data)
+    finally:
+        b.quit()
+
+
+def t_ab_success_then_close():
+    """F. Paid; Aplazo posts success and closes its window in the same instant: the success message and the close
+    detection race on the page. One order, one invoice, one reservation; a repeated complete changes nothing."""
+    r = Run(); b = Browser(); default_loan('OUTSTANDING')
+    try:
+        ok, a = open_popup(b, email='pf-race@example.invalid', plan='success_then_close', street='Calle Carrera 1')
+        success = bool(wait_success(b)); time.sleep(3)
+        first = dict(orders=r.orders(), reservations=r.res(), attempt=attempt(a['entity_id']), status_calls=status_calls(r, a['cart_id']))
+        tab = b.new_tab(); tab.send('Page.navigate', {'url': BASE + '/customer/account/login/'}); time.sleep(3)
+        again = complete_from(tab, a)['body']
+        o = r.orders()
+        good = (ok and success and len(o) == 1 and o[0]['invoices'] == '1' and first['reservations'] == ['-1.0000 order_placed ' + a['cart_id']]
+                and again.get('status') == 'completed' and r.orders() == first['orders'] and r.res() == first['reservations'])
+        record('ab_success_then_close_race', good, success=success, first=first, repeat=again)
+    finally:
+        b.quit()
+
+
+def t_ab_network(mode):
+    """G. browser_offline: the buyer's browser is offline (DevTools network emulation) when the window closes: no
+    complete reaches Magento, the page keeps the checkout blocked ("could not confirm your payment yet", Check again)
+    and never says "not paid"; back online, Check again completes it, one order. response_lost: Magento receives
+    complete, confirms the payment and creates the order, and the browser loses the answer (DevTools Fetch fails the
+    response after the server sent it): the page retries and the second complete answers completed, still one order."""
+    r = Run(); b = Browser(); default_loan('OUTSTANDING')
+    try:
+        ok, a = open_popup(b, email='pf-net@example.invalid', plan='stay', street='Calle Red 1')
+        if mode == 'browser_offline':
+            b.ws.send('Network.enable')
+            b.ws.send('Network.emulateNetworkConditions', {'offline': True, 'latency': 0, 'downloadThroughput': -1, 'uploadThroughput': -1})
+            b.close_popups()
+            st = wait_until(lambda: (lambda o: o if o and o.get('state') == 'message' and 'could not confirm your payment yet' in (o.get('message') or '') else False)(
+                evaluate(b.ws, OVERLAY_STATE_JS, timeout=20)), 60)
+            offline = dict(page=st, status_calls=status_calls(r, a['cart_id']), orders=len(r.orders()), attempt=attempt(a['entity_id']))
+            b.ws.send('Network.emulateNetworkConditions', {'offline': False, 'latency': 0, 'downloadThroughput': -1, 'uploadThroughput': -1})
+            clicked = evaluate(b.ws, OVERLAY_ACTION_JS)
+            success = bool(wait_success(b)); o = r.orders()
+            good = (ok and st and st['inert'] and offline['status_calls'] == 0 and offline['orders'] == 0
+                    and offline['attempt']['status'] == 'open' and clicked and success and len(o) == 1 and o[0]['invoices'] == '1'
+                    and len(r.res()) == 1)
+            record('ab_net_browser_offline', good, offline=offline, check_again_clicked=clicked, success=success, orders=o, reservations=r.res())
+        else:
+            b.ws.send('Fetch.enable', {'patterns': [{'urlPattern': '*aplazo/popup/complete*', 'requestStage': 'Response'}]})
+            b.close_popups()
+            failed = None; end = time.time() + 40
+            while time.time() < end and not failed:
+                b.ws.send('Runtime.evaluate', {'expression': '1'})
+                for ev in list(b.ws.events):
+                    if ev.get('method') == 'Fetch.requestPaused':
+                        b.ws.events.remove(ev)
+                        p = ev['params']
+                        failed = dict(status=p.get('responseStatusCode'), at=time.strftime('%H:%M:%S'))
+                        b.ws.send('Fetch.failRequest', {'requestId': p['requestId'], 'errorReason': 'ConnectionReset'})
+                        break
+                time.sleep(0.2)
+            orders_at_loss = r.orders()
+            b.ws.send('Fetch.disable')
+            success = bool(wait_success(b)); o = r.orders()
+            good = (ok and failed and failed['status'] == 200 and len(orders_at_loss) == 1 and success and len(o) == 1
+                    and o == orders_at_loss and o[0]['invoices'] == '1' and len(r.res()) == 1 and attempt(a['entity_id'])['status'] == 'completed')
+            record('ab_net_response_lost', good, lost_response=failed, orders_when_lost=orders_at_loss, success=success, orders=o,
+                   reservations=r.res())
+    finally:
+        b.quit()
+
+
 TESTS = {
+    'ab_restart_before_graceful': lambda: t_ab_restart('before_aplazo', True),
+    'ab_restart_before_crash': lambda: t_ab_restart('before_aplazo', False),
+    'ab_restart_unpaid_graceful': lambda: t_ab_restart('attempt_unpaid', True),
+    'ab_restart_unpaid_crash': lambda: t_ab_restart('attempt_unpaid', False),
+    'ab_restart_paid_webhook': lambda: t_ab_restart('attempt_paid_webhook', True),
+    'ab_restart_paid_nosignal': lambda: t_ab_restart('attempt_paid_nosignal', True),
+    'ab_restart_paid_nosignal_crash': lambda: t_ab_restart('attempt_paid_nosignal', False),
+    'ab_wait_then_pay': lambda: t_ab_wait('wait_then_pay'),
+    'ab_wait_expired': lambda: t_ab_wait('expired'),
+    'ab_close_paid_during_checks': lambda: t_ab_close_processing('paid_during_checks'),
+    'ab_close_paid_after_checks': lambda: t_ab_close_processing('paid_after_checks'),
+    'ab_reopen_changed_qty': lambda: t_ab_reopen('changed_qty'),
+    'ab_reopen_double_click': lambda: t_ab_reopen('double_click'),
+    'ab_success_then_close': t_ab_success_then_close,
+    'ab_net_browser_offline': lambda: t_ab_network('browser_offline'),
+    'ab_net_response_lost': lambda: t_ab_network('response_lost'),
     'r10_own_paid_among_others': lambda: t_r10('own_paid_among_others'),
     'r10_own_unpaid_other_paid': lambda: t_r10('own_unpaid_other_paid'),
     'r10_no_loan_foreign_paid': lambda: t_r10('no_loan_foreign_paid'),
