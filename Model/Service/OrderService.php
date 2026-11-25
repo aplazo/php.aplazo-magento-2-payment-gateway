@@ -14,6 +14,7 @@ use Magento\Sales\Api\Data\OrderInterface;
 use Magento\Sales\Api\OrderRepositoryInterface;
 use Magento\Sales\Model\Order;
 use \Magento\Sales\Model\ResourceModel\Order\CollectionFactory as OrderCollectionFactory;
+use Aplazo\AplazoPayment\Model\PaymentFirst\PaymentFirstMarker;
 use Aplazo\AplazoPayment\Model\Ui\ConfigProvider;
 use Aplazo\AplazoPayment\Service\ApiService as AplazoService;
 use Aplazo\AplazoPayment\Service\LogService;
@@ -21,6 +22,7 @@ use Magento\Sales\Model\Service\InvoiceService;
 
 class OrderService
 {
+    private PaymentFirstMarker $paymentFirstMarker;
     /**
      * @var OrderCollectionFactory
      */
@@ -77,9 +79,11 @@ class OrderService
         TransactionFactory                  $transactionFactory,
         CartRepositoryInterface             $quoteRepository,
         Manager                             $manager,
-        LogService                          $logService
+        LogService                          $logService,
+        PaymentFirstMarker                  $paymentFirstMarker
     )
     {
+        $this->paymentFirstMarker = $paymentFirstMarker;
         $this->orderCollectionFactory = $orderCollectionFactory;
         $this->orderRepository = $orderRepository;
         $this->aplazoService = $aplazoService;
@@ -97,6 +101,9 @@ class OrderService
      */
     public function reservingStockUntilPayment($order, $type = SalesEventInterface::EVENT_ORDER_PLACED)
     {
+        if ($this->keepsNativeInventory($order, $type)) {
+            return;
+        }
         $reserveStockEnabled = $this->aplazoHelper->getReserveStock();
         $this->logService->send('info', 'reservingStockUntilPayment called', ['module:checkout', 'action:stock'], [
             'order_id' => $order->getIncrementId(),
@@ -122,6 +129,9 @@ class OrderService
      */
     public function decreasingStockAfterPaymentSuccess($order, $type = SalesEventInterface::EVENT_ORDER_CANCELED)
     {
+        if ($this->keepsNativeInventory($order, $type)) {
+            return;
+        }
         $reserveStockEnabled = $this->aplazoHelper->getReserveStock();
         $this->logService->send('info', 'decreasingStockAfterPaymentSuccess called', ['module:webhook', 'action:stock'], [
             'order_id' => $order->getIncrementId(),
@@ -140,6 +150,26 @@ class OrderService
                 $this->logService->send('error', $message, ['module:webhook', 'action:stock'], ['order_id' => $order->getIncrementId(), 'error' => $e->getMessage()]);
             }
         }
+    }
+
+    public function isPaymentFirstOrder($order): bool
+    {
+        return $this->paymentFirstMarker->isPaymentFirstOrder($order);
+    }
+
+    /**
+     * Popup payment-first orders (BNPL-1664) are created after the payment and keep Magento's native reservation:
+     * the plugin applies none of its own movements to them (purchase, approval, cancellation). Other orders unchanged.
+     */
+    private function keepsNativeInventory($order, $type): bool
+    {
+        if (!$this->paymentFirstMarker->isPaymentFirstOrder($order)) {
+            return false;
+        }
+        $this->logService->send('info', 'Payment-first order keeps the native reservation, no plugin stock movement',
+            ['module:checkout', 'action:stock'], ['order_id' => $order->getIncrementId(), 'type' => $type]);
+
+        return true;
     }
 
     public function isMsiOrInventory($order, $plus, $type = ''){

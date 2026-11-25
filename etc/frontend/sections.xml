@@ -1,0 +1,11 @@
+<?xml version="1.0"?>
+<!--
+  BNPL-1664 payment-first: aplazo/popup/complete may convert the quote into an order on the server. Like Magento_Paypal
+  does for its own place-order actions, the browser's cached cart and checkout data are invalidated after that request.
+-->
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:module:Magento_Customer:etc/sections.xsd">
+    <action name="aplazo/popup/complete">
+        <section name="cart"/>
+        <section name="checkout-data"/>
+    </action>
+</config>
