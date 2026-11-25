@@ -424,3 +424,54 @@ deviation from "zero queries with popup off", not compliance); the H-1 deviation
   installed, no runtime check. Without MSI is still the pre-existing failure of §4.
 - **magento-test:** not installed: no SSH key on this machine (`check-access`). Pending until the key is granted.
 
+
+### 8d. 2026-11-25: defect B (cancelled loan offered again) and the late-payment contract
+
+**Defect B, decision: not fixed; blocked on Q2.** `complete` already reads the loan's explicit status, so a fix needs no
+extra call per click: remember that this attempt's own loan was listed `CANCELLED` and, on the next click, supersede the
+attempt and create a new loan. It is safe only if `CANCELLED` means "can no longer be paid". If a cancelled loan can
+still be completed (or the status is reported before the cancellation takes effect: the public cancel answers 202
+"accepted", not "cancelled"), the fix would create a second payable loan for the same cart: a double charge, which the
+rule "never leave a payable loan behind to create another" forbids. Not documented; not testable without cancelling in
+STG. Kept apart: `REQUEST` after the checks ("not paid now"), an unknown answer, and an expiry inferred from time: none
+of them is terminal, and the module treats none as such. Recorded flow while blocked: the buyer closes, `complete`
+answers `not_paid`, the checkout is given back, every later Aplazo click for the same cart reopens the cancelled loan's
+URL; the buyer can change the cart (new loan) or use another method.
+
+**Why master calls `cancelLoan` on unpaid loans (code, `origin/master`).** `Observer/Order/CancelAfter` calls
+`POST {api}/api/pos/loan/cancel` with `{cartId: <order increment>, totalAmount: 0, reason: "No payment"}` on every
+cancellation of an `aplazo_gateway` order (commit `221d580`, 2023-03-13, "Cancel Endpoint used instead of refund
+endpoint when an order is cancelled"). The redirect cron (`Cron/CancelOrders`) cancels orders older than `cancel_time`
+whose cartId lists no `OUTSTANDING` loan (`shouldCancelOrder`), so the call closes the loan of an abandoned order, so that
+it cannot be paid after Magento released the order. Errors are swallowed; the answer is not read.
+
+**What is known about the contract (evidence, not assumption):**
+
+| Question | Evidence | Source |
+|---|---|---|
+| Endpoint | The plugin uses `POST /api/pos/loan/cancel` (body above). The public docs describe another one: `GET https://refunds-bifrost.aplazo.{net,mx}/api/v1/merchant/loan/cancel?cartId=`, "cancel an unconfirmed payment" | code; GitBook *Cancel payment*; Confluence PROD *D-local: Integration* |
+| Identifier | Only `cartId`, in both. A cartId lists several loans (R-10: 4 loans for one cartId in STG, twice). Which loan(s) a cancel affects is not documented | code; GitBook; manual cases 1–2 |
+| Unpaid loan (REQUEST) | STG 2026-11-24: three fresh REQUEST loans, `pos/loan/cancel` answered `CANCELLED` each time | `INCIDENT-2026-11-24-stg-loans.md` |
+| Paid loan | Public endpoint: HTTP 400 "unacceptable state for cancellation (e.g., already paid, previously cancelled, or refunded)". `pos/loan/cancel` on a paid loan: **not documented, never observed** | GitBook |
+| Answer meaning | Public: 202 "cancellation request accepted" (asynchronous or not: not documented). Never a payment confirmation | GitBook |
+| Cancel while the buyer is paying | **Not documented** | — |
+| Can a cancelled loan still be paid | **Not documented** | — |
+| Repeated cancel | Public: "previously cancelled" → 400. `pos/loan/cancel`: not documented | GitBook |
+| Status names | `pos/loan/{cartId}` (used by the plugin): `REQUEST`, `OUTSTANDING`, `CANCELLED` observed. Public status endpoint enumerates only `ACTIVO`, `NO CONFIRMADO`, `CANCELADO / DEVUELTO` (cancelled and refunded share one value). Expiry: not documented | STG reads; GitBook *Get payment status* |
+
+**Questions for the Aplazo owner of loan cancellation (one answer closes each):**
+- **Q1 (late payment).** For `POST /api/pos/loan/cancel` with `{cartId, totalAmount: 0, reason}` (the endpoint Magento
+  uses today): (a) on a loan in `REQUEST`, is it synchronous, and after it can the buyer still complete that loan's
+  checkout or pay its first installment, in any channel? (b) on a loan already `OUTSTANDING`: error (which code), no
+  effect, or cancel with refund? (c) if the buyer is paying at that moment, which wins, and is the outcome always one of
+  "paid, cancel refused" or "cancelled, payment refused"? (d) when the cartId has several loans, which ones does it
+  cancel? (e) a second call: same answer, no effect?
+- **Q2 (defect B).** Is `CANCELLED` in `GET /api/pos/loan/{cartId}` always final (never payable again, never becomes
+  `OUTSTANDING`), and is it shown only after the cancellation took effect? Does a refunded loan also show `CANCELLED`?
+- **Q3 (C3, expiry).** Does an unpaid `REQUEST` loan expire? After how long, with which status, and does its checkout
+  URL stop accepting payment at the same moment?
+
+With Q1 answered "(a) final and synchronous, (b) refused, (c) exclusive", the module can cancel the earlier loan before
+another order is accepted (or before a new loan is created), and the late payment stops being possible instead of only
+detected. With Q2 "final", defect B gets its fix. Until then neither is implemented and no cancellation is tried in STG
+by the kit.
