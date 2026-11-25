@@ -703,7 +703,10 @@ def t_status_unknown():
 
 
 def t_create_loan_fail():
-    """createLoan fails (timeout-like): uncertain attempt, no redirect fallback; an early webhook still completes it."""
+    """createLoan fails (timeout-like): uncertain attempt without loan id, no redirect fallback. An early signed webhook
+    names a loan, but nothing ties that loan to this attempt (R-10): it is held for review, not converted. An operator
+    who confirmed the loan with Aplazo attributes it (--attribute-loan); only then the check confirms it, against that
+    loan only, among others listed for the same cartId."""
     r = Run(); b = Browser(); default_loan('REQUEST')
     try:
         stub('localdev_aplazo_stub_createloan', 'fail')
@@ -713,14 +716,116 @@ def t_create_loan_fail():
         st = wait_notice(b.ws, 'could not confirm whether Aplazo received', 'confirmar si Aplazo')
         stub('localdev_aplazo_stub_createloan', None)
         mid = dict(orders=r.orders(), popups=len(b.popups()), reservations=r.res())
-        loan(a['cart_id'], 'OUTSTANDING')
-        hook = webhook(a['cart_id'], '555001')
+        lid = '55' + a['cart_id'].lstrip('0')   # unique per run: the operator refuses a loan id another attempt holds
+        loan(a['cart_id'], 'LIST:%s=OUTSTANDING,26701=OUTSTANDING' % lid)
+        hook = webhook(a['cart_id'], lid)
+        held = attempt(a['entity_id'])
+        orders_after_hook = r.orders()   # before the operator's attribution: the held webhook created nothing
+        status_calls_after_hook = len([c for c in r.calls('getLoanStatus') if c.get('cartId') == a['cart_id']])
+        attention = attempts_cli('--attention', '--older-than=0')
+        dry = attempts_cli('--attribute-loan=%s' % a['entity_id'], '--loan-id=%s' % lid)
+        dry_loan = attempt(a['entity_id'])['loan_id']
+        done = attempts_cli('--attribute-loan=%s' % a['entity_id'], '--loan-id=%s' % lid, '--confirm')
+        again = attempts_cli('--attribute-loan=%s' % a['entity_id'], '--loan-id=26701', '--confirm')
+        rec = reconcile(a['entity_id'])
         o = r.orders(); x = attempt(a['entity_id'])
-        good = (ok and a and a['status'] == 'uncertain' and st and not mid['orders'] and mid['popups'] == 0
-                and not mid['reservations'] and len(o) == 1 and o[0]['increment_id'] == a['cart_id']
-                and x['status'] == 'completed' and x['loan_id'] == '555001')
-        record('create_loan_fail_then_early_webhook', good, attempt_after_start=a, page=st, mid=mid, webhook=hook, orders=o,
-               attempt=x)
+        good = (ok and a and a['status'] == 'uncertain' and a['loan_id'] == 'NULL' and st and not mid['orders']
+                and mid['popups'] == 0 and not mid['reservations']
+                and hook['body'].get('message') == 'held_for_review' and held['status'] == 'uncertain'
+                and held['loan_id'] == 'NULL' and held['last_error'] == 'webhook_loan_unattributed:' + lid
+                and status_calls_after_hook == 0 and not orders_after_hook
+                and int(a['entity_id']) in attention[1].get('loan_unattributed', [])
+                and dry[0] == 0 and dry_loan == 'NULL' and done[0] == 0 and again[0] == 1
+                and len(o) == 1 and o[0]['increment_id'] == a['cart_id'] and o[0]['invoices'] == '1'
+                and x['status'] == 'completed' and x['loan_id'] == lid)
+        record('create_loan_fail_webhook_held_then_operator_attribution', good, attempt_after_start=a, page=st, mid=mid,
+               webhook=hook, held=held, orders_after_hook=orders_after_hook, status_calls_after_hook=status_calls_after_hook,
+               attention_loan_unattributed=attention[1].get('loan_unattributed') if isinstance(attention[1], dict) else attention,
+               dry_run=dry, dry_run_loan=dry_loan, attributed=done, attribute_again=again, reconcile=rec, orders=o, attempt=x)
+    finally:
+        stub('localdev_aplazo_stub_createloan', None)
+        b.quit()
+
+
+def uncertain_without_loan(r, b):
+    """A start whose createLoan fails: an uncertain attempt without loan id, owned by this browser session."""
+    stub('localdev_aplazo_stub_createloan', 'fail')
+    try:
+        add_to_cart(b.ws); ok = to_payment(b.ws); mock_plan('stay')
+        click_place_order(b.ws)
+        a = wait_attempt(r.a, status=('uncertain',))
+    finally:
+        stub('localdev_aplazo_stub_createloan', None)
+    return ok, a
+
+
+def t_r10(mode):
+    """R-10: the status API lists every loan of a cartId (STG: loans of other stores and tests under the same merchant).
+    Only the loan persisted on the attempt, matched exactly, decides; the webhook never attributes a loan. mode:
+    own_paid_among_others | own_unpaid_other_paid | no_loan_foreign_paid | webhook_duplicate | webhook_conflict |
+    webhook_ambiguous. The browser's complete and the reconciliation are run as the buyer's page and the cron would."""
+    r = Run(); b = Browser(); default_loan('REQUEST')
+    try:
+        data = {}
+        if mode in ('no_loan_foreign_paid', 'webhook_ambiguous'):
+            ok, a = uncertain_without_loan(r, b)
+        else:
+            ok, a = open_popup(b, plan='stay')
+        own = 'stub-' + a['cart_id']
+        if mode == 'own_paid_among_others':
+            loan(a['cart_id'], 'LIST:26701=OUTSTANDING,own=OUTSTANDING,235354=REQUEST,none=OUTSTANDING')
+            data['complete'] = complete_from(b.ws, a)
+            data['complete_again'] = complete_from(b.ws, a)
+            o = r.orders(); x = attempt(a['entity_id'])
+            good = (data['complete']['body'].get('status') == 'completed' and data['complete_again']['body'].get('status') == 'completed'
+                    and len(o) == 1 and o[0]['invoices'] == '1' and o[0]['increment_id'] == a['cart_id']
+                    and x['status'] == 'completed' and x['loan_id'] == own)
+        elif mode == 'own_unpaid_other_paid':
+            loan(a['cart_id'], 'LIST:26701=OUTSTANDING,own=REQUEST')
+            data['complete'] = complete_from(b.ws, a)
+            data['webhook_own'] = webhook(a['cart_id'], own)
+            data['reconcile'] = reconcile(a['entity_id'])
+            x = attempt(a['entity_id'])
+            good = (data['complete']['body'].get('status') == 'not_paid' and data['webhook_own']['body'].get('message') == 'not_paid'
+                    and not r.orders() and x['status'] == 'open' and x['loan_id'] == own)
+        elif mode == 'no_loan_foreign_paid':
+            loan(a['cart_id'], 'LIST:26701=OUTSTANDING')
+            data['complete'] = complete_from(b.ws, a)
+            data['reconcile'] = reconcile(a['entity_id'])
+            x = attempt(a['entity_id'])
+            data['status_calls'] = len([c for c in r.calls('getLoanStatus') if c.get('cartId') == a['cart_id']])
+            good = (a['loan_id'] == 'NULL' and data['complete']['body'].get('status') == 'pending'
+                    and not r.orders() and not r.res() and x['status'] == 'uncertain' and x['loan_id'] == 'NULL'
+                    and data['status_calls'] == 0)
+        elif mode == 'webhook_duplicate':
+            loan(a['cart_id'], 'LIST:26701=OUTSTANDING,own=OUTSTANDING')
+            data['first'] = webhook(a['cart_id'], own)
+            data['second'] = webhook(a['cart_id'], own)
+            o = r.orders(); x = attempt(a['entity_id'])
+            good = (data['first']['body'].get('message') == 'completed' and data['second']['body'].get('message') == 'completed'
+                    and len(o) == 1 and o[0]['invoices'] == '1' and x['status'] == 'completed' and x['loan_id'] == own)
+        elif mode == 'webhook_conflict':
+            loan(a['cart_id'], 'LIST:26701=OUTSTANDING,own=REQUEST')
+            v0 = sql('SELECT version FROM aplazo_payment_attempt WHERE entity_id=%s' % a['entity_id'])
+            data['conflict'] = webhook(a['cart_id'], '26701')
+            v1 = sql('SELECT version FROM aplazo_payment_attempt WHERE entity_id=%s' % a['entity_id'])
+            x = attempt(a['entity_id'])
+            data['versions'] = [v0, v1]
+            good = (data['conflict']['body'].get('status') is False and v0 == v1 and not r.orders()
+                    and x['status'] == 'open' and x['loan_id'] == own)
+        else:  # webhook_ambiguous
+            loan(a['cart_id'], 'LIST:26701=OUTSTANDING')
+            data['first'] = webhook(a['cart_id'], '26701')
+            v1 = sql('SELECT version FROM aplazo_payment_attempt WHERE entity_id=%s' % a['entity_id'])
+            data['second'] = webhook(a['cart_id'], '26701')
+            v2 = sql('SELECT version FROM aplazo_payment_attempt WHERE entity_id=%s' % a['entity_id'])
+            x = attempt(a['entity_id'])
+            data['versions'] = [v1, v2]
+            good = (data['first']['body'].get('message') == 'held_for_review' and data['second']['body'].get('message') == 'held_for_review'
+                    and v1 == v2 and not r.orders() and x['status'] == 'uncertain' and x['loan_id'] == 'NULL'
+                    and x['last_error'] == 'webhook_loan_unattributed:26701')
+        good = bool(ok and good)
+        record('r10_%s' % mode, good, attempt=attempt(a['entity_id']), orders=r.orders(), reservations=r.res(), **data)
     finally:
         stub('localdev_aplazo_stub_createloan', None)
         b.quit()
@@ -2729,6 +2834,12 @@ def t_place_other(mode):
 
 
 TESTS = {
+    'r10_own_paid_among_others': lambda: t_r10('own_paid_among_others'),
+    'r10_own_unpaid_other_paid': lambda: t_r10('own_unpaid_other_paid'),
+    'r10_no_loan_foreign_paid': lambda: t_r10('no_loan_foreign_paid'),
+    'r10_webhook_duplicate': lambda: t_r10('webhook_duplicate'),
+    'r10_webhook_conflict': lambda: t_r10('webhook_conflict'),
+    'r10_webhook_ambiguous': lambda: t_r10('webhook_ambiguous'),
     'po_paid': lambda: t_place_other('paid'),
     'po_unpaid': lambda: t_place_other('unpaid'),
     'po_unknown': lambda: t_place_other('unknown'),

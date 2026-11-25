@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Aplazo\AplazoPayment\Console\Command;
 
 use Aplazo\AplazoPayment\Model\PaymentFirst\AttemptStore;
+use Aplazo\AplazoPayment\Model\PaymentFirst\WebhookHandler;
 use Aplazo\AplazoPayment\Model\PaymentFirst\Reconciler;
 use Aplazo\AplazoPayment\Model\PaymentFirst\Trace;
 use Magento\Framework\App\Area;
@@ -63,6 +64,8 @@ class PaymentAttemptsCommand extends Command
             ->addOption('older-than', null, InputOption::VALUE_REQUIRED, 'Seconds a paid attempt may wait for its order', '600')
             ->addOption('reconcile', null, InputOption::VALUE_NONE, 'Run the reconciliation now')
             ->addOption('resolve', null, InputOption::VALUE_REQUIRED, 'Attempt id to record a resolution for')
+            ->addOption('attribute-loan', null, InputOption::VALUE_REQUIRED, 'Attempt id (without loan id) to attribute a loan to, after confirming it with Aplazo')
+            ->addOption('loan-id', null, InputOption::VALUE_REQUIRED, 'The Aplazo loan id confirmed for that attempt')
             ->addOption('outcome', null, InputOption::VALUE_REQUIRED, implode('|', AttemptStore::RESOLUTIONS))
             ->addOption('reference', null, InputOption::VALUE_REQUIRED, 'Aplazo case / reversal id, or the order increment created by hand')
             ->addOption('note', null, InputOption::VALUE_REQUIRED, 'Short note, no personal data')
@@ -87,6 +90,9 @@ class PaymentAttemptsCommand extends Command
         }
         if ($input->getOption('resolve') !== null) {
             return $this->resolve($input, $output);
+        }
+        if ($input->getOption('attribute-loan') !== null) {
+            return $this->attributeLoan($input, $output);
         }
         if ($input->getOption('attention')) {
             $attention = $this->attention(max(0, (int)$input->getOption('older-than')));
@@ -177,6 +183,9 @@ class PaymentAttemptsCommand extends Command
             'needs_review_unresolved' => $ids($base()->where('a.status = ?', AttemptStore::NEEDS_REVIEW)),
             'context_changed' => $ids($base()->where('a.last_error LIKE ?', 'context_changed:%')
                 ->where('a.status IN (?)', AttemptStore::PAYABLE)),
+            // A webhook named a loan for an attempt without loan id; it is not attributed automatically (R-10).
+            'loan_unattributed' => $ids($base()->where('a.last_error LIKE ?', WebhookHandler::UNATTRIBUTED . '%')
+                ->where('a.loan_id IS NULL')->where('a.status IN (?)', AttemptStore::PAYABLE)),
             'order_canceled' => $ids($base()->join(['o' => $this->resource->getTableName('sales_order')], 'o.entity_id = a.order_id', [])
                 ->where('o.state = ?', 'canceled')),
             'cron_stale' => $cronStale ? [['job' => self::CRON_JOB, 'last_success' => $lastCron ?: null, 'attempts_waiting' => $waiting]] : [],
@@ -234,6 +243,63 @@ class PaymentAttemptsCommand extends Command
         $output->writeln(json_encode($this->describe($resolved), JSON_PRETTY_PRINT));
 
         return Command::SUCCESS;
+    }
+
+    /**
+     * Writes the loan id of an attempt that has none (createLoan's answer was lost), once an operator has confirmed with
+     * Aplazo which loan this attempt created (R-10). Only a payable attempt without loan id; a known loan id is never
+     * replaced. It does not confirm a payment: the next check (the buyer's page, the reconciliation) asks Aplazo and
+     * acts only on that loan's own status.
+     */
+    private function attributeLoan(InputInterface $input, OutputInterface $output): int
+    {
+        $attempt = $this->attemptStore->get((int)$input->getOption('attribute-loan'));
+        $loanId = trim((string)$input->getOption('loan-id'));
+        $error = null;
+        if ($attempt === null) {
+            $error = 'attempt not found';
+        } elseif (!in_array($attempt['status'], AttemptStore::PAYABLE, true)) {
+            $error = 'only an attempt still waiting for its payment (' . implode(', ', AttemptStore::PAYABLE) . ') can get a loan id';
+        } elseif (!empty($attempt['loan_id'])) {
+            $error = 'the attempt already has a loan id; it is never replaced';
+        } elseif (preg_match('/^[A-Za-z0-9_-]{1,64}$/', $loanId) !== 1) {
+            $error = '--loan-id is required (1-64 characters: letters, digits, _ -)';
+        } elseif ($this->loanIdUsed($loanId)) {
+            $error = 'that loan id already belongs to another attempt';
+        }
+        if ($error !== null) {
+            $output->writeln('<error>' . $error . '</error>');
+
+            return Command::FAILURE;
+        }
+        $changes = ['loan_id' => $loanId, 'last_error' => null, 'next_check_at' => gmdate('Y-m-d H:i:s')];
+        if (!$input->getOption('confirm')) {
+            $output->writeln(json_encode(['would_write' => $changes, 'attempt' => $this->describe($attempt)], JSON_PRETTY_PRINT));
+            $output->writeln('Nothing written. Add --confirm to write it. Only after confirming with Aplazo that this attempt (cartId '
+                . $attempt['cart_id'] . ') created that loan; it does not confirm the payment.');
+
+            return Command::SUCCESS;
+        }
+        $updated = $this->attemptStore->transition($attempt, $changes);
+        if ($updated === null) {
+            $output->writeln('<error>the attempt changed meanwhile; run it again</error>');
+
+            return Command::FAILURE;
+        }
+        $this->trace->add('info', 'Payment-first loan id attributed by an operator', ['module:operations'],
+            ['cart_id' => $updated['cart_id'], 'loan_id' => $loanId, 'by' => substr('cli:' . $this->osUser(), 0, 64)]);
+        $this->trace->flush();
+        $output->writeln(json_encode($this->describe($updated), JSON_PRETTY_PRINT));
+
+        return Command::SUCCESS;
+    }
+
+    private function loanIdUsed(string $loanId): bool
+    {
+        $connection = $this->resource->getConnection();
+
+        return (bool)$connection->fetchOne($connection->select()->from($this->resource->getTableName(AttemptStore::TABLE), ['entity_id'])
+            ->where('loan_id = ?', $loanId)->limit(1));
     }
 
     private function orderExists(string $increment): bool

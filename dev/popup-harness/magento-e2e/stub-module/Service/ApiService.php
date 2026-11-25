@@ -68,8 +68,11 @@ class ApiService extends \Aplazo\AplazoPayment\Service\ApiService
 
     /**
      * The loan status to answer: var/localdev_aplazo_stub_loans/<cartId> (BNPL-1664, one per attempt), else
-     * var/localdev_aplazo_stub_loan_status (BNPL-1665, global). Values: a status such as OUTSTANDING or REQUEST,
-     * ERROR (the plugin's "communication failed", false) or EMPTY (an empty list). Without a file: not found (false).
+     * var/localdev_aplazo_stub_loan_status (BNPL-1665, global). Values: a status such as OUTSTANDING or REQUEST (one
+     * loan, with the loanId this stub's createLoan gives: stub-<cartId>), ERROR (the plugin's "communication failed",
+     * false), EMPTY (an empty list), or LIST:<loanId>=<STATUS>,... for several loans under the same cartId, as STG
+     * answers (R-10): <loanId> `own` is stub-<cartId>, `none` an entry without loanId; numeric ids are sent as integers,
+     * as STG does. Without a file: not found (false).
      */
     public function getLoanStatus($cartId)
     {
@@ -81,7 +84,24 @@ class ApiService extends \Aplazo\AplazoPayment\Service\ApiService
             return false;
         }
 
-        return $status === 'EMPTY' ? [] : [['status' => $status]];
+        if ($status === 'EMPTY') {
+            return [];
+        }
+        if (strpos($status, 'LIST:') !== 0) {
+            return [['loanId' => 'stub-' . $cartId, 'status' => $status]];
+        }
+        $loans = [];
+        foreach (array_filter(explode(',', substr($status, 5))) as $entry) {
+            [$id, $loanStatus] = array_pad(explode('=', $entry, 2), 2, '');
+            if ($id === 'none') {
+                $loans[] = ['status' => $loanStatus];
+                continue;
+            }
+            $id = $id === 'own' ? 'stub-' . $cartId : $id;
+            $loans[] = ['loanId' => ctype_digit($id) ? (int)$id : $id, 'status' => $loanStatus];
+        }
+
+        return $loans;
     }
 
     public function requestMagentoCurl($url, $body, $method, $bearer, array $extraHeaders = [])

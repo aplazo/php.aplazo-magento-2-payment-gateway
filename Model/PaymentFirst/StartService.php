@@ -197,8 +197,9 @@ class StartService
         if ($loanId !== null) {
             $changes['loan_id'] = $loanId;
         }
-        // The webhook can arrive before this write and set the loan id: the compare-and-set then fails, and it is
-        // applied once more on the current row if that row is still starting.
+        // A webhook (or the buyer's page) can write the row before this write: the compare-and-set then fails, and it
+        // is applied once more on the current row if that row is still starting. The loan id comes only from here
+        // (createLoan's own answer) or from an operator; the webhook never sets it (R-10).
         $open = $this->attemptStore->transition($attempt, $changes);
         if ($open === null) {
             $current = $this->attemptStore->get((int)$attempt['entity_id']);

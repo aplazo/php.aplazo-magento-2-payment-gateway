@@ -12,10 +12,22 @@ use Magento\Store\Model\ScopeInterface;
  * claim is not the payment status (dev/payment-first/SECURITY-NOTE-webhook-status.md), so neither is read as payment.
  *
  * The signed claims must match the attempt: merchantId equal to the attempt store's merchant, and loanId equal to the
- * attempt's when it already has one (an attempt still waiting for createLoan's answer takes it from here).
+ * attempt's when it already has one (a different one is refused, never written over the known one).
+ *
+ * An attempt without a loan id (createLoan's answer was lost) does not take it from the webhook (R-10). A valid
+ * signature, the merchant and the cartId do not tie a loan to this attempt: the cartId is all the JWT shares with it,
+ * and in Aplazo a cartId can carry loans of other stores or tests under the same merchant (STG, observed). Nothing else
+ * in the claims (loanId, status, merchantId, cartId) links back to the attempt, and which URL Aplazo delivers a loan's
+ * webhook to is not a confirmed contract (C6, C8). So the claimed loan id is only kept as a candidate on the attempt
+ * (last_error `webhook_loan_unattributed:<loanId>`), nothing is converted, and the attempt stays as it was (uncertain,
+ * still listed by `aplazo:payment-first:attempts --attention`) until an operator who has confirmed the loan with Aplazo
+ * attributes it (`--attribute-loan`); the normal checks then confirm it against that loan only.
  */
 class WebhookHandler
 {
+    /** last_error prefix of an attempt holding a webhook's loan id it could not attribute. */
+    public const UNATTRIBUTED = 'webhook_loan_unattributed:';
+
     public function __construct(
         private AttemptStore $attemptStore,
         private Finalizer $finalizer,
@@ -52,9 +64,17 @@ class WebhookHandler
 
             return ['status' => false, 'message' => 'Webhook does not match the payment attempt'];
         }
-        if ($claimedLoan !== '' && empty($attempt['loan_id'])) {
-            $attempt = $this->attemptStore->transition($attempt, ['loan_id' => substr($claimedLoan, 0, 64)])
-                ?? $this->attemptStore->get((int)$attempt['entity_id']) ?? $attempt;
+        if (empty($attempt['loan_id'])) {
+            if ($claimedLoan !== '') {
+                $marker = self::UNATTRIBUTED . substr(preg_replace('/[^0-9A-Za-z_-]/', '', $claimedLoan), 0, 64);
+                if (($attempt['last_error'] ?? null) !== $marker) {
+                    $this->attemptStore->transition($attempt, ['last_error' => $marker]);
+                }
+            }
+            $this->trace->add('warn', 'Payment-first webhook for an attempt without loan id: held for review', ['module:webhook'],
+                ['cart_id' => $attempt['cart_id'], 'claimed_loan_id' => $claimedLoan]);
+
+            return ['status' => false, 'message' => 'held_for_review'];
         }
         // A registered customer's quote cannot be saved from this anonymous REST call: Magento's
         // AccessChangeQuoteControl (webapi_rest) refuses it, and it is not bypassed. The attempt is checked by the

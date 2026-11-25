@@ -338,6 +338,7 @@ Mike is on vacation; the squad continued the review of PR #133 (draft). Read the
 | R-6 | Medium (availability) | An attempt `uncertain`/`starting` never leaves that state | `createLoan` fails (5xx, timeout, invalid URL) → `uncertain`; the status API cannot tell "no loan" from a failure (`getLoanStatus` → `false` for both) → every later popup start for that quote answers "uncertain" forever, polled every 3 h | **Pending.** No money risk: other methods stay available (R-1 lets placeOrder through on unknown). Resolving needs either an API answer that distinguishes "no loan for this cartId" (C2) or an operator resolution "no loan confirmed with Aplazo" in `aplazo:payment-first:attempts`. Not a blocker for the sandbox pilot; blocker for production enablement |
 | R-7 | Medium (operations) | Reconciliation backlog grows without bound | Unpaid `open`/`superseded` attempts are re-polled every 3 h forever (C3); 50 per run, every 5 min, in the `default` cron group; 90 s API timeout | **Pending.** Proposal: due order by `paid_confirmed_at` first, lower cadence for old unpaid attempts, own cron group. Needs C3 for an end. Blocker for production enablement, not for the sandbox pilot |
 | R-8 | Low | Order email lost if the process dies between `completed` and the email claim | Every later finalization returns through `settled()` and never claims the email | **Pending** (documented with the existing "exactly once not guaranteed" note in the design §8) |
+| R-10 | **High** (money) | The status API is queried by **cartId**, and a cartId is not one loan. Manual case 1 (STG, 2026-11-24) listed four loans for `000000635` under merchant 37: the attempt's own (396107, OUTSTANDING) and three older ones of other stores/tests, one of them OUTSTANDING (26701). An attempt **without loan id** (createLoan's answer lost) took any OUTSTANDING loan of its cartId as its payment; the webhook also wrote any signed loanId into such an attempt and converted it | Attempt `uncertain`, no loan id; Aplazo lists another store's paid loan for the same cartId → the buyer's page, the cron or the webhook confirm "paid" → order and invoice created without payment | **Fixed, verified locally** (stub; 2026-11-24 `r10_*` 6/6 and the regression of §8c on the same production code; `create_loan_fail` 2026-11-25, see §8c). `LoanStatusChecker`: PAID/NOT_PAID only for the loan id persisted on the attempt, matched exactly; no loan id → UNKNOWN without asking Aplazo; never the first, the highest or the only OUTSTANDING entry. `WebhookHandler`: never writes a loan id; a known one is never replaced (a different one is refused); an attempt without loan id is held (`last_error webhook_loan_unattributed:<id>`, listed by `--attention` as `loan_unattributed`), not converted. Recovery: `aplazo:payment-first:attempts --attribute-loan=<id> --loan-id=<id> [--confirm]` after an operator confirms the loan with Aplazo; the normal check then confirms it against that loan only. Automatic recovery of a lost createLoan answer is **not** possible with the known contracts (the JWT shares only the cartId with the attempt; per-loan webhook delivery is not confirmed, C6/C8). Same class, pre-existing in master's redirect flow, not changed: `shouldCancelOrder` treats any OUTSTANDING loan of the cartId as paid, and `cancelLoan` takes only a cartId |
 | R-9 | Info | Semgrep: 13 findings, all in `dev/popup-harness/` (unlink of fixed switch files under `var/`, one `eval` in a one-off comparison script, one `urlopen` on fixed local URLs) | `dev/` is `export-ignore` (`.gitattributes`): never in the Composer package | Marked `nosemgrep` with the reason on each line; no production finding |
 
 **What the placeOrder check guarantees, and what it does not (production code `ef63164`):**
@@ -367,7 +368,51 @@ draft).
 2. Without MSI (§4): pre-existing in master; separate ticket (`DEFECT-no-msi-compile-4.0.13.md`).
 3. Manual STG purchases and the magento-test run of this head.
 4. A compile of this head on a Magento 2.4.7 store (R-2 is fixed by code; not run).
+5. R-10 verified on the real flow: an STG purchase after the fix (manual; the stub run passed, §8c), and Aplazo's confirmation that the status
+   answer always carries `loanId` (it did in case 1; the module now depends on it to confirm any payment).
 
 **Decisions that need another owner (not blockers of the code):** R-6 and R-7 before any production enablement; the
 interim close behaviour (§1a A vs B); the extra indexed read per cart save in stores that used popup (§2, a documented
 deviation from "zero queries with popup off", not compliance); the H-1 deviation (§3).
+
+### 8b. Local store and STG: kit attempts and loans found on 2026-11-24
+
+- The local store keeps **139 kit attempts** still under reconciliation (statuses `starting`, `open`, `uncertain`,
+  `superseded`, `rejected`, ids ≤ 499): 123 with stub loan ids, 13 without loan id, 3 with real STG loan ids. With the
+  stub disabled the store talks to STG, so a reconciliation would ask STG about them. After R-10, attempts with stub
+  loan ids or without loan id can no longer be confirmed by STG (no exact loan match; no loan id → Aplazo not asked).
+  Still, **no cron and no reconciliation are run while the store points at STG.** A reversible isolation is prepared
+  (copy of `next_check_at`, push it to 2099, restore script) and **not applied**; the scripts and the scope query are kept
+  outside the repository with the session's evidence.
+- **Three more real STG loans** from this local store, not in `INCIDENT-2026-11-24-stg-loans.md`: attempts 307–309,
+  carts `000000404`–`000000406`, loans 391959, 392830, 393096, created 2026-11-17 and 2026-11-19, still `open` locally.
+  Their status in STG was not queried and nothing was changed. To check by a person with STG access, with the incident's
+  three loans.
+
+### 8c. 2026-11-25: R-10 closure, test correction and a crossed manual purchase
+
+- **`create_loan_fail` (kit) fixed twice, product code unchanged.** 2026-11-24 22:49: failed because the test reused the
+  fixed loan id `555001`, already held by attempt 506 from an earlier run; the operator command correctly refused it,
+  and the test's second attribution (`26701`) then went through on an attempt that still had no loan id. Corrected to
+  a loan id unique per run. 2026-11-25 rerun 1: failed again on a test defect: "no order after the held webhook" was
+  evaluated at the end of the test, after the operator's attribution had created the order by design. The check is now
+  taken right after the webhook (`orders_after_hook`), same criterion. Rerun 2: **PASS** (held webhook, no status call,
+  listed as `loan_unattributed`, dry run writes nothing, attribution once, a second one refused, one order, one invoice).
+- **Unit tests** `Test/Unit/Model/PaymentFirst`: 18/18 (`LoanStatusCheckerTest`, new `WebhookHandlerTest`).
+- **The 2026-11-24 `r10_*` cases (6/6) and the focused regression ran on the current production code** (last change to
+  `Model/`/`Console/` 22:44:33; run 22:47–22:55); not repeated.
+- **Review nit (not changed):** a webhook that reaches an attempt still `starting` leaves `last_error
+  webhook_loan_unattributed:<id>` on it; createLoan's answer then opens it with its own loan id and the marker stays.
+  No effect on payment or on `--attention` (which requires `loan_id IS NULL`); only misleading in the row.
+- **Local test data left by the failed run:** attempt 507 (cart `000000642`) completed locally with loan id `26701`, the
+  id of another store's OUTSTANDING loan in STG, and its local order is invoiced. Stub only: STG was never called.
+  It must never be reconciled, refunded or cancelled while the store points at STG.
+- **Crossed manual purchase (residual item and error screen), 2026-11-24 22:48–22:53 CST.** While the kit ran (stub
+  enabled), a headed Chrome added the store's manual test product (quote 653), placed it and opened the Aplazo window:
+  `start` was answered by the **stub** (attempt 509, loan `stub-000000644`), so the window loaded
+  `https://checkout.aplazo.net/mock?quoteid=stub-000000644`, a URL that does not exist in STG: the error screen. The
+  page then polled `complete` (stub status `REQUEST`, no order) and the quote stayed active: the residual item in that
+  browser's cart. No loan was created in STG. Not a product defect: a manual purchase must never overlap a kit run.
+  Evidence (nginx lines of that browser, DB rows, stub log) is kept locally under `dev/popup-harness/.out/` (not in
+  the repository).
+
